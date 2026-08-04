@@ -22,7 +22,7 @@ export { splitFlightNumber } from "./src/flights/flightNumber.ts";
 export { parseLegTable } from "./src/bookings/legTable.ts";
 export { renderTripDocument, escapeHtml } from "./src/export/tripDocument.ts";
 export { decodeQuotedPrintable, extractIcsFromEmail } from "./src/flights/parseConfirmation.ts";
-export { fold, rankMatches, flattenByRank, replaceLastToken } from "./src/util/search.ts";
+export { fold, rankMatches, flattenByRank, flattenGroups, replaceLastToken } from "./src/util/search.ts";
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
 export { allCategories, COST_CATEGORIES } from "./src/bookings/types.ts";
 export { CREATABLE_SUB_NOTES, SUB_NOTE_LABELS, KINDS } from "./src/types.ts";
@@ -1312,6 +1312,35 @@ test("frontmatter whose closing delimiter ends the file is still stripped", () =
   assert.equal(m.stripFrontmatter("---\ntype: trip\n---"), "");
   assert.equal(m.stripFrontmatter("---\ntype: trip\n---\n"), "");
   assert.equal(m.stripFrontmatter("---\ntype: trip\n---\n\nBody"), "\nBody");
+});
+
+test("an ambiguous city keeps the country it came from", () => {
+  // Flattening to bare strings lost the country, and guessing it back returned
+  // the first match by name: every Victoria was saved as Argentina.
+  const hits = m.flattenGroups(m.CITIES).filter((h) => h.value === "Victoria");
+  assert.ok(hits.length > 1, `expected several Victorias, got ${hits.length}`);
+  const countries = new Set(hits.map((h) => h.group));
+  assert.ok(countries.size > 1, [...countries].join(", "));
+  assert.ok(countries.has("Canada"), [...countries].join(", "));
+  // Rank order is preserved, so the prominent ones still come first.
+  const flat = m.flattenByRank(m.CITIES);
+  assert.deepEqual(m.flattenGroups(m.CITIES).map((h) => h.value), flat);
+});
+
+test("a passport resolves to a code the visa data has", () => {
+  // The dataset keeps historical codes beside current ones under the same
+  // name. Taking the last one resolved France to FX, which has no entry, so a
+  // French passport got "Not known" for everywhere on earth.
+  for (const country of [
+    "France", "United Kingdom", "Russia", "Serbia", "Benin",
+    "Burkina Faso", "Democratic Republic of the Congo", "East Timor",
+  ]) {
+    const check = m.checkVisa(country, "Japan");
+    assert.notEqual(check.outcome, "unknown", `${country} → ${m.iso2ForCountry(country)}`);
+  }
+  assert.equal(m.iso2ForCountry("France"), "FR");
+  assert.equal(m.iso2ForCountry("United Kingdom"), "GB");
+  assert.equal(m.iso2ForCountry("Russia"), "RU");
 });
 
 test("a confirmation total is read in either notation", () => {

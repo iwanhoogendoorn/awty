@@ -23,9 +23,21 @@ export interface VisaCheck {
   actionNeeded: boolean;
 }
 
+/**
+ * Name to country code, preferring a code the visa data actually has.
+ *
+ * The dataset carries historical codes alongside current ones — FX beside FR,
+ * UK beside GB, SU beside RU, YU beside RS — and both carry the same country
+ * name. Taking whichever came last resolved France to FX, which has no entry,
+ * so a French passport got "Not known" for every destination on earth. Nine
+ * countries were affected, including the United Kingdom and Russia.
+ */
 const ISO2_BY_NAME = new Map<string, string>();
 for (const [iso2, name] of Object.entries(COUNTRY_NAME_BY_ISO2)) {
-  ISO2_BY_NAME.set(fold(name), iso2);
+  const key = fold(name);
+  const existing = ISO2_BY_NAME.get(key);
+  if (existing && existing in VISA && !(iso2 in VISA)) continue;
+  ISO2_BY_NAME.set(key, iso2);
 }
 
 export function iso2ForCountry(name: string): string | null {

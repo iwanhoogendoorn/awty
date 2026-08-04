@@ -59,6 +59,25 @@ export function rankMatches(items: readonly string[], query: string, limit = 50)
  * within its own country, so prominent places come first regardless of which
  * country they belong to.
  */
+/**
+ * The same, keeping the group each value came from.
+ *
+ * Flattening to bare strings lost which country a city belonged to, and the
+ * lookup that guessed it back returned the first match by name. The generated
+ * data has fourteen places called Victoria; the first is in Argentina, so
+ * picking Victoria in Canada saved the trip to Argentina.
+ */
+export function flattenGroups(
+  groups: Record<string, readonly string[]>,
+): { value: string; group: string }[] {
+  const ranked: { value: string; group: string; rank: number }[] = [];
+  for (const [group, list] of Object.entries(groups)) {
+    for (const [index, value] of list.entries()) ranked.push({ value, group, rank: index });
+  }
+  ranked.sort((a, b) => a.rank - b.rank);
+  return ranked.map(({ value, group }) => ({ value, group }));
+}
+
 export function flattenByRank(groups: Record<string, readonly string[]>): string[] {
   const ranked: { value: string; rank: number }[] = [];
   for (const list of Object.values(groups)) {

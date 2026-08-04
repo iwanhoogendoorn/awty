@@ -3,7 +3,7 @@ import { COUNTRIES } from "../../data/countries";
 import { AIRLINES, airlineLabel } from "../../data/airlines";
 import { AIRPORTS, type AirportRecord } from "../../data/airports";
 import { CITIES } from "../../data/cities";
-import { flattenByRank, fold, rankMatches as rank } from "../../util/search";
+import { flattenGroups, fold, rankMatches as rank } from "../../util/search";
 
 export class CountrySuggest extends AbstractInputSuggest<string> {
   constructor(
@@ -41,49 +41,70 @@ export class CountrySuggest extends AbstractInputSuggest<string> {
  * whole of Afghanistan ahead of Amsterdam, which is how searching "a" with no
  * country selected returned Aïbak. Built once, on first use.
  */
-let GLOBAL_CITIES: string[] | null = null;
-
-function globalCities(): string[] {
-  if (!GLOBAL_CITIES) GLOBAL_CITIES = flattenByRank(CITIES);
-  return GLOBAL_CITIES;
+/** A city and the country it is actually in, kept together. */
+export interface CityHit {
+  city: string;
+  country: string;
 }
 
-export class CitySuggest extends AbstractInputSuggest<string> {
+let GLOBAL_CITIES: { value: string; group: string }[] | null = null;
+
+function globalCities(): { value: string; group: string }[] {
+  return (GLOBAL_CITIES ??= flattenGroups(CITIES));
+}
+
+export class CitySuggest extends AbstractInputSuggest<CityHit> {
   constructor(
     app: App,
     input: HTMLInputElement,
     private getCountry: () => string,
-    private onPick: (value: string) => void,
+    private onPick: (value: string, country: string) => void,
     /** Searched first when no country is set — usually where you live. */
     private preferredCountry?: () => string,
   ) {
     super(app, input);
   }
 
-  protected getSuggestions(query: string): string[] {
+  protected getSuggestions(query: string): CityHit[] {
     const country = this.getCountry();
-    if (country) return rank(CITIES[country] ?? [], query, 50);
+    if (country) {
+      return rank(CITIES[country] ?? [], query, 50).map((city) => ({ city, country }));
+    }
 
     // No country chosen: offer the country you usually travel from first, then
-    // the rest of the world by prominence.
+    // the rest of the world by prominence. Each hit carries its own country,
+    // so picking one of fourteen places called Victoria picks the right one.
     const preferred = this.preferredCountry?.() ?? "";
-    const local = preferred ? rank(CITIES[preferred] ?? [], query, 12) : [];
-    const seen = new Set(local);
-    const global = rank(globalCities(), query, 40).filter((c) => !seen.has(c));
+    const local = preferred
+      ? rank(CITIES[preferred] ?? [], query, 12).map((city) => ({ city, country: preferred }))
+      : [];
+    const seen = new Set(local.map((h) => h.city));
+
+    const names = globalCities();
+    const byName = new Map<string, string[]>();
+    for (const { value, group } of names) {
+      const list = byName.get(value);
+      if (list) list.push(group);
+      else byName.set(value, [group]);
+    }
+    const global: CityHit[] = [];
+    for (const city of rank([...byName.keys()], query, 40)) {
+      if (seen.has(city)) continue;
+      for (const country of byName.get(city) ?? []) global.push({ city, country });
+    }
     return [...local, ...global].slice(0, 40);
   }
 
-  renderSuggestion(value: string, el: HTMLElement): void {
-    el.setText(value);
+  renderSuggestion(hit: CityHit, el: HTMLElement): void {
+    el.setText(hit.city);
     if (!this.getCountry()) {
-      const owner = countryForCity(value);
-      if (owner) el.createSpan({ cls: "awty-suggest-hint", text: owner });
+      el.createSpan({ cls: "awty-suggest-hint", text: hit.country });
     }
   }
 
-  selectSuggestion(value: string): void {
-    this.setValue(value);
-    this.onPick(value);
+  selectSuggestion(hit: CityHit): void {
+    this.setValue(hit.city);
+    this.onPick(hit.city, hit.country);
     this.close();
   }
 }

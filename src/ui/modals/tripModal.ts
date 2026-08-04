@@ -3,7 +3,7 @@ import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { SubNoteId, AwtySettings, Trip, TripDraft, TripKind } from "../../types";
 import { CREATABLE_SUB_NOTES, KINDS, SUB_NOTE_LABELS, kindDef } from "../../types";
 import { DateRangeField } from "../components/dateRange";
-import { AirportSuggest, CitySuggest, CountrySuggest, countryForCity } from "../components/suggest";
+import { AirportSuggest, CitySuggest, CountrySuggest } from "../components/suggest";
 import { isValidISODate, monthName, todayISO, yearOf } from "../../util/dates";
 import { parseAmount } from "../../util/money";
 import { replaceLastToken } from "../../util/search";
@@ -219,12 +219,12 @@ export class TripModal extends Modal {
       .addText((t) => {
         t.setPlaceholder("Start typing…");
         t.setValue(this.draft.city);
-        t.onChange((v) => this.setCity(v.trim(), false));
+        t.onChange((v) => this.setCity(v.trim()));
         new CitySuggest(
           this.app,
           t.inputEl,
           () => this.draft.country,
-          (value) => this.setCity(value, true),
+          (value, country) => this.setCity(value, country),
         );
       });
 
@@ -336,16 +336,19 @@ export class TripModal extends Modal {
     this.venueSetting.settingEl.toggleClass("is-hidden", !kindDef(this.draft.kind).hasVenue);
   }
 
-  private setCity(city: string, fromSuggestion: boolean): void {
+  /**
+   * @param pickedCountry The country of the suggestion chosen, when one was.
+   *   Looking it up by name instead returned the first country with a city of
+   *   that name — fourteen places are called Victoria, and the first is in
+   *   Argentina.
+   */
+  private setCity(city: string, pickedCountry?: string): void {
     this.draft.city = city;
 
     // Picking a city fills in the country you haven't chosen yet.
-    if (fromSuggestion && !this.draft.country) {
-      const owner = countryForCity(city);
-      if (owner) {
-        this.draft.country = owner;
-        this.countryInput.value = owner;
-      }
+    if (pickedCountry && !this.draft.country) {
+      this.draft.country = pickedCountry;
+      this.countryInput.value = pickedCountry;
     }
     this.applyAutoTitle();
   }
