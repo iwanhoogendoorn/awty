@@ -24,7 +24,7 @@ export { renderTripDocument, escapeHtml } from "./src/export/tripDocument.ts";
 export { decodeQuotedPrintable, extractIcsFromEmail } from "./src/flights/parseConfirmation.ts";
 export { fold, rankMatches, flattenByRank, flattenGroups, replaceLastToken } from "./src/util/search.ts";
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
-export { allCategories, COST_CATEGORIES } from "./src/bookings/types.ts";
+export { allCategories, COST_CATEGORIES, BOOKING_KINDS } from "./src/bookings/types.ts";
 export { CREATABLE_SUB_NOTES, SUB_NOTE_LABELS, KINDS } from "./src/types.ts";
 export { parseAdviceColour, adviceUrlFor, isStale, ADVICE_TTL_MS } from "./src/travel/adviceData.ts";
 export { AIRPORTS } from "./src/data/airports.ts";
@@ -1562,6 +1562,31 @@ test("setting a budget makes the Budget note say so", () => {
 
   // Nothing set and nothing costed stays honestly empty.
   assert.equal(m.analyseNote("budget", `# Budget\n\n## Planned\n\n${m.budgetPlanTable(new Map(), [], "EUR")}\n`).state, "empty");
+});
+
+test("a restaurant is a booking like any other", () => {
+  // It was a row appended to a table, which is why it had no address, no
+  // price, no way to edit it and no place in the timeline or the distances.
+  const def = m.BOOKING_KINDS.find((k) => k.id === "restaurant");
+  assert.ok(def, "restaurant is a booking kind");
+  assert.equal(def.category, "Food & drink", "so its price lands in the food budget");
+
+  // And it takes its place on a day, between the other things you do.
+  const bk = (o) => ({
+    kind: "activity", status: "booked", title: "", date: "2026-08-19", time: "",
+    endDate: "", endTime: "", returnDate: "", returnTime: "", from: "", to: "",
+    slot: "", cost: null, file: { path: `${o.title}.md` }, ...o,
+  });
+  const order = m
+    .dayEvents(
+      [
+        bk({ kind: "restaurant", title: "Nautika", time: "20:00" }),
+        bk({ title: "Old town walls", time: "10:00" }),
+      ],
+      "2026-08-19",
+    )
+    .map((e) => e.title);
+  assert.deepEqual(order, ["Old town walls", "Nautika"]);
 });
 
 test("a budget is done once travel, a bed and food are all costed", () => {

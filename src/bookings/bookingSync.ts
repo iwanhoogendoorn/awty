@@ -19,6 +19,7 @@ import { legsToFrontmatter } from "./legs";
 const SYNCED: { id: SubNoteId; kinds: BookingKind[]; heading: string }[] = [
   { id: "accommodation", kinds: ["stay"], heading: "Bookings" },
   { id: "transport", kinds: ["flight", "transport"], heading: "Bookings" },
+  { id: "food", kinds: ["restaurant"], heading: "Booked" },
 ];
 
 function row(booking: Booking): string {

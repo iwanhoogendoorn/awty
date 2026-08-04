@@ -186,7 +186,9 @@ export class TravelService {
               ? "airport"
               : booking.kind === "transport"
                 ? "station"
-                : "activity",
+                : booking.kind === "restaurant"
+                  ? "restaurant"
+                  : "activity",
         coord,
         file: booking.file,
         // A flight's place is the airport it lands at, so the transfer to the
@@ -199,10 +201,17 @@ export class TravelService {
 
       if (place.kind === "hotel") places.hotels.push(place);
       else if (place.kind === "airport") places.airports.push(place);
+      else if (place.kind === "restaurant") places.restaurants.push(place);
       else places.activities.push(place);
     }
 
-    places.restaurants = this.restaurantsFor(trip);
+    // Food Spot's places for the city, minus any already booked here — a table
+    // you have reserved should appear once, with its own address and cost.
+    const booked = new Set(places.restaurants.map((r) => r.label.trim().toLowerCase()));
+    for (const spot of this.restaurantsFor(trip)) {
+      if (!booked.has(spot.label.trim().toLowerCase())) places.restaurants.push(spot);
+    }
+    places.restaurants.sort((a, b) => a.label.localeCompare(b.label));
     return places;
   }
 

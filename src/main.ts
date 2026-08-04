@@ -32,7 +32,6 @@ import { ExpenseModal } from "./ui/modals/expenseModal";
 import { BudgetModal } from "./ui/modals/budgetModal";
 import { PackingModal } from "./ui/modals/packingModal";
 import { EventDetailsModal } from "./ui/modals/eventDetailsModal";
-import { FoodModal } from "./ui/modals/foodModal";
 import { TripPlanWizard } from "./ui/modals/tripPlanWizard";
 import { backfillFlightLegs, syncBookingNotes } from "./bookings/bookingSync";
 import {
@@ -755,10 +754,9 @@ export default class AwtyPlugin extends Plugin {
         }).open();
         return;
       case "food":
-        new FoodModal(this.app, this.settings, trip, () => {
-          this.store.invalidate();
-          this.refreshViews();
-        }).open();
+        // A table is a booking: same form, so it is editable, costed, placed
+        // on a day and measured from the hotel like everything else.
+        void this.openBookingWizard(trip, "restaurant");
         return;
     }
   }

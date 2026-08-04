@@ -54,6 +54,13 @@ const FIELDS: Record<BookingKind, FieldSpec[]> = {
     { key: "seat", label: "Seat / section", placeholder: "Block C, row 4" },
     { key: "reference", label: "Booking reference", placeholder: "ABC123" },
   ],
+  restaurant: [
+    { key: "title", label: "Restaurant", placeholder: "Nautika" },
+    { key: "address", label: "Address", placeholder: "Brsalje ul. 3, Dubrovnik" },
+    { key: "operator", label: "Booked by", placeholder: "Optional" },
+    { key: "reference", label: "Reservation reference", placeholder: "Optional" },
+    { key: "seat", label: "Table", placeholder: "By the window" },
+  ],
   transport: [
     { key: "operator", label: "Carrier", placeholder: "FlixBus" },
     { key: "title", label: "Service", placeholder: "Bus 402" },

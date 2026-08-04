@@ -35,6 +35,7 @@ function primaryLabel(id: SubNoteId | null, empty: boolean): string {
   if (id === "itinerary") return "Plan a day";
   if (id === "budget") return "Set targets";
   if (id === "accommodation" || id === "transport") return "Add";
+  if (id === "food") return "Book a table";
   return empty ? "Fill in" : "Edit";
 }
 
@@ -58,6 +59,7 @@ function itemsFor(id: SubNoteId | null, ctx: DashboardContext): NoteItem[] {
       }));
 
   if (id === "accommodation") return bookingsOfKind(["stay"]);
+  if (id === "food") return bookingsOfKind(["restaurant"]);
   if (id === "transport") return bookingsOfKind(["flight", "transport"]);
 
   // Every line in the Budget note, whichever kind of note it came from. Most of

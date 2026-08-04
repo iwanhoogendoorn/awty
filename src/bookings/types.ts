@@ -6,7 +6,7 @@ import type { TFile } from "obsidian";
  * metadata cache hands back frontmatter synchronously, so totals and charts need
  * no table parsing and nothing can silently break when a separator row is edited.
  */
-export type BookingKind = "flight" | "stay" | "activity" | "transport";
+export type BookingKind = "flight" | "stay" | "activity" | "transport" | "restaurant";
 
 export type BookingStatus = "idea" | "reserved" | "booked" | "cancelled";
 
@@ -34,6 +34,13 @@ export const BOOKING_KINDS: {
     label: "Transport",
     icon: "train-front",
     category: "Transport",
+    folder: "Bookings",
+  },
+  {
+    id: "restaurant",
+    label: "Restaurant",
+    icon: "utensils",
+    category: "Food & drink",
     folder: "Bookings",
   },
 ];

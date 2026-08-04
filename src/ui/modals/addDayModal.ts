@@ -78,7 +78,7 @@ export class AddDayModal extends Modal {
     if (!this.trip) return [];
     return this.plugin.bookings
       .getBookings(this.trip)
-      .filter((b) => b.kind === "activity" && b.status !== "cancelled");
+      .filter((b) => (b.kind === "activity" || b.kind === "restaurant") && b.status !== "cancelled");
   }
 
   // ------------------------------------------------------------- lifecycle
@@ -170,7 +170,7 @@ export class AddDayModal extends Modal {
       // they were cancelled and is ours to remove.
       const generated = new Set(
         (this.trip ? this.plugin.bookings.getBookings(this.trip) : [])
-          .filter((b) => b.kind === "activity")
+          .filter((b) => b.kind === "activity" || b.kind === "restaurant")
           .map((b) => b.file.basename),
       );
       for (const date of this.days()) {
