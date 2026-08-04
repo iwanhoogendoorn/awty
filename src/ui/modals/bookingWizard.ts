@@ -659,6 +659,9 @@ export class BookingWizard extends Modal {
 
   private renderWhen(): void {
     const isStay = this.draft.kind === "stay";
+    // A table is booked for a time on a day. Asking for an end invited an end
+    // earlier than the start, and described it as departure and arrival.
+    const oneMoment = this.draft.kind === "restaurant";
     const wrap = this.bodyEl.createDiv({ cls: "awty-daterange" });
 
     const dateRow = (
@@ -688,16 +691,31 @@ export class BookingWizard extends Modal {
     };
 
     dateRow(
-      isStay ? "Check-in" : "Start",
+      oneMoment ? "When" : isStay ? "Check-in" : "Start",
       this.draft.date,
       (v) => {
         this.draft.date = v;
-        if (this.draft.endDate < v) this.draft.endDate = v;
+        // The end has to follow, and be seen to: nudging the draft without
+        // redrawing left an end date on screen that was before the start.
+        if (oneMoment || this.draft.endDate < v) {
+          this.draft.endDate = v;
+          this.renderBody();
+        }
       },
-      "Start time",
+      oneMoment ? "Time" : "Start time",
       this.draft.time,
       (v) => (this.draft.time = v),
     );
+
+    if (oneMoment) {
+      this.draft.endDate = this.draft.date;
+      this.draft.endTime = "";
+      wrap.createDiv({
+        cls: "awty-date-readout",
+        text: "A table is booked for one sitting, so there is no end to give.",
+      });
+      return;
+    }
 
     dateRow(
       isStay ? "Check-out" : "End",
@@ -712,7 +730,7 @@ export class BookingWizard extends Modal {
       cls: "awty-date-readout",
       text: isStay
         ? "Leave check-out the same as check-in for a single night."
-        : "Leave the end blank-equal for a one-off departure and arrival on the same day.",
+        : "Leave the end the same as the start for something that begins and ends on one day.",
     });
   }
 
