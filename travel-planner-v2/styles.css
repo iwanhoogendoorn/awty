@@ -1762,6 +1762,9 @@
 .tp-dash-content {
   padding: 1.2em 1.2em 4em;
   max-width: 1100px;
+  /* Without this the column is pinned to the left edge, so anything centred
+     inside it — the empty states in particular — reads as off-centre. */
+  margin-inline: auto;
 }
 
 .tp-dash-toolbar {
@@ -2485,8 +2488,15 @@
 /* ------------------------------------------------------------- empty */
 
 .tp-dash-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
-  padding: 3em 1em;
+  /* Fills the column and centres in it, rather than sitting at the top-left of
+     whatever space happens to be left over. */
+  min-height: 40vh;
+  padding: 2em 1em;
   color: var(--text-muted);
 }
 
