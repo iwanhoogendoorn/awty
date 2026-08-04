@@ -248,69 +248,188 @@ export async function buildTripDocument(
 }
 
 /**
- * Electron's print-to-PDF, reached through the renderer.
+ * Direct PDF export, desktop only.
  *
- * Not part of Obsidian's public API, so it is feature-detected and every step
- * is optional — a desktop that has moved on, or a phone, falls back to the
- * print dialogue rather than failing.
+ * `window.print()` only ever hands off to the OS print dialogue. Electron's
+ * <webview> exposes printToPDF(), which renders straight to bytes — so the
+ * document is loaded into an offscreen webview from a temp file and printed to
+ * a buffer. Printing the host page instead would capture Obsidian's own UI.
+ *
+ * This mirrors the approach already proven in the Food Spot plugin rather than
+ * inventing a second one.
  */
-async function printToPdf(html: string): Promise<ArrayBuffer | null> {
-  const frame = document.createElement("iframe");
-  frame.style.position = "fixed";
-  frame.style.right = "100%";
-  frame.style.width = "210mm";
-  frame.style.height = "297mm";
-  frame.style.opacity = "0";
-  document.body.appendChild(frame);
+interface SaveDialogResult {
+  canceled: boolean;
+  filePath?: string;
+}
 
+interface ElectronBits {
+  showSaveDialog(opts: object): Promise<SaveDialogResult>;
+  writeFile(path: string, data: Uint8Array): void;
+  tmpFile(name: string, content: string): string;
+  removeFile(path: string): void;
+  openPath?(path: string): void;
+}
+
+/** Electron and node handles, or null when this is not the desktop app. */
+function electron(): ElectronBits | null {
+  const req = (globalThis as unknown as { require?: (m: string) => unknown }).require;
+  if (typeof req !== "function") return null;
   try {
-    const doc = frame.contentDocument;
-    if (!doc) return null;
-    doc.open();
-    doc.write(html);
-    doc.close();
+    const el = req("electron") as {
+      remote?: {
+        dialog?: { showSaveDialog(o: object): Promise<SaveDialogResult> };
+        shell?: { openPath(p: string): void };
+      };
+    };
+    const fs = req("fs") as {
+      writeFileSync(p: string, d: Uint8Array | string): void;
+      unlinkSync(p: string): void;
+    };
+    const os = req("os") as { tmpdir(): string };
+    const path = req("path") as { join(...p: string[]): string };
 
-    // Give embedded images a moment to decode, or they print blank.
-    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    const dialog = el.remote?.dialog;
+    if (!dialog || !fs || !os) return null;
 
-    const electron = (window as unknown as { require?: (id: string) => unknown }).require?.(
-      "electron",
-    ) as
-      | {
-          remote?: { getCurrentWebContents?: () => unknown };
-          webFrame?: unknown;
-        }
-      | undefined;
-
-    const webContents = electron?.remote?.getCurrentWebContents?.() as
-      | { printToPDF?: (opts: Record<string, unknown>) => Promise<Uint8Array> }
-      | undefined;
-
-    if (!webContents?.printToPDF) return null;
-
-    // Printing the host page would capture Obsidian's own UI, so this prints
-    // the frame by handing its markup to a hidden window instead.
-    const buffer = await webContents.printToPDF({
-      printBackground: true,
-      pageSize: "A4",
-      margins: { marginType: "none" },
-    });
-    return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
-  } catch (err) {
-    console.error("[travel-planner] printToPDF unavailable", err);
+    return {
+      showSaveDialog: (o) => dialog.showSaveDialog(o),
+      writeFile: (p, d) => fs.writeFileSync(p, d),
+      tmpFile: (name, content) => {
+        const target = path.join(os.tmpdir(), name);
+        fs.writeFileSync(target, content);
+        return target;
+      },
+      removeFile: (p) => fs.unlinkSync(p),
+      openPath: el.remote?.shell ? (p: string) => el.remote?.shell?.openPath(p) : undefined,
+    };
+  } catch {
     return null;
-  } finally {
-    frame.remove();
   }
+}
+
+export function canExportPdf(): boolean {
+  return electron() !== null;
+}
+
+/** Electron's <webview> tag, with the printToPDF extension this relies on. */
+interface PrintableWebview extends HTMLElement {
+  src: string;
+  printToPDF(options: object): Promise<Uint8Array>;
+}
+
+type PdfOutcome = "saved" | "cancelled" | "failed";
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * Renders `html` to a PDF wherever the save dialogue points.
+ *
+ * Never rejects: every failure shows its own notice and resolves "failed", so
+ * the caller can offer the print dialogue instead.
+ */
+async function exportHtmlToPdf(html: string, suggestedName: string): Promise<PdfOutcome> {
+  const bits = electron();
+  if (!bits) return "failed";
+
+  let chosen: SaveDialogResult;
+  try {
+    chosen = await bits.showSaveDialog({
+      defaultPath: suggestedName,
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+  } catch (e) {
+    new Notice(`Could not open the save dialogue — ${errorText(e)}`);
+    return "failed";
+  }
+  if (chosen.canceled || !chosen.filePath) return "cancelled";
+  const target = chosen.filePath;
+
+  // The document is self-contained, so a temp file loaded over file:// needs
+  // no vault and no network.
+  let tmpPath: string;
+  try {
+    tmpPath = bits.tmpFile(`travel-planner-${Date.now()}.html`, html);
+  } catch (e) {
+    new Notice(`Could not prepare the document for printing — ${errorText(e)}`);
+    return "failed";
+  }
+
+  const view = document.createElement("webview") as PrintableWebview;
+  view.setAttribute("nodeintegration", "false");
+  // 794x1123 is A4 at 96dpi, so the CSS layout matches the printed page.
+  view.style.cssText =
+    "position:fixed;left:-10000px;top:0;width:794px;height:1123px;opacity:0;pointer-events:none;";
+  view.src = `file://${tmpPath}`;
+
+  return new Promise<PdfOutcome>((resolve) => {
+    let settled = false;
+    let timeoutId = 0;
+
+    const cleanup = (): void => {
+      window.clearTimeout(timeoutId);
+      view.remove();
+      try {
+        bits.removeFile(tmpPath);
+      } catch (e) {
+        // The temp file holds the whole trip, so say where it is rather than
+        // leaving it lying around quietly.
+        new Notice(`Could not remove ${tmpPath} — delete it yourself (${errorText(e)}).`, 10000);
+      }
+    };
+
+    const fail = (message: string): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      new Notice(message);
+      resolve("failed");
+    };
+
+    view.addEventListener(
+      "did-finish-load",
+      () => {
+        // A beat after load, so embedded images are painted before capture.
+        window.setTimeout(() => {
+          void (async () => {
+            try {
+              const data = await view.printToPDF({
+                pageSize: "A4",
+                printBackground: true,
+                // Margins live in the document's own @page padding.
+                margins: { marginType: "none" },
+              });
+              bits.writeFile(target, data);
+              settled = true;
+              cleanup();
+              new Notice(`PDF saved to ${target}`, 8000);
+              bits.openPath?.(target);
+              resolve("saved");
+            } catch (e) {
+              fail(`Could not write the PDF — ${errorText(e)}`);
+            }
+          })();
+        }, 350);
+      },
+      { once: true },
+    );
+    view.addEventListener(
+      "did-fail-load",
+      () => fail("The document could not be rendered for PDF export."),
+      { once: true },
+    );
+
+    timeoutId = window.setTimeout(() => fail("PDF export timed out."), 20_000);
+    document.body.appendChild(view);
+  });
 }
 
 /** Opens the system print dialogue on the rendered document. */
 function printViaDialog(html: string): void {
   const frame = document.createElement("iframe");
-  frame.style.position = "fixed";
-  frame.style.right = "100%";
-  frame.style.width = "210mm";
-  frame.style.height = "297mm";
+  frame.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;height:1123px;";
   document.body.appendChild(frame);
 
   const doc = frame.contentDocument;
@@ -342,45 +461,37 @@ async function ensureFolder(app: App, path: string): Promise<void> {
 /**
  * Exports a trip.
  *
- * Writes a real PDF where Electron allows it, and always writes the HTML
- * alongside — the HTML opens anywhere, needs no plugin, and is what makes this
- * useful when the phone with the tickets on it has a flat battery.
+ * The PDF goes wherever you point the save dialogue — anywhere on disk, not
+ * only inside the vault. A copy of the self-contained HTML is kept in the trip
+ * folder, since it opens anywhere and needs no plugin.
  */
 export async function exportTrip(plugin: TravelPlannerPlugin, trip: Trip): Promise<void> {
   const notice = new Notice("Building the document…", 0);
+  let html: string;
+
   try {
-    const doc = await buildTripDocument(plugin, trip);
-    const html = renderTripDocument(doc);
+    html = renderTripDocument(await buildTripDocument(plugin, trip));
 
     const folder = joinPath(trip.folderPath, "Export");
     await ensureFolder(plugin.app, folder);
-    const base = sanitizeName(trip.title);
-
-    const htmlPath = joinPath(folder, `${base}.html`);
-    const existingHtml = plugin.app.vault.getAbstractFileByPath(htmlPath);
-    if (existingHtml instanceof TFile) await plugin.app.vault.modify(existingHtml, html);
+    const htmlPath = joinPath(folder, `${sanitizeName(trip.title)}.html`);
+    const existing = plugin.app.vault.getAbstractFileByPath(htmlPath);
+    if (existing instanceof TFile) await plugin.app.vault.modify(existing, html);
     else await plugin.app.vault.create(htmlPath, html);
-
-    const pdf = await printToPdf(html);
-    notice.hide();
-
-    if (pdf) {
-      const pdfPath = joinPath(folder, `${base}.pdf`);
-      const existingPdf = plugin.app.vault.getAbstractFileByPath(pdfPath);
-      if (existingPdf instanceof TFile) await plugin.app.vault.modifyBinary(existingPdf, pdf);
-      else await plugin.app.vault.createBinary(pdfPath, pdf);
-      new Notice(`Exported to ${pdfPath}`, 8000);
-      return;
-    }
-
-    new Notice(
-      `Wrote ${htmlPath}. Opening the print dialogue — choose "Save as PDF" to finish.`,
-      9000,
-    );
-    printViaDialog(html);
   } catch (err) {
     notice.hide();
-    new Notice(err instanceof Error ? err.message : "Could not export the trip.", 8000);
+    new Notice(err instanceof Error ? err.message : "Could not build the document.", 8000);
     console.error("[travel-planner]", err);
+    return;
   }
+  notice.hide();
+
+  if (!canExportPdf()) {
+    new Notice("Direct PDF export needs the desktop app — opening the print dialogue instead.");
+    printViaDialog(html);
+    return;
+  }
+
+  const outcome = await exportHtmlToPdf(html, `${sanitizeName(trip.title)}.pdf`);
+  if (outcome === "failed") printViaDialog(html);
 }

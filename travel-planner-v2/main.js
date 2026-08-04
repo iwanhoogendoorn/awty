@@ -6688,45 +6688,120 @@ async function buildTripDocument(plugin, trip) {
     generatedOn: (/* @__PURE__ */ new Date()).toLocaleDateString()
   };
 }
-async function printToPdf(html) {
-  const frame = document.createElement("iframe");
-  frame.style.position = "fixed";
-  frame.style.right = "100%";
-  frame.style.width = "210mm";
-  frame.style.height = "297mm";
-  frame.style.opacity = "0";
-  document.body.appendChild(frame);
+function electron() {
+  const req = globalThis.require;
+  if (typeof req !== "function") return null;
   try {
-    const doc = frame.contentDocument;
-    if (!doc) return null;
-    doc.open();
-    doc.write(html);
-    doc.close();
-    await new Promise((resolve) => window.setTimeout(resolve, 350));
-    const electron = window.require?.(
-      "electron"
-    );
-    const webContents = electron?.remote?.getCurrentWebContents?.();
-    if (!webContents?.printToPDF) return null;
-    const buffer = await webContents.printToPDF({
-      printBackground: true,
-      pageSize: "A4",
-      margins: { marginType: "none" }
-    });
-    return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-  } catch (err) {
-    console.error("[travel-planner] printToPDF unavailable", err);
+    const el = req("electron");
+    const fs = req("fs");
+    const os = req("os");
+    const path = req("path");
+    const dialog = el.remote?.dialog;
+    if (!dialog || !fs || !os) return null;
+    return {
+      showSaveDialog: (o) => dialog.showSaveDialog(o),
+      writeFile: (p, d) => fs.writeFileSync(p, d),
+      tmpFile: (name, content) => {
+        const target = path.join(os.tmpdir(), name);
+        fs.writeFileSync(target, content);
+        return target;
+      },
+      removeFile: (p) => fs.unlinkSync(p),
+      openPath: el.remote?.shell ? (p) => el.remote?.shell?.openPath(p) : void 0
+    };
+  } catch {
     return null;
-  } finally {
-    frame.remove();
   }
+}
+function canExportPdf() {
+  return electron() !== null;
+}
+function errorText(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+async function exportHtmlToPdf(html, suggestedName) {
+  const bits = electron();
+  if (!bits) return "failed";
+  let chosen;
+  try {
+    chosen = await bits.showSaveDialog({
+      defaultPath: suggestedName,
+      filters: [{ name: "PDF", extensions: ["pdf"] }]
+    });
+  } catch (e) {
+    new import_obsidian30.Notice(`Could not open the save dialogue \u2014 ${errorText(e)}`);
+    return "failed";
+  }
+  if (chosen.canceled || !chosen.filePath) return "cancelled";
+  const target = chosen.filePath;
+  let tmpPath;
+  try {
+    tmpPath = bits.tmpFile(`travel-planner-${Date.now()}.html`, html);
+  } catch (e) {
+    new import_obsidian30.Notice(`Could not prepare the document for printing \u2014 ${errorText(e)}`);
+    return "failed";
+  }
+  const view = document.createElement("webview");
+  view.setAttribute("nodeintegration", "false");
+  view.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;height:1123px;opacity:0;pointer-events:none;";
+  view.src = `file://${tmpPath}`;
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeoutId = 0;
+    const cleanup = () => {
+      window.clearTimeout(timeoutId);
+      view.remove();
+      try {
+        bits.removeFile(tmpPath);
+      } catch (e) {
+        new import_obsidian30.Notice(`Could not remove ${tmpPath} \u2014 delete it yourself (${errorText(e)}).`, 1e4);
+      }
+    };
+    const fail = (message) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      new import_obsidian30.Notice(message);
+      resolve("failed");
+    };
+    view.addEventListener(
+      "did-finish-load",
+      () => {
+        window.setTimeout(() => {
+          void (async () => {
+            try {
+              const data = await view.printToPDF({
+                pageSize: "A4",
+                printBackground: true,
+                // Margins live in the document's own @page padding.
+                margins: { marginType: "none" }
+              });
+              bits.writeFile(target, data);
+              settled = true;
+              cleanup();
+              new import_obsidian30.Notice(`PDF saved to ${target}`, 8e3);
+              bits.openPath?.(target);
+              resolve("saved");
+            } catch (e) {
+              fail(`Could not write the PDF \u2014 ${errorText(e)}`);
+            }
+          })();
+        }, 350);
+      },
+      { once: true }
+    );
+    view.addEventListener(
+      "did-fail-load",
+      () => fail("The document could not be rendered for PDF export."),
+      { once: true }
+    );
+    timeoutId = window.setTimeout(() => fail("PDF export timed out."), 2e4);
+    document.body.appendChild(view);
+  });
 }
 function printViaDialog(html) {
   const frame = document.createElement("iframe");
-  frame.style.position = "fixed";
-  frame.style.right = "100%";
-  frame.style.width = "210mm";
-  frame.style.height = "297mm";
+  frame.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;height:1123px;";
   document.body.appendChild(frame);
   const doc = frame.contentDocument;
   if (!doc) {
@@ -6751,36 +6826,29 @@ async function ensureFolder2(app, path) {
 }
 async function exportTrip(plugin, trip) {
   const notice = new import_obsidian30.Notice("Building the document\u2026", 0);
+  let html;
   try {
-    const doc = await buildTripDocument(plugin, trip);
-    const html = renderTripDocument(doc);
+    html = renderTripDocument(await buildTripDocument(plugin, trip));
     const folder = joinPath(trip.folderPath, "Export");
     await ensureFolder2(plugin.app, folder);
-    const base = sanitizeName(trip.title);
-    const htmlPath = joinPath(folder, `${base}.html`);
-    const existingHtml = plugin.app.vault.getAbstractFileByPath(htmlPath);
-    if (existingHtml instanceof import_obsidian30.TFile) await plugin.app.vault.modify(existingHtml, html);
+    const htmlPath = joinPath(folder, `${sanitizeName(trip.title)}.html`);
+    const existing = plugin.app.vault.getAbstractFileByPath(htmlPath);
+    if (existing instanceof import_obsidian30.TFile) await plugin.app.vault.modify(existing, html);
     else await plugin.app.vault.create(htmlPath, html);
-    const pdf = await printToPdf(html);
-    notice.hide();
-    if (pdf) {
-      const pdfPath = joinPath(folder, `${base}.pdf`);
-      const existingPdf = plugin.app.vault.getAbstractFileByPath(pdfPath);
-      if (existingPdf instanceof import_obsidian30.TFile) await plugin.app.vault.modifyBinary(existingPdf, pdf);
-      else await plugin.app.vault.createBinary(pdfPath, pdf);
-      new import_obsidian30.Notice(`Exported to ${pdfPath}`, 8e3);
-      return;
-    }
-    new import_obsidian30.Notice(
-      `Wrote ${htmlPath}. Opening the print dialogue \u2014 choose "Save as PDF" to finish.`,
-      9e3
-    );
-    printViaDialog(html);
   } catch (err) {
     notice.hide();
-    new import_obsidian30.Notice(err instanceof Error ? err.message : "Could not export the trip.", 8e3);
+    new import_obsidian30.Notice(err instanceof Error ? err.message : "Could not build the document.", 8e3);
     console.error("[travel-planner]", err);
+    return;
   }
+  notice.hide();
+  if (!canExportPdf()) {
+    new import_obsidian30.Notice("Direct PDF export needs the desktop app \u2014 opening the print dialogue instead.");
+    printViaDialog(html);
+    return;
+  }
+  const outcome = await exportHtmlToPdf(html, `${sanitizeName(trip.title)}.pdf`);
+  if (outcome === "failed") printViaDialog(html);
 }
 
 // src/store/noteWriter.ts
