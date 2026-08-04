@@ -161,6 +161,12 @@ export interface TravelPlannerSettings {
   confirmDelete: boolean;
   /** Show past trips in the sidebar. */
   showPastTrips: boolean;
+  /** Currency used when a booking or trip doesn't name its own. */
+  defaultCurrency: string;
+  /** Subfolder inside a trip where booking and expense notes live. */
+  bookingsFolder: string;
+  /** Subfolder inside a trip where attachments are copied. */
+  attachmentsFolder: string;
 }
 
 export const DEFAULT_SETTINGS: TravelPlannerSettings = {
@@ -179,7 +185,11 @@ export const DEFAULT_SETTINGS: TravelPlannerSettings = {
   foodSpotView: "cards",
   confirmDelete: true,
   showPastTrips: true,
+  defaultCurrency: "EUR",
+  bookingsFolder: "Bookings",
+  attachmentsFolder: "Attachments",
 };
 
 export const TRAVEL_VIEW_TYPE = "travel-planner-sidebar";
+export const TRAVEL_DASHBOARD_TYPE = "travel-planner-dashboard";
 export const FOODSPOT_PLUGIN_ID = "foodspot";

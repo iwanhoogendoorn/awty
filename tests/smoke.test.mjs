@@ -16,6 +16,8 @@ export * from "./src/util/paths.ts";
 export { foodSpotBlock } from "./src/store/templates.ts";
 export { analyseNote } from "./src/store/noteProgress.ts";
 export { fold, rankMatches } from "./src/util/search.ts";
+export { buildPackingPlan, effectiveDays, renderPackingPlan } from "./src/store/packing.ts";
+export { parseAmount, formatMoney, sumMoney, formatTotals } from "./src/util/money.ts";
 export { COUNTRIES, FOODSPOT_COUNTRIES } from "./src/data/countries.ts";
 export { CITIES } from "./src/data/cities.ts";
 `;
@@ -299,6 +301,80 @@ test("blockquote callouts and italic placeholders are not content", () => {
     "# Budget\n\n> **When:** 17 Aug\n\n_Add trip overview here._\n",
   );
   assert.equal(p.state, "empty");
+});
+
+// -------------------------------------------------------------- packing
+
+function itemsOf(plan, section) {
+  return new Map(
+    plan.sections.find((s) => s.title === section).items.map((i) => [i.label, i.quantity]),
+  );
+}
+
+test("packing quantities scale with trip length", () => {
+  const short = itemsOf(m.buildPackingPlan(3, "holiday"), "Clothes");
+  assert.equal(short.get("Underwear"), 4);
+  assert.equal(short.get("Socks"), 4);
+  assert.equal(short.get("T-shirts / tops"), 3);
+
+  const week = itemsOf(m.buildPackingPlan(7, "holiday"), "Clothes");
+  assert.equal(week.get("Underwear"), 8);
+  assert.equal(week.get("T-shirts / tops"), 7);
+});
+
+test("long trips assume a laundry run instead of 22 pairs of socks", () => {
+  const plan = m.buildPackingPlan(21, "holiday");
+  assert.equal(plan.assumesLaundry, true);
+  const clothes = itemsOf(plan, "Clothes");
+  // 21 days would be absurd to carry; sized to the stretch between washes.
+  assert.ok(clothes.get("Underwear") < 15, `got ${clothes.get("Underwear")}`);
+  assert.ok(clothes.get("Underwear") > 10, `got ${clothes.get("Underwear")}`);
+  assert.equal(m.effectiveDays(21), 13);
+  // A fortnight or under is carried in full.
+  assert.equal(m.buildPackingPlan(12, "holiday").assumesLaundry, false);
+  assert.equal(m.effectiveDays(12), 12);
+});
+
+test("a day trip packs a bag, not a suitcase", () => {
+  const plan = m.buildPackingPlan(1, "day-trip");
+  assert.equal(plan.sections.length, 1);
+  assert.equal(plan.sections[0].title, "Essentials");
+  const concert = m.buildPackingPlan(1, "concert");
+  assert.ok(concert.sections[0].items.some((i) => i.label.includes("Tickets")));
+});
+
+test("packing renders as checkboxes with quantities", () => {
+  const md = m.renderPackingPlan(m.buildPackingPlan(7, "holiday"));
+  assert.match(md, /- \[ \] Underwear ×8/);
+  assert.match(md, /- \[ \] Passport \/ ID$/m, "unquantified items carry no ×");
+  assert.match(md, /Quantities calculated for 7 days/);
+});
+
+// ---------------------------------------------------------------- money
+
+test("amounts parse in both European and English notation", () => {
+  assert.equal(m.parseAmount("1234.56"), 1234.56);
+  assert.equal(m.parseAmount("1.234,56"), 1234.56);
+  assert.equal(m.parseAmount("1,234.56"), 1234.56);
+  assert.equal(m.parseAmount("€1.234,56"), 1234.56);
+  assert.equal(m.parseAmount("62,50"), 62.5);
+  assert.equal(m.parseAmount("450"), 450);
+  // Exactly three trailing digits after a single separator reads as thousands.
+  assert.equal(m.parseAmount("1.234"), 1234);
+  assert.equal(m.parseAmount(""), null);
+  assert.equal(m.parseAmount("abc"), null);
+});
+
+test("totals stay per currency rather than inventing a conversion", () => {
+  const totals = m.sumMoney([
+    { amount: 450, currency: "EUR" },
+    { amount: 120, currency: "EUR" },
+    { amount: 85, currency: "GBP" },
+  ]);
+  assert.equal(totals.get("EUR"), 570);
+  assert.equal(totals.get("GBP"), 85);
+  assert.equal(m.formatTotals(totals), "€570 + £85");
+  assert.equal(m.formatMoney({ amount: 62.5, currency: "EUR" }), "€62.50");
 });
 
 console.log(`\n${passed} tests passed`);

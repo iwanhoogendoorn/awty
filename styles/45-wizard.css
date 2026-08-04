@@ -1,0 +1,205 @@
+/* ------------------------------------------------------------ wizard */
+
+.tp-wizard-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  margin-bottom: 0.9em;
+}
+
+.tp-wizard-icon {
+  display: flex;
+  color: var(--text-accent);
+}
+
+.tp-wizard-icon .svg-icon {
+  width: 1.6em;
+  height: 1.6em;
+}
+
+.tp-wizard-head .tp-modal-title {
+  margin: 0;
+}
+
+.tp-wizard-sub {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.tp-wizard-steps {
+  display: flex;
+  gap: 0.3em;
+  margin-bottom: 1em;
+  flex-wrap: wrap;
+}
+
+.tp-wizard-step {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.25em 0.6em;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.tp-wizard-step:hover {
+  color: var(--text-normal);
+}
+
+.tp-wizard-step.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.tp-wizard-step.is-done .tp-wizard-step-num {
+  color: var(--color-green);
+}
+
+.tp-wizard-step-num {
+  font-weight: var(--font-semibold);
+}
+
+.tp-wizard-body {
+  min-height: 12em;
+}
+
+.tp-wizard-nav {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 0.8em;
+}
+
+.tp-wizard-summary {
+  margin-top: 1em;
+  padding: 0.8em 1em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.tp-wizard-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  padding: 0.15em 0;
+  font-size: var(--font-ui-small);
+}
+
+.tp-wizard-summary-label {
+  color: var(--text-muted);
+}
+
+.tp-wizard-summary-value {
+  text-align: right;
+}
+
+.tp-cost-preview {
+  margin-top: 0.6em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.tp-time-input {
+  width: 7em;
+  flex: none;
+  font-family: inherit;
+}
+
+.theme-dark .tp-time-input::-webkit-calendar-picker-indicator {
+  filter: invert(1) opacity(0.6);
+}
+
+/* -------------------------------------------------------- attachments */
+
+.tp-attach {
+  margin: 0.6em 0;
+}
+
+.tp-attach-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2em;
+  padding: 1.1em;
+  border: 1.5px dashed var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: center;
+}
+
+.tp-attach-drop:hover,
+.tp-attach-drop.is-over {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.tp-attach-icon .svg-icon {
+  width: 1.3em;
+  height: 1.3em;
+}
+
+.tp-attach-label {
+  font-weight: var(--font-medium);
+}
+
+.tp-attach-hint {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.tp-attach-input {
+  display: none;
+}
+
+.tp-attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 0.5em;
+}
+
+.tp-attach-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.3em 0.55em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  font-size: var(--font-ui-smaller);
+}
+
+.tp-attach-chip-icon {
+  display: flex;
+  color: var(--text-accent);
+}
+
+.tp-attach-chip-icon .svg-icon,
+.tp-attach-chip-remove .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+.tp-attach-chip-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tp-attach-chip-size {
+  color: var(--text-faint);
+}
+
+.tp-attach-chip-remove {
+  display: flex;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.tp-attach-chip-remove:hover {
+  color: var(--color-red);
+}

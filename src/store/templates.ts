@@ -1,7 +1,8 @@
 import { FOODSPOT_COUNTRIES } from "../data/countries";
 import type { SubNoteId, TravelPlannerSettings, TripDraft } from "../types";
 import { SUB_NOTE_LABELS, kindDef } from "../types";
-import { datesInRange, formatDateRange, formatDuration } from "../util/dates";
+import { datesInRange, daysBetween, formatDateRange, formatDuration } from "../util/dates";
+import { buildPackingPlan, renderPackingPlan } from "./packing";
 
 export interface TemplateContext {
   draft: TripDraft;
@@ -96,48 +97,11 @@ function itineraryBody(ctx: TemplateContext): string {
 }
 
 function packingBody(ctx: TemplateContext): string {
-  return lines(
-    `# Packing List — ${ctx.draft.title}`,
-    "",
-    "## Documents",
-    "- [ ] Passport / ID",
-    "- [ ] Visa / travel authorisation",
-    "- [ ] Travel insurance documents",
-    "- [ ] Flight / transport tickets",
-    "- [ ] Hotel confirmations",
-    "- [ ] Emergency contacts list",
-    "",
-    "## Clothes",
-    "- [ ] Underwear",
-    "- [ ] Socks",
-    "- [ ] T-shirts / tops",
-    "- [ ] Trousers / shorts",
-    "- [ ] Sleepwear",
-    "- [ ] Jacket / coat",
-    "- [ ] Walking shoes",
-    "",
-    "## Tech",
-    "- [ ] Phone + charger",
-    "- [ ] Laptop / tablet + charger",
-    "- [ ] Power bank",
-    "- [ ] Travel adapter",
-    "- [ ] Headphones",
-    "",
-    "## Toiletries",
-    "- [ ] Toothbrush + toothpaste",
-    "- [ ] Shampoo / body wash",
-    "- [ ] Deodorant",
-    "- [ ] Sunscreen",
-    "- [ ] Medication",
-    "",
-    "## Misc",
-    "- [ ] Travel pillow",
-    "- [ ] Eye mask + earplugs",
-    "- [ ] Water bottle",
-    "- [ ] Luggage locks",
-    "- [ ] Local currency / travel card",
-    "",
-  );
+  const { draft } = ctx;
+  const def = kindDef(draft.kind);
+  const days = def.singleDay ? 1 : daysBetween(draft.startDate, draft.endDate);
+  const plan = buildPackingPlan(days, draft.kind);
+  return lines(`# Packing List — ${draft.title}`, "", renderPackingPlan(plan));
 }
 
 function accommodationBody(ctx: TemplateContext): string {

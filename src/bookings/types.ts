@@ -1,0 +1,102 @@
+import type { TFile } from "obsidian";
+
+/**
+ * Bookings and expenses are stored one-per-note with typed frontmatter, the way
+ * Food Spot stores restaurants. That is what makes the dashboard possible: the
+ * metadata cache hands back frontmatter synchronously, so totals and charts need
+ * no table parsing and nothing can silently break when a separator row is edited.
+ */
+export type BookingKind = "flight" | "stay" | "activity" | "transport";
+
+export type BookingStatus = "idea" | "reserved" | "booked" | "cancelled";
+
+export const BOOKING_KINDS: {
+  id: BookingKind;
+  label: string;
+  icon: string;
+  /** Cost category these roll into, unless overridden on the note. */
+  category: string;
+  folder: string;
+}[] = [
+  { id: "flight", label: "Flight", icon: "plane", category: "Transport", folder: "Bookings" },
+  { id: "stay", label: "Accommodation", icon: "bed", category: "Accommodation", folder: "Bookings" },
+  { id: "activity", label: "Activity", icon: "ticket", category: "Activities", folder: "Bookings" },
+  {
+    id: "transport",
+    label: "Transport",
+    icon: "train-front",
+    category: "Transport",
+    folder: "Bookings",
+  },
+];
+
+export const BOOKING_STATUSES: { id: BookingStatus; label: string; color: string }[] = [
+  { id: "idea", label: "Idea", color: "var(--text-faint)" },
+  { id: "reserved", label: "Reserved", color: "var(--color-orange)" },
+  { id: "booked", label: "Booked", color: "var(--color-green)" },
+  { id: "cancelled", label: "Cancelled", color: "var(--color-red)" },
+];
+
+/** Cost categories the Budget note and the Costs tab share. */
+export const COST_CATEGORIES = [
+  "Transport",
+  "Accommodation",
+  "Food & drink",
+  "Activities",
+  "Shopping",
+  "Misc",
+] as const;
+
+export type CostCategory = (typeof COST_CATEGORIES)[number] | string;
+
+export interface Money {
+  amount: number;
+  currency: string;
+}
+
+export interface Booking {
+  file: TFile;
+  tripFolder: string;
+  kind: BookingKind;
+  status: BookingStatus;
+  title: string;
+  /** ISO date the booking starts (departure, check-in, event date). */
+  date: string;
+  /** ISO date it ends; equal to `date` for a point-in-time booking. */
+  endDate: string;
+  time: string;
+  endTime: string;
+  cost: Money | null;
+  category: CostCategory;
+  reference: string;
+  /** Free-form location: airport pair, hotel address, venue. */
+  from: string;
+  to: string;
+  operator: string;
+  seat: string;
+  notes: string;
+  attachments: string[];
+}
+
+export interface Expense {
+  file: TFile;
+  tripFolder: string;
+  date: string;
+  description: string;
+  amount: Money;
+  category: CostCategory;
+  paidBy: string;
+  attachments: string[];
+}
+
+/** A cost line in the Costs tab, whether it came from a booking or an expense. */
+export interface CostLine {
+  source: "booking" | "expense";
+  file: TFile;
+  date: string;
+  description: string;
+  category: CostCategory;
+  money: Money;
+  /** Cancelled bookings are listed but excluded from totals. */
+  counted: boolean;
+}

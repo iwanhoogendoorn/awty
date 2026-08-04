@@ -1,0 +1,116 @@
+import { Menu, setIcon } from "obsidian";
+import type { DashboardContext } from "../common";
+import { emptyState, sectionTitle } from "../common";
+import type { Booking, BookingKind } from "../../../bookings/types";
+import { BOOKING_KINDS, BOOKING_STATUSES } from "../../../bookings/types";
+import { formatMoney } from "../../../util/money";
+import { formatDateRange } from "../../../util/dates";
+
+export function renderBookings(parent: HTMLElement, ctx: DashboardContext): void {
+  const { trip, plugin } = ctx;
+  if (!trip) {
+    emptyState(parent, "ticket", "No trip selected", "Pick a trip from the dropdown above.");
+    return;
+  }
+
+  const bookings = plugin.bookings.getBookings(trip);
+
+  const toolbar = parent.createDiv({ cls: "tp-dash-toolbar" });
+  for (const def of BOOKING_KINDS) {
+    const btn = toolbar.createEl("button", { cls: "tp-dash-add" });
+    setIcon(btn.createSpan(), def.icon);
+    btn.createSpan({ text: `Add ${def.label.toLowerCase()}` });
+    btn.addEventListener("click", () => plugin.openBookingWizard(trip, def.id));
+  }
+
+  if (bookings.length === 0) {
+    emptyState(
+      parent,
+      "ticket",
+      "Nothing booked yet",
+      "Add a flight, a place to stay, or something to do — costs you enter here feed the Costs tab automatically.",
+      { label: "Add a flight", onClick: () => plugin.openBookingWizard(trip, "flight") },
+    );
+    return;
+  }
+
+  const byKind = new Map<BookingKind, Booking[]>();
+  for (const booking of bookings) {
+    const list = byKind.get(booking.kind) ?? [];
+    list.push(booking);
+    byKind.set(booking.kind, list);
+  }
+
+  for (const def of BOOKING_KINDS) {
+    const list = byKind.get(def.id);
+    if (!list || list.length === 0) continue;
+
+    sectionTitle(parent, def.label, {
+      label: "Add",
+      icon: "plus",
+      onClick: () => plugin.openBookingWizard(trip, def.id),
+    });
+
+    const wrap = parent.createDiv({ cls: "tp-booking-list" });
+    for (const booking of list) renderRow(wrap, booking, ctx);
+  }
+}
+
+function renderRow(parent: HTMLElement, booking: Booking, ctx: DashboardContext): void {
+  const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
+  const status = BOOKING_STATUSES.find((s) => s.id === booking.status);
+
+  const row = parent.createDiv({ cls: `tp-booking is-${booking.status}` });
+  setIcon(row.createDiv({ cls: "tp-booking-icon" }), def?.icon ?? "ticket");
+
+  const body = row.createDiv({ cls: "tp-booking-body" });
+  body.createDiv({ cls: "tp-booking-title", text: booking.title });
+
+  const meta = body.createDiv({ cls: "tp-booking-meta" });
+  meta.createSpan({ text: formatDateRange(booking.date, booking.endDate) });
+  const times = [booking.time, booking.endTime].filter(Boolean).join(" → ");
+  if (times) meta.createSpan({ text: times });
+  if (booking.reference) meta.createSpan({ cls: "tp-mono", text: booking.reference });
+  if (booking.seat) meta.createSpan({ text: `Seat ${booking.seat}` });
+  if (booking.attachments.length) {
+    const attach = meta.createSpan({ cls: "tp-booking-attach" });
+    setIcon(attach.createSpan(), "paperclip");
+    attach.createSpan({ text: String(booking.attachments.length) });
+  }
+
+  const right = row.createDiv({ cls: "tp-booking-right" });
+  if (booking.cost) {
+    right.createDiv({
+      cls: `tp-booking-cost${booking.status === "cancelled" ? " is-struck" : ""}`,
+      text: formatMoney(booking.cost),
+    });
+  }
+  const pill = right.createDiv({ cls: `tp-status-pill is-${booking.status}` });
+  pill.setText(status?.label ?? booking.status);
+
+  row.addEventListener("click", () => ctx.openFile(booking.file));
+  row.addEventListener("contextmenu", (evt) => {
+    evt.preventDefault();
+    const menu = new Menu();
+    menu.addItem((i) =>
+      i.setTitle("Open").setIcon("file-text").onClick(() => ctx.openFile(booking.file)),
+    );
+    menu.addItem((i) =>
+      i
+        .setTitle("Open in new tab")
+        .setIcon("plus-square")
+        .onClick(() => ctx.openFile(booking.file, true)),
+    );
+    menu.addSeparator();
+    menu.addItem((i) =>
+      i
+        .setTitle("Delete booking")
+        .setIcon("trash-2")
+        .onClick(async () => {
+          await ctx.app.fileManager.trashFile(booking.file);
+          ctx.refresh();
+        }),
+    );
+    menu.showAtMouseEvent(evt);
+  });
+}
