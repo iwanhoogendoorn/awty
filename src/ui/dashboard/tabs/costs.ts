@@ -1,6 +1,6 @@
 import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { bar, emptyState, sectionTitle, statTiles } from "../common";
+import { bar, emptyState, renderToolbar, sectionTitle, statTiles, noTripState } from "../common";
 import { totalsByCategory } from "../../../bookings/bookingStore";
 import { COST_CATEGORIES } from "../../../bookings/types";
 import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/money";
@@ -12,7 +12,7 @@ import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/mone
 export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
   const { trip, plugin } = ctx;
   if (!trip) {
-    emptyState(parent, "wallet", "No trip selected", "Pick a trip from the dropdown above.");
+    noTripState(parent, ctx, "wallet");
     return;
   }
 
@@ -21,16 +21,18 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
   const budget = plugin.bookings.getBudget(trip);
   const budgetTotal = [...budget.values()].reduce((n, v) => n + v, 0);
 
-  const toolbar = parent.createDiv({ cls: "tp-dash-toolbar" });
-  const expenseBtn = toolbar.createEl("button", { cls: "tp-dash-add" });
-  setIcon(expenseBtn.createSpan(), "receipt");
-  expenseBtn.createSpan({ text: "Log an expense" });
-  expenseBtn.addEventListener("click", () => plugin.openExpenseModal(trip));
-
-  const budgetBtn = toolbar.createEl("button", { cls: "tp-dash-add" });
-  setIcon(budgetBtn.createSpan(), "sliders-horizontal");
-  budgetBtn.createSpan({ text: budget.size ? "Edit budget" : "Set a budget" });
-  budgetBtn.addEventListener("click", () => plugin.openBudgetModal(trip));
+  const actions = [
+    {
+      label: "Log an expense",
+      icon: "receipt",
+      onClick: () => plugin.openExpenseModal(trip),
+    },
+    {
+      label: budget.size ? "Edit budget" : "Set a budget",
+      icon: "sliders-horizontal",
+      onClick: () => plugin.openBudgetModal(trip),
+    },
+  ];
 
   if (lines.length === 0 && budget.size === 0) {
     emptyState(
@@ -38,10 +40,12 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
       "wallet",
       "No costs yet",
       "Prices you enter on a flight or a hotel land here automatically. Anything else, log as an expense.",
-      { label: "Log an expense", onClick: () => plugin.openExpenseModal(trip) },
+      actions,
     );
     return;
   }
+
+  renderToolbar(parent, actions);
 
   const counted = lines.filter((l) => l.counted);
   const spent = sumMoney(counted.map((l) => l.money));

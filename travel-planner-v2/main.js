@@ -1029,13 +1029,38 @@ function bar(parent, ratio, tone) {
   const fill = track.createDiv({ cls: `tp-bar-fill is-${tone ?? "good"}` });
   fill.style.width = `${Math.round(clamped * 100)}%`;
 }
-function emptyState(parent, icon, title, detail, action) {
+function emptyState(parent, icon, title, detail, actions = []) {
   const box = parent.createDiv({ cls: "tp-dash-empty" });
   (0, import_obsidian4.setIcon)(box.createDiv({ cls: "tp-dash-empty-icon" }), icon);
   box.createDiv({ cls: "tp-dash-empty-title", text: title });
   box.createDiv({ cls: "tp-dash-empty-detail", text: detail });
-  if (action) {
-    const btn = box.createEl("button", { cls: "tp-dash-empty-btn", text: action.label });
+  if (actions.length === 0) return;
+  const row = box.createDiv({ cls: "tp-dash-empty-actions" });
+  for (const [index, action] of actions.entries()) {
+    const btn = row.createEl("button", {
+      cls: index === 0 ? "tp-dash-empty-btn is-cta" : "tp-dash-empty-btn"
+    });
+    if (action.icon) (0, import_obsidian4.setIcon)(btn.createSpan(), action.icon);
+    btn.createSpan({ text: action.label });
+    btn.addEventListener("click", action.onClick);
+  }
+}
+function noTripState(parent, ctx, icon) {
+  const any = ctx.plugin.store.getTrips().length > 0;
+  if (any) {
+    emptyState(parent, icon, "No trip selected", "Pick a trip from the dropdown above.");
+    return;
+  }
+  emptyState(parent, icon, "No trips yet", "Create your first trip to get started.", [
+    { label: "New trip", icon: "plus", onClick: () => ctx.plugin.openNewTripModal() }
+  ]);
+}
+function renderToolbar(parent, actions) {
+  const toolbar = parent.createDiv({ cls: "tp-dash-toolbar" });
+  for (const action of actions) {
+    const btn = toolbar.createEl("button", { cls: "tp-dash-add" });
+    if (action.icon) (0, import_obsidian4.setIcon)(btn.createSpan(), action.icon);
+    btn.createSpan({ text: action.label });
     btn.addEventListener("click", action.onClick);
   }
 }
@@ -1226,7 +1251,7 @@ function travelTable(origin, destinations, legs, modes) {
 function renderOverview(parent, ctx) {
   const { trip, plugin } = ctx;
   if (!trip) {
-    emptyState(parent, "plane", "No trip selected", "Pick a trip from the dropdown above.");
+    noTripState(parent, ctx, "plane");
     return;
   }
   const lines2 = plugin.bookings.getCostLines(trip);
@@ -1366,18 +1391,15 @@ var import_obsidian7 = require("obsidian");
 function renderTrips(parent, ctx, onSelect) {
   const { plugin } = ctx;
   const trips = plugin.store.getTrips();
-  const toolbar = parent.createDiv({ cls: "tp-dash-toolbar" });
-  const addBtn = toolbar.createEl("button", { cls: "tp-dash-add" });
-  (0, import_obsidian7.setIcon)(addBtn.createSpan(), "plus");
-  addBtn.createSpan({ text: "New trip" });
-  addBtn.addEventListener("click", () => plugin.openNewTripModal());
   if (trips.length === 0) {
-    emptyState(parent, "plane", "No trips yet", "Create your first trip to get started.", {
-      label: "New trip",
-      onClick: () => plugin.openNewTripModal()
-    });
+    emptyState(parent, "plane", "No trips yet", "Create your first trip to get started.", [
+      { label: "New trip", icon: "plus", onClick: () => plugin.openNewTripModal() }
+    ]);
     return;
   }
+  renderToolbar(parent, [
+    { label: "New trip", icon: "plus", onClick: () => plugin.openNewTripModal() }
+  ]);
   const grid = parent.createDiv({ cls: "tp-trip-grid" });
   for (const trip of trips) {
     const def = kindDef(trip.kind);
@@ -1421,7 +1443,7 @@ var WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 function renderItinerary(parent, ctx) {
   const { trip, plugin } = ctx;
   if (!trip) {
-    emptyState(parent, "calendar-days", "No trip selected", "Pick a trip from the dropdown above.");
+    noTripState(parent, ctx, "calendar-days");
     return;
   }
   const days = datesInRange(trip.startDate, trip.endDate, 90);
@@ -1511,27 +1533,26 @@ var import_obsidian9 = require("obsidian");
 function renderBookings(parent, ctx) {
   const { trip, plugin } = ctx;
   if (!trip) {
-    emptyState(parent, "ticket", "No trip selected", "Pick a trip from the dropdown above.");
+    noTripState(parent, ctx, "ticket");
     return;
   }
   const bookings = plugin.bookings.getBookings(trip);
-  const toolbar = parent.createDiv({ cls: "tp-dash-toolbar" });
-  for (const def of BOOKING_KINDS) {
-    const btn = toolbar.createEl("button", { cls: "tp-dash-add" });
-    (0, import_obsidian9.setIcon)(btn.createSpan(), def.icon);
-    btn.createSpan({ text: `Add ${def.label.toLowerCase()}` });
-    btn.addEventListener("click", () => plugin.openBookingWizard(trip, def.id));
-  }
+  const addActions = BOOKING_KINDS.map((def) => ({
+    label: `Add ${def.label.toLowerCase()}`,
+    icon: def.icon,
+    onClick: () => plugin.openBookingWizard(trip, def.id)
+  }));
   if (bookings.length === 0) {
     emptyState(
       parent,
       "ticket",
       "Nothing booked yet",
       "Add a flight, a place to stay, or something to do \u2014 costs you enter here feed the Costs tab automatically.",
-      { label: "Add a flight", onClick: () => plugin.openBookingWizard(trip, "flight") }
+      addActions
     );
     return;
   }
+  renderToolbar(parent, addActions);
   const byKind = /* @__PURE__ */ new Map();
   for (const booking of bookings) {
     const list2 = byKind.get(booking.kind) ?? [];
@@ -1603,32 +1624,36 @@ var import_obsidian10 = require("obsidian");
 function renderCosts(parent, ctx) {
   const { trip, plugin } = ctx;
   if (!trip) {
-    emptyState(parent, "wallet", "No trip selected", "Pick a trip from the dropdown above.");
+    noTripState(parent, ctx, "wallet");
     return;
   }
   const lines2 = plugin.bookings.getCostLines(trip);
   const currency = plugin.bookings.getCurrency(trip);
   const budget = plugin.bookings.getBudget(trip);
   const budgetTotal = [...budget.values()].reduce((n, v) => n + v, 0);
-  const toolbar = parent.createDiv({ cls: "tp-dash-toolbar" });
-  const expenseBtn = toolbar.createEl("button", { cls: "tp-dash-add" });
-  (0, import_obsidian10.setIcon)(expenseBtn.createSpan(), "receipt");
-  expenseBtn.createSpan({ text: "Log an expense" });
-  expenseBtn.addEventListener("click", () => plugin.openExpenseModal(trip));
-  const budgetBtn = toolbar.createEl("button", { cls: "tp-dash-add" });
-  (0, import_obsidian10.setIcon)(budgetBtn.createSpan(), "sliders-horizontal");
-  budgetBtn.createSpan({ text: budget.size ? "Edit budget" : "Set a budget" });
-  budgetBtn.addEventListener("click", () => plugin.openBudgetModal(trip));
+  const actions = [
+    {
+      label: "Log an expense",
+      icon: "receipt",
+      onClick: () => plugin.openExpenseModal(trip)
+    },
+    {
+      label: budget.size ? "Edit budget" : "Set a budget",
+      icon: "sliders-horizontal",
+      onClick: () => plugin.openBudgetModal(trip)
+    }
+  ];
   if (lines2.length === 0 && budget.size === 0) {
     emptyState(
       parent,
       "wallet",
       "No costs yet",
       "Prices you enter on a flight or a hotel land here automatically. Anything else, log as an expense.",
-      { label: "Log an expense", onClick: () => plugin.openExpenseModal(trip) }
+      actions
     );
     return;
   }
+  renderToolbar(parent, actions);
   const counted = lines2.filter((l) => l.counted);
   const spent = sumMoney(counted.map((l) => l.money));
   const spentPrimary = totalIn(spent, currency);
@@ -1694,7 +1719,7 @@ var IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
 function renderGallery(parent, ctx) {
   const { trip, plugin, app } = ctx;
   if (!trip) {
-    emptyState(parent, "image", "No trip selected", "Pick a trip from the dropdown above.");
+    noTripState(parent, ctx, "image");
     return;
   }
   const seen = /* @__PURE__ */ new Set();

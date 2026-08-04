@@ -772,9 +772,46 @@
   max-width: 32em;
 }
 
+.tp-dash-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4em;
+  margin-top: 1em;
+}
+
 .tp-dash-empty-btn {
-  margin-top: 0.9em;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.35em 0.8em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
   cursor: pointer;
+  box-shadow: none;
+}
+
+.tp-dash-empty-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+/* The first action is the obvious next step. */
+.tp-dash-empty-btn.is-cta {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.tp-dash-empty-btn.is-cta:hover {
+  background: var(--interactive-accent-hover);
+  color: var(--text-on-accent);
+}
+
+.tp-dash-empty-btn .svg-icon {
+  width: 0.95em;
+  height: 0.95em;
 }

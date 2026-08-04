@@ -1,6 +1,6 @@
 import { Menu, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { emptyState, sectionTitle } from "../common";
+import { emptyState, renderToolbar, sectionTitle, noTripState } from "../common";
 import type { Booking, BookingKind } from "../../../bookings/types";
 import { BOOKING_KINDS, BOOKING_STATUSES } from "../../../bookings/types";
 import { formatMoney } from "../../../util/money";
@@ -9,30 +9,31 @@ import { formatDateRange } from "../../../util/dates";
 export function renderBookings(parent: HTMLElement, ctx: DashboardContext): void {
   const { trip, plugin } = ctx;
   if (!trip) {
-    emptyState(parent, "ticket", "No trip selected", "Pick a trip from the dropdown above.");
+    noTripState(parent, ctx, "ticket");
     return;
   }
 
   const bookings = plugin.bookings.getBookings(trip);
 
-  const toolbar = parent.createDiv({ cls: "tp-dash-toolbar" });
-  for (const def of BOOKING_KINDS) {
-    const btn = toolbar.createEl("button", { cls: "tp-dash-add" });
-    setIcon(btn.createSpan(), def.icon);
-    btn.createSpan({ text: `Add ${def.label.toLowerCase()}` });
-    btn.addEventListener("click", () => plugin.openBookingWizard(trip, def.id));
-  }
+  const addActions = BOOKING_KINDS.map((def) => ({
+    label: `Add ${def.label.toLowerCase()}`,
+    icon: def.icon,
+    onClick: () => plugin.openBookingWizard(trip, def.id),
+  }));
 
+  // Empty state carries the same buttons, so only one of the two ever renders.
   if (bookings.length === 0) {
     emptyState(
       parent,
       "ticket",
       "Nothing booked yet",
       "Add a flight, a place to stay, or something to do — costs you enter here feed the Costs tab automatically.",
-      { label: "Add a flight", onClick: () => plugin.openBookingWizard(trip, "flight") },
+      addActions,
     );
     return;
   }
+
+  renderToolbar(parent, addActions);
 
   const byKind = new Map<BookingKind, Booking[]>();
   for (const booking of bookings) {

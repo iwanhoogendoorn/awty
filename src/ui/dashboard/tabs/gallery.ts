@@ -1,6 +1,6 @@
 import { TFile, TFolder, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { emptyState, sectionTitle } from "../common";
+import { emptyState, sectionTitle, noTripState } from "../common";
 import { fileFromLink } from "../../../bookings/bookingStore";
 
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
@@ -9,7 +9,7 @@ const IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
 export function renderGallery(parent: HTMLElement, ctx: DashboardContext): void {
   const { trip, plugin, app } = ctx;
   if (!trip) {
-    emptyState(parent, "image", "No trip selected", "Pick a trip from the dropdown above.");
+    noTripState(parent, ctx, "image");
     return;
   }
 

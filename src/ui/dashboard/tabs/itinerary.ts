@@ -1,6 +1,6 @@
 import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { emptyState, sectionTitle } from "../common";
+import { emptyState, sectionTitle, noTripState } from "../common";
 import { BOOKING_KINDS } from "../../../bookings/types";
 import { formatMoney } from "../../../util/money";
 import { datesInRange, monthName, parseISO, todayISO } from "../../../util/dates";
@@ -12,7 +12,7 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): void {
   const { trip, plugin } = ctx;
   if (!trip) {
-    emptyState(parent, "calendar-days", "No trip selected", "Pick a trip from the dropdown above.");
+    noTripState(parent, ctx, "calendar-days");
     return;
   }
 

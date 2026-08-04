@@ -1,6 +1,6 @@
 import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { bar, emptyState, readiness } from "../common";
+import { bar, emptyState, readiness, renderToolbar } from "../common";
 import type { Trip } from "../../../types";
 import { kindDef } from "../../../types";
 import { formatTotals, sumMoney } from "../../../util/money";
@@ -15,19 +15,18 @@ export function renderTrips(
   const { plugin } = ctx;
   const trips = plugin.store.getTrips();
 
-  const toolbar = parent.createDiv({ cls: "tp-dash-toolbar" });
-  const addBtn = toolbar.createEl("button", { cls: "tp-dash-add" });
-  setIcon(addBtn.createSpan(), "plus");
-  addBtn.createSpan({ text: "New trip" });
-  addBtn.addEventListener("click", () => plugin.openNewTripModal());
-
+  // The empty state carries its own button, so the toolbar would only ever be a
+  // second copy of it.
   if (trips.length === 0) {
-    emptyState(parent, "plane", "No trips yet", "Create your first trip to get started.", {
-      label: "New trip",
-      onClick: () => plugin.openNewTripModal(),
-    });
+    emptyState(parent, "plane", "No trips yet", "Create your first trip to get started.", [
+      { label: "New trip", icon: "plus", onClick: () => plugin.openNewTripModal() },
+    ]);
     return;
   }
+
+  renderToolbar(parent, [
+    { label: "New trip", icon: "plus", onClick: () => plugin.openNewTripModal() },
+  ]);
 
   const grid = parent.createDiv({ cls: "tp-trip-grid" });
   for (const trip of trips) {

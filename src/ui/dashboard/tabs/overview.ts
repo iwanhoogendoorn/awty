@@ -1,6 +1,6 @@
 import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { bar, emptyState, readiness, sectionTitle, statTiles } from "../common";
+import { bar, emptyState, readiness, sectionTitle, statTiles, noTripState } from "../common";
 import { renderGettingAround } from "../gettingAround";
 import { BOOKING_KINDS } from "../../../bookings/types";
 import { totalsByCategory } from "../../../bookings/bookingStore";
@@ -16,7 +16,7 @@ import {
 export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void {
   const { trip, plugin } = ctx;
   if (!trip) {
-    emptyState(parent, "plane", "No trip selected", "Pick a trip from the dropdown above.");
+    noTripState(parent, ctx, "plane");
     return;
   }
 
