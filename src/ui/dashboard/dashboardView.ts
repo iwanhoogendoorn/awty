@@ -1,4 +1,5 @@
-import { ItemView, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { ItemView, Menu, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { BOOKING_KINDS } from "../../bookings/types";
 import type TravelPlannerPlugin from "../../main";
 import type { Trip } from "../../types";
 import { TRAVEL_DASHBOARD_TYPE } from "../../types";
@@ -184,21 +185,36 @@ export class TravelDashboardView extends ItemView {
 
     const actions = top.createDiv({ cls: "tp-dash-quick" });
     if (trip) {
-      const quick: { label: string; icon: string; onClick: () => void }[] = [
-        { label: "Flight", icon: "plane", onClick: () => this.plugin.openBookingWizard(trip, "flight") },
-        { label: "Stay", icon: "bed", onClick: () => this.plugin.openBookingWizard(trip, "stay") },
-        { label: "Activity", icon: "ticket", onClick: () => this.plugin.openBookingWizard(trip, "activity") },
-        { label: "Expense", icon: "receipt", onClick: () => this.plugin.openExpenseModal(trip) },
-      ];
-      for (const item of quick) {
-        const btn = actions.createEl("button", {
-          cls: "tp-dash-quick-btn",
-          attr: { "aria-label": `Add ${item.label.toLowerCase()}` },
-        });
-        setIcon(btn.createSpan(), item.icon);
-        btn.createSpan({ text: item.label });
-        btn.addEventListener("click", item.onClick);
-      }
+      // One primary action. The individual wizards used to sit up here under
+      // names ("Stay", "Expense") that didn't match the note names below
+      // ("Accommodation", "Budget"), which read as two competing systems.
+      const plan = actions.createEl("button", { cls: "tp-dash-quick-btn is-cta" });
+      setIcon(plan.createSpan(), "wand-2");
+      plan.createSpan({ text: "Plan trip" });
+      plan.addEventListener("click", () => this.plugin.openPlanWizard(trip));
+
+      const add = actions.createEl("button", { cls: "tp-dash-quick-btn" });
+      setIcon(add.createSpan(), "plus");
+      add.createSpan({ text: "Add" });
+      add.addEventListener("click", (evt) => {
+        const menu = new Menu();
+        for (const def of BOOKING_KINDS) {
+          menu.addItem((i) =>
+            i
+              .setTitle(def.label)
+              .setIcon(def.icon)
+              .onClick(() => this.plugin.openBookingWizard(trip, def.id)),
+          );
+        }
+        menu.addSeparator();
+        menu.addItem((i) =>
+          i
+            .setTitle("Expense")
+            .setIcon("receipt")
+            .onClick(() => this.plugin.openExpenseModal(trip)),
+        );
+        menu.showAtMouseEvent(evt);
+      });
     }
 
     const tabs = header.createDiv({ cls: "tp-dash-tabs" });

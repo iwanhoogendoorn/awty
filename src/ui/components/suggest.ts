@@ -1,5 +1,6 @@
-import { AbstractInputSuggest, App } from "obsidian";
+import { AbstractInputSuggest, App, setIcon } from "obsidian";
 import { COUNTRIES } from "../../data/countries";
+import { AIRLINES, airlineLabel } from "../../data/airlines";
 import { CITIES } from "../../data/cities";
 import { fold, rankMatches as rank } from "../../util/search";
 
@@ -55,6 +56,45 @@ export class CitySuggest extends AbstractInputSuggest<string> {
       const owner = Object.keys(CITIES).find((c) => CITIES[c].includes(value));
       if (owner) el.createSpan({ cls: "tp-suggest-hint", text: owner });
     }
+  }
+
+  selectSuggestion(value: string): void {
+    this.setValue(value);
+    this.onPick(value);
+    this.close();
+  }
+}
+
+/**
+ * Airline picker with starred airlines pinned to the top.
+ *
+ * You fly the same handful of carriers over and over, so the ones you star sit
+ * above the alphabet regardless of what you have typed.
+ */
+export class AirlineSuggest extends AbstractInputSuggest<string> {
+  constructor(
+    app: App,
+    input: HTMLInputElement,
+    private isStarred: (value: string) => boolean,
+    private onPick: (value: string) => void,
+  ) {
+    super(app, input);
+  }
+
+  protected getSuggestions(query: string): string[] {
+    const labels = AIRLINES.map(airlineLabel);
+    const matches = rank(labels, query, 40);
+    const starred = matches.filter((m) => this.isStarred(m));
+    const rest = matches.filter((m) => !this.isStarred(m));
+    return [...starred, ...rest];
+  }
+
+  renderSuggestion(value: string, el: HTMLElement): void {
+    if (this.isStarred(value)) {
+      const star = el.createSpan({ cls: "tp-suggest-star" });
+      setIcon(star, "star");
+    }
+    el.createSpan({ text: value });
   }
 
   selectSuggestion(value: string): void {

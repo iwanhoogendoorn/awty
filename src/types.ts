@@ -176,6 +176,8 @@ export interface TravelPlannerSettings {
   googleApiKey: string;
   /** Which modes to look up. Each mode is a separate billed request. */
   travelModes: TravelMode[];
+  /** Airlines pinned to the top of the flight wizard picker. */
+  starredAirlines: string[];
 }
 
 /** Google travel modes; duplicated here to keep the settings type dependency-free. */
@@ -203,6 +205,7 @@ export const DEFAULT_SETTINGS: TravelPlannerSettings = {
   travelTimesEnabled: false,
   googleApiKey: "",
   travelModes: ["driving", "transit"],
+  starredAirlines: [],
 };
 
 export const TRAVEL_VIEW_TYPE = "travel-planner-sidebar";

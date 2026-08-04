@@ -28,6 +28,8 @@ import { BudgetModal } from "./ui/modals/budgetModal";
 import { PackingModal } from "./ui/modals/packingModal";
 import { EventDetailsModal } from "./ui/modals/eventDetailsModal";
 import { FoodModal } from "./ui/modals/foodModal";
+import { TripPlanWizard } from "./ui/modals/tripPlanWizard";
+import { syncBookingNotes } from "./bookings/bookingSync";
 import {
   TravelService,
   TravelUnavailable,
@@ -148,6 +150,16 @@ export default class TravelPlannerPlugin extends Plugin {
         const trip = this.contextTrip();
         if (!trip) return false;
         if (!checking) void this.writeTravelTimes(trip);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "plan-trip",
+      name: "Plan this trip",
+      checkCallback: (checking) => {
+        const trip = this.contextTrip();
+        if (!trip) return false;
+        if (!checking) this.openPlanWizard(trip);
         return true;
       },
     });
@@ -282,6 +294,16 @@ export default class TravelPlannerPlugin extends Plugin {
       trip,
       kind,
       this.bookings.getCurrency(trip),
+      {
+        isStarred: (value) => this.settings.starredAirlines.includes(value),
+        toggle: async (value) => {
+          const starred = new Set(this.settings.starredAirlines);
+          if (starred.has(value)) starred.delete(value);
+          else starred.add(value);
+          this.settings.starredAirlines = [...starred].sort();
+          await this.saveSettings();
+        },
+      },
       async (draft, files) => {
         // Attachments are copied only once the wizard is actually submitted, so
         // an abandoned form leaves nothing behind.
@@ -292,6 +314,7 @@ export default class TravelPlannerPlugin extends Plugin {
         });
         this.bookings.invalidate();
         this.store.invalidate();
+        await syncBookingNotes(this.app, trip, this.bookings.getBookings(trip));
         new Notice(`Added “${draft.title}”.`);
         void file;
       },
@@ -306,6 +329,10 @@ export default class TravelPlannerPlugin extends Plugin {
       this.store.invalidate();
       new Notice(`Logged “${draft.description}”.`);
     }).open();
+  }
+
+  openPlanWizard(trip: Trip): void {
+    new TripPlanWizard(this.app, this, trip).open();
   }
 
   openBudgetModal(trip: Trip): void {
@@ -351,6 +378,9 @@ export default class TravelPlannerPlugin extends Plugin {
       // Deliberately does not open the note. You stay where you were and click
       // through to a note only when you actually want one.
       this.selectTripInDashboard(result.tripFile.path);
+      // Planning continues from here rather than dumping you on a blank note.
+      const created = this.store.getTrips().find((t) => t.file.path === result.tripFile.path);
+      if (created) this.openPlanWizard(created);
     }).open();
   }
 

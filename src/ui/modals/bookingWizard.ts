@@ -4,6 +4,7 @@ import { BOOKING_KINDS, BOOKING_STATUSES, COST_CATEGORIES } from "../../bookings
 import type { BookingDraft } from "../../bookings/bookingWriter";
 import type { TravelPlannerSettings, Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
+import { AirlineSuggest } from "../components/suggest";
 import { COMMON_CURRENCIES, formatMoney, parseAmount } from "../../util/money";
 import { formatDateRange, isValidISODate, todayISO } from "../../util/dates";
 
@@ -72,6 +73,7 @@ export class BookingWizard extends Modal {
     private trip: Trip,
     kind: BookingKind,
     private currency: string,
+    private stars: { isStarred: (v: string) => boolean; toggle: (v: string) => Promise<void> },
     private onSubmit: (draft: BookingDraft, files: File[]) => Promise<void>,
   ) {
     super(app);
@@ -170,6 +172,12 @@ export class BookingWizard extends Modal {
 
   private renderDetails(): void {
     for (const spec of FIELDS[this.draft.kind]) {
+      // The airline gets a picker with your starred carriers pinned on top;
+      // everything else is a plain text field.
+      if (spec.key === "operator" && this.draft.kind === "flight") {
+        this.renderAirlineField(spec);
+        continue;
+      }
       new Setting(this.bodyEl).setName(spec.label).addText((t) => {
         t.setPlaceholder(spec.placeholder);
         t.setValue(this.draft[spec.key]);
@@ -188,6 +196,56 @@ export class BookingWizard extends Modal {
       ta.setValue(this.draft.notes);
       ta.onChange((v) => (this.draft.notes = v));
     });
+  }
+
+  private renderAirlineField(spec: FieldSpec): void {
+    const setting = new Setting(this.bodyEl)
+      .setName(spec.label)
+      .setDesc("Star the ones you fly and they stay at the top of the list.");
+
+    let input!: HTMLInputElement;
+    setting.addText((t) => {
+      input = t.inputEl;
+      t.setPlaceholder(spec.placeholder);
+      t.setValue(this.draft.operator);
+      t.onChange((v) => {
+        this.draft.operator = v.trim();
+        syncStar();
+      });
+      new AirlineSuggest(
+        this.app,
+        t.inputEl,
+        (value) => this.stars.isStarred(value),
+        (value) => {
+          this.draft.operator = value;
+          syncStar();
+        },
+      );
+    });
+
+    const starBtn = setting.controlEl.createEl("button", {
+      cls: "tp-star-btn",
+      attr: { "aria-label": "Star this airline" },
+    });
+
+    const syncStar = () => {
+      const starred = this.draft.operator.length > 0 && this.stars.isStarred(this.draft.operator);
+      starBtn.empty();
+      setIcon(starBtn, "star");
+      starBtn.toggleClass("is-starred", starred);
+      starBtn.setAttribute("aria-label", starred ? "Unstar this airline" : "Star this airline");
+      starBtn.toggleClass("is-disabled", this.draft.operator.length === 0);
+    };
+
+    starBtn.addEventListener("click", async (evt) => {
+      evt.preventDefault();
+      if (!this.draft.operator) return;
+      await this.stars.toggle(this.draft.operator);
+      syncStar();
+      input.focus();
+    });
+
+    syncStar();
   }
 
   private renderWhen(): void {
