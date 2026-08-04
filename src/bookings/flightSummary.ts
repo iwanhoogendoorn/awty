@@ -40,6 +40,7 @@ export function readLegs(value: unknown): FlightLeg[] {
       arrDate: leg?.arrives_on ?? leg?.date ?? "",
       arrTime: leg?.arrives ?? "",
       separate: String(leg?.separate ?? "") === "true",
+      cost: Number(leg?.cost) > 0 ? Number(leg.cost) : undefined,
     };
   });
 }

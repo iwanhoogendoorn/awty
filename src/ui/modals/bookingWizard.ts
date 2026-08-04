@@ -21,6 +21,7 @@ import { localiseLegs } from "../../flights/localTime";
 import {
   emptyLeg,
   groupJourneys,
+  journeyCostTotal,
   looksLikeMoreJourneys,
   routeTitle,
   splitJourney,
@@ -857,6 +858,78 @@ export class BookingWizard extends Modal {
   }
 
   private renderCost(): void {
+    // Two flights days apart usually have two prices; the legs of a connection
+    // share one, because that is how they are sold.
+    const groups = this.draft.kind === "flight" ? groupJourneys(this.draft.legs) : [];
+    if (groups.length > 1) {
+      this.renderPerFlightCost(groups);
+    } else {
+      this.renderSingleCost();
+    }
+
+    new Setting(this.bodyEl)
+      .setName("Category")
+      .setDesc("Which budget line this counts against.")
+      .addDropdown((dd) => {
+        for (const c of allCategories(this.settings.customCategories, [this.draft.category])) {
+          dd.addOption(c, c);
+        }
+        dd.setValue(this.draft.category);
+        dd.onChange((v) => (this.draft.category = v as CostCategory));
+      });
+
+    this.bodyEl.createDiv({ cls: "awty-cost-preview" });
+    this.renderCostPreview();
+  }
+
+  /** One price per flight, adding up to what the booking cost. */
+  private renderPerFlightCost(groups: FlightLeg[][]): void {
+    this.bodyEl.createDiv({
+      cls: "awty-dash-hint",
+      text: "This booking holds more than one flight, so each is priced on its own. Connections within a flight share its price.",
+    });
+
+    for (const [index, group] of groups.entries()) {
+      const first = group[0];
+      const route = routeTitle(group) || `Flight ${index + 1}`;
+      new Setting(this.bodyEl)
+        .setName(`Flight ${index + 1}`)
+        .setDesc(route)
+        .addText((t) => {
+          t.setPlaceholder("450");
+          t.setValue(first.cost ? String(first.cost) : "");
+          t.inputEl.inputMode = "decimal";
+          t.onChange((v) => {
+            const value = parseAmount(v);
+            first.cost = value !== null && value > 0 ? value : undefined;
+            this.applyJourneyCosts();
+            this.renderCostPreview();
+          });
+        });
+    }
+
+    new Setting(this.bodyEl)
+      .setName("Currency")
+      .setDesc("One currency for the booking.")
+      .addDropdown((dd) => {
+        const options = new Set([this.currency, ...COMMON_CURRENCIES]);
+        for (const c of options) dd.addOption(c, c);
+        dd.setValue(this.draft.currency);
+        dd.onChange((v) => {
+          this.draft.currency = v;
+          this.renderCostPreview();
+        });
+      });
+  }
+
+  /** Adds the per-flight prices into the one figure the rest of the plugin reads. */
+  private applyJourneyCosts(): void {
+    const total = journeyCostTotal(this.draft.legs);
+    this.draft.amount = total;
+    this.amountRaw = total === null ? "" : String(total);
+  }
+
+  private renderSingleCost(): void {
     new Setting(this.bodyEl)
       .setName("Cost")
       .setDesc("Entered once here — it flows straight into the trip's Costs tab.")

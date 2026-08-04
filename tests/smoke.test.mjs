@@ -16,7 +16,7 @@ export * from "./src/util/paths.ts";
 export { foodSpotBlock } from "./src/store/templates.ts";
 export { analyseNote } from "./src/store/noteProgress.ts";
 export { emptyDayDates, readDaySections } from "./src/store/itinerary.ts";
-export { routeTitle, layoverMinutes, formatLayover, totalJourneyMinutes, splitJourney, groupJourneys } from "./src/bookings/legs.ts";
+export { routeTitle, layoverMinutes, formatLayover, totalJourneyMinutes, splitJourney, groupJourneys, journeyCostTotal } from "./src/bookings/legs.ts";
 export { parseConfirmation, parseIcs, parseConfirmationText, parseLooseDate } from "./src/flights/parseConfirmation.ts";
 export { splitFlightNumber } from "./src/flights/flightNumber.ts";
 export { parseLegTable } from "./src/bookings/legTable.ts";
@@ -1805,6 +1805,37 @@ test("an island people book by name resolves to a city that exists", () => {
   // And the airport lookup follows the alias, so the flight is to DPS.
   assert.equal(m.airportForCity("Bali"), m.airportForCity("Denpasar"));
   assert.equal(m.airportForCity("Bali"), "DPS");
+});
+
+test("separate flights are priced separately; connections are not", () => {
+  const leg = (from, to, date, separate, cost) => ({
+    operator: "TG", number: "TG1", from, to, date, depTime: "09:00",
+    arrDate: date, arrTime: "13:00", separate, cost,
+  });
+
+  // Two flights days apart usually cost two different amounts.
+  const two = [
+    leg("AMS", "BKK", "2026-08-06", false, 450),
+    leg("BKK", "DPS", "2026-08-10", true, 120),
+  ];
+  assert.equal(m.journeyCostTotal(two), 570, "the booking is what they add up to");
+
+  // The legs of a connection share one price, carried by the first.
+  const connecting = [
+    leg("AMS", "DXB", "2026-08-06", false, 450),
+    leg("DXB", "BKK", "2026-08-06", false, undefined),
+  ];
+  assert.equal(m.journeyCostTotal(connecting), 450, "not counted twice");
+
+  // Nothing priced is not the same as priced at zero.
+  assert.equal(m.journeyCostTotal([leg("AMS", "BKK", "2026-08-06", false, undefined)]), null);
+
+  // One flight priced and one not still totals what is known.
+  const partial = [
+    leg("AMS", "BKK", "2026-08-06", false, 450),
+    leg("BKK", "DPS", "2026-08-10", true, undefined),
+  ];
+  assert.equal(m.journeyCostTotal(partial), 450);
 });
 
 test("two flights on one ticket are timed apart, not as one long journey", () => {

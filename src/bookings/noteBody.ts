@@ -6,7 +6,8 @@
  * content, and that composition could not be tested while the builders sat in
  * a module that only runs inside the app.
  */
-import { layoverMinutes, formatLayover, type FlightLeg } from "./legs";
+import { groupJourneys, layoverMinutes, formatLayover, type FlightLeg } from "./legs";
+import { formatMoney } from "../util/money";
 import type { BookingDraft } from "./bookingWriter";
 
 export function isImage(path: string): boolean {
@@ -36,13 +37,27 @@ export function bookingBody(draft: BookingDraft, attachmentLinks: string[]): str
   const itinerary = (legs: FlightLeg[], heading: string): void => {
     if (legs.length === 0) return;
     out.push(`## ${heading}`, "");
-    out.push("| Leg | Airline | Flight | From | To | Departs | Arrives |");
-    out.push("|---|---|---|---|---|---|---|");
-    legs.forEach((leg, index) => {
-      const arrives = leg.arrDate && leg.arrDate !== leg.date ? `${leg.arrTime} (+1)` : leg.arrTime;
-      out.push(
-        `| ${index + 1} | ${leg.operator} | ${leg.number} | ${leg.from} | ${leg.to} | ${leg.date} ${leg.depTime} | ${arrives} |`,
-      );
+    // Grouped, so a break between two flights is visible in the note as well
+    // as in the editor — and each flight's own price sits with it.
+    const groups = groupJourneys(legs);
+    const priced = groups.some((group) => typeof group[0]?.cost === "number");
+    out.push(
+      `| Leg | Airline | Flight | From | To | Departs | Arrives |${priced ? " Cost |" : ""}`,
+    );
+    out.push(`|---|---|---|---|---|---|---|${priced ? "---|" : ""}`);
+    groups.forEach((group, groupIndex) => {
+      if (groupIndex > 0) {
+        out.push(`| | | | | | | |${priced ? " |" : ""}`);
+      }
+      group.forEach((leg, index) => {
+        const arrives = leg.arrDate && leg.arrDate !== leg.date ? `${leg.arrTime} (+1)` : leg.arrTime;
+        const label = groups.length > 1 ? `${groupIndex + 1}.${index + 1}` : String(index + 1);
+        const cost =
+          index === 0 && typeof leg.cost === "number" ? ` ${formatMoney({ amount: leg.cost, currency: draft.currency })} |` : priced ? " |" : "";
+        out.push(
+          `| ${label} | ${leg.operator} | ${leg.number} | ${leg.from} | ${leg.to} | ${leg.date} ${leg.depTime} | ${arrives} |${cost}`,
+        );
+      });
     });
     out.push("");
     // Connection times are the thing you actually worry about when booking.

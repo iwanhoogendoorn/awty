@@ -22,6 +22,14 @@ export interface FlightLeg {
    * them as one made the journey read as four days in the air.
    */
   separate?: boolean;
+  /**
+   * What this flight cost, set on the leg that starts it.
+   *
+   * Connections share one price — you do not buy the legs of a connection
+   * separately — but two flights days apart on one booking usually have their
+   * own. Only the first leg of a group carries it.
+   */
+  cost?: number;
 }
 
 export function emptyLeg(date: string): FlightLeg {
@@ -104,6 +112,7 @@ export function legsToFrontmatter(legs: FlightLeg[]): Record<string, string>[] {
     if (leg.arrDate && leg.arrDate !== leg.date) out.arrives_on = leg.arrDate;
     if (leg.arrTime) out.arrives = leg.arrTime;
     if (leg.separate) out.separate = "true";
+    if (typeof leg.cost === "number" && leg.cost > 0) out.cost = String(leg.cost);
     return out;
   });
 }
@@ -209,4 +218,13 @@ export function groupJourneys(legs: FlightLeg[]): FlightLeg[][] {
     else groups[groups.length - 1].push(leg);
   }
   return groups;
+}
+
+/** What the flights on a booking cost, when they were priced one by one. */
+export function journeyCostTotal(legs: FlightLeg[]): number | null {
+  const priced = groupJourneys(legs)
+    .map((group) => group[0]?.cost)
+    .filter((cost): cost is number => typeof cost === "number" && cost > 0);
+  if (priced.length === 0) return null;
+  return priced.reduce((sum, cost) => sum + cost, 0);
 }
