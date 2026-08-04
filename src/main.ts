@@ -67,6 +67,14 @@ export default class TravelPlannerPlugin extends Plugin {
   travelPlaces = new Map<string, TripPlaces>();
   /** Wall-clock time this build was loaded, shown in settings to spot a stale plugin. */
   loadedAt = "";
+  /**
+   * Travel advice, held in memory only.
+   *
+   * Deliberately not written to disk: it is safety guidance that can change
+   * overnight, and a stored answer would outlive the situation it described —
+   * and linger after the trip it was fetched for is deleted.
+   */
+  private adviceCache = new Map<string, TravelAdvice>();
 
   async onload(): Promise<void> {
     this.loadedAt = new Date().toLocaleTimeString();
@@ -243,7 +251,6 @@ export default class TravelPlannerPlugin extends Plugin {
     this.travelCache = {
       legs: raw?.travelCache?.legs ?? {},
       geocode: raw?.travelCache?.geocode ?? {},
-      advice: raw?.travelCache?.advice ?? {},
     };
   }
 
@@ -352,14 +359,7 @@ export default class TravelPlannerPlugin extends Plugin {
 
   /** Cached advice for a country, without touching the network. */
   peekAdvice(country: string): TravelAdvice | null {
-    const hit = this.travelCache.advice?.[country];
-    if (!hit) return null;
-    return {
-      colour: hit.colour as TravelAdvice["colour"],
-      country,
-      url: hit.url,
-      fetchedAt: hit.fetchedAt,
-    };
+    return this.adviceCache.get(country) ?? null;
   }
 
   /**
@@ -377,13 +377,7 @@ export default class TravelPlannerPlugin extends Plugin {
     const notice = new Notice("Checking travel advice…", 0);
     try {
       const advice = await fetchAdvice(country);
-      if (!this.travelCache.advice) this.travelCache.advice = {};
-      this.travelCache.advice[country] = {
-        colour: advice.colour,
-        url: advice.url,
-        fetchedAt: advice.fetchedAt,
-      };
-      await this.persist();
+      this.adviceCache.set(country, advice);
       notice.hide();
       new Notice(`${country}: code ${ADVICE_MEANING[advice.colour].label.toLowerCase()}.`);
       onDone?.();
@@ -519,6 +513,7 @@ export default class TravelPlannerPlugin extends Plugin {
         }).open();
         return;
       case "event-details":
+        // Kept for notes created before this became an activity.
         new EventDetailsModal(this.app, trip, () => {
           this.store.invalidate();
           this.refreshViews();
@@ -537,7 +532,14 @@ export default class TravelPlannerPlugin extends Plugin {
     const run = async (): Promise<void> => {
       try {
         const count = await deleteTrip(this.app, trip);
+        // Nothing about the trip should survive it: places, cached routes and
+        // the advice fetched for its country all go too.
+        this.travelPlaces.delete(trip.folderPath);
+        if (trip.country) this.adviceCache.delete(trip.country);
+        await this.travel.forgetTrip(trip);
         new Notice(`Deleted “${trip.title}” (${count} file${count === 1 ? "" : "s"}).`);
+        this.bookings.invalidate();
+        this.progress.clear();
         this.store.invalidate();
       } catch (err) {
         notifyError(err, "Could not delete the trip.");

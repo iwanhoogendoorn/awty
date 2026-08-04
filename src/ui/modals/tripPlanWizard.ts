@@ -155,17 +155,6 @@ export class TripPlanWizard extends Modal {
         applies: !def.singleDay || def.hasVenue === false,
       },
       {
-        key: "event",
-        title: "Event details",
-        detail: "Venue, doors, tickets.",
-        icon: "ticket",
-        done: progressOf("event-details")?.state !== "empty" && has("event-details"),
-        summary: progressOf("event-details")?.detail ?? "Not started",
-        action: () => plugin.openNoteWizard(trip, "event-details"),
-        actionLabel: "Fill in",
-        applies: def.hasVenue,
-      },
-      {
         key: "activities",
         title: "What to do",
         detail: "Tours, tickets, museums, the things you're going for.",

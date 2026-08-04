@@ -162,6 +162,11 @@ export class TripStore {
         travellers: list(fm.travellers),
         originCity: str(fm.origin_city),
         originAirport: str(fm.origin_airport),
+        budgetTotal: (() => {
+          const raw = fm.budget_total;
+          const value = typeof raw === "number" ? raw : Number(str(raw).replace(",", "."));
+          return Number.isFinite(value) && value > 0 ? value : null;
+        })(),
       });
     }
 

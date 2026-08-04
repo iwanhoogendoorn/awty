@@ -7,8 +7,6 @@ import type { Booking } from "../bookings/types";
 import { parseISO } from "../util/dates";
 
 export interface TravelCache {
-  /** Country -> last fetched travel advice. */
-  advice?: Record<string, { colour: string; url: string; fetchedAt: number }>;
   /** legKey -> result. */
   legs: Record<string, { d: number; t: number; at: number }>;
   /** Lowercased address -> "lat,lng". */
@@ -16,7 +14,7 @@ export interface TravelCache {
 }
 
 export function emptyTravelCache(): TravelCache {
-  return { legs: {}, geocode: {}, advice: {} };
+  return { legs: {}, geocode: {} };
 }
 
 export interface TripPlaces {
@@ -258,6 +256,31 @@ export class TravelService {
     if (!start) return undefined;
     start.setUTCHours(9, 0, 0, 0);
     return start;
+  }
+
+  /**
+   * Drops everything cached for one trip.
+   *
+   * Cached routes are keyed by coordinate, not by trip, so this works out which
+   * coordinates belonged to it and removes any leg touching them.
+   */
+  async forgetTrip(trip: Trip): Promise<void> {
+    const bookings = this.app.vault
+      .getMarkdownFiles()
+      .filter((f) => f.path.startsWith(`${trip.folderPath}/`));
+
+    const keys = new Set<string>();
+    for (const file of bookings) {
+      const coord = parseLocation(this.app.metadataCache.getFileCache(file)?.frontmatter?.location);
+      if (coord) keys.add(coordKey(coord));
+    }
+    if (keys.size === 0) return;
+
+    for (const key of Object.keys(this.cache.legs)) {
+      const [from, to] = key.split("|");
+      if (keys.has(from) || keys.has(to)) delete this.cache.legs[key];
+    }
+    await this.persist();
   }
 
   /** Wipes cached legs so the next look-up re-fetches. */

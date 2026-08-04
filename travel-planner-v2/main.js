@@ -26,7 +26,7 @@ __export(main_exports, {
   default: () => TravelPlannerPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian35 = require("obsidian");
+var import_obsidian36 = require("obsidian");
 
 // src/types.ts
 var KINDS = [
@@ -63,7 +63,7 @@ var KINDS = [
     icon: "music",
     singleDay: true,
     defaultDurationDays: 1,
-    subNotes: ["event-details", "transport", "food"],
+    subNotes: ["itinerary", "transport", "food"],
     hasVenue: true
   },
   {
@@ -72,7 +72,7 @@ var KINDS = [
     icon: "ticket",
     singleDay: true,
     defaultDurationDays: 1,
-    subNotes: ["event-details", "transport", "food"],
+    subNotes: ["itinerary", "transport", "food"],
     hasVenue: true
   },
   {
@@ -391,7 +391,12 @@ var TripStore = class {
         status: tripStatus(startDate, endDate, today),
         travellers: list(fm.travellers),
         originCity: str(fm.origin_city),
-        originAirport: str(fm.origin_airport)
+        originAirport: str(fm.origin_airport),
+        budgetTotal: (() => {
+          const raw = fm.budget_total;
+          const value = typeof raw === "number" ? raw : Number(str(raw).replace(",", "."));
+          return Number.isFinite(value) && value > 0 ? value : null;
+        })()
       });
     }
     trips.sort((a, b) => {
@@ -1916,7 +1921,7 @@ async function saveBudget(app, trip, budget, currency, total) {
 }
 
 // src/ui/dashboard/dashboardView.ts
-var import_obsidian16 = require("obsidian");
+var import_obsidian17 = require("obsidian");
 
 // src/ui/dashboard/tabs/overview.ts
 var import_obsidian9 = require("obsidian");
@@ -3165,7 +3170,159 @@ function renderCosts(parent, ctx) {
 }
 
 // src/ui/dashboard/tabs/gallery.ts
+var import_obsidian16 = require("obsidian");
+
+// src/ui/modals/lightbox.ts
 var import_obsidian15 = require("obsidian");
+var Lightbox = class extends import_obsidian15.Modal {
+  constructor(app, files, start) {
+    super(app);
+    this.files = files;
+    this.zoom = 1;
+    this.panX = 0;
+    this.panY = 0;
+    this.imgEl = null;
+    this.index = Math.max(0, files.findIndex((f) => f.path === start.path));
+  }
+  get current() {
+    return this.files[this.index];
+  }
+  onOpen() {
+    this.modalEl.addClass("tp-lightbox-shell");
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("tp-lightbox");
+    const bar2 = contentEl.createDiv({ cls: "tp-lightbox-bar" });
+    this.captionEl = bar2.createDiv({ cls: "tp-lightbox-caption" });
+    const controls = bar2.createDiv({ cls: "tp-lightbox-controls" });
+    const button = (icon, label, onClick) => {
+      const btn = controls.createEl("button", { cls: "tp-icon-btn", attr: { "aria-label": label } });
+      (0, import_obsidian15.setIcon)(btn, icon);
+      btn.addEventListener("click", onClick);
+      return btn;
+    };
+    button("zoom-out", "Zoom out", () => this.setZoom(this.zoom / 1.25));
+    button("zoom-in", "Zoom in", () => this.setZoom(this.zoom * 1.25));
+    button("maximize", "Reset zoom", () => this.setZoom(1, true));
+    button("file-text", "Open in a tab", () => {
+      void this.app.workspace.getLeaf(true).openFile(this.current);
+      this.close();
+    });
+    this.stageEl = contentEl.createDiv({ cls: "tp-lightbox-stage" });
+    if (this.files.length > 1) {
+      const prev = contentEl.createEl("button", {
+        cls: "tp-lightbox-nav is-prev",
+        attr: { "aria-label": "Previous" }
+      });
+      (0, import_obsidian15.setIcon)(prev, "chevron-left");
+      prev.addEventListener("click", () => this.step(-1));
+      const next = contentEl.createEl("button", {
+        cls: "tp-lightbox-nav is-next",
+        attr: { "aria-label": "Next" }
+      });
+      (0, import_obsidian15.setIcon)(next, "chevron-right");
+      next.addEventListener("click", () => this.step(1));
+    }
+    this.scope.register([], "ArrowLeft", () => this.step(-1));
+    this.scope.register([], "ArrowRight", () => this.step(1));
+    this.scope.register([], "=", () => this.setZoom(this.zoom * 1.25));
+    this.scope.register([], "-", () => this.setZoom(this.zoom / 1.25));
+    this.scope.register([], "0", () => this.setZoom(1, true));
+    this.render();
+  }
+  step(delta) {
+    if (this.files.length < 2) return;
+    this.index = (this.index + delta + this.files.length) % this.files.length;
+    this.setZoom(1, true);
+    this.render();
+  }
+  setZoom(zoom, resetPan = false) {
+    this.zoom = Math.min(8, Math.max(0.25, zoom));
+    if (resetPan) {
+      this.panX = 0;
+      this.panY = 0;
+    }
+    this.applyTransform();
+  }
+  applyTransform() {
+    if (!this.imgEl) return;
+    this.imgEl.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
+    this.imgEl.toggleClass("is-zoomed", this.zoom > 1);
+  }
+  render() {
+    const file = this.current;
+    this.stageEl.empty();
+    this.imgEl = null;
+    this.captionEl.setText(
+      this.files.length > 1 ? `${file.name}  \xB7  ${this.index + 1} of ${this.files.length}` : file.name
+    );
+    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(file.name)) {
+      const img = this.stageEl.createEl("img", { cls: "tp-lightbox-img" });
+      img.src = this.app.vault.getResourcePath(file);
+      img.alt = file.name;
+      this.imgEl = img;
+      this.attachGestures(img);
+      this.applyTransform();
+      return;
+    }
+    if (file.extension.toLowerCase() === "pdf") {
+      const frame = this.stageEl.createEl("iframe", { cls: "tp-lightbox-frame" });
+      frame.src = this.app.vault.getResourcePath(file);
+      return;
+    }
+    const box = this.stageEl.createDiv({ cls: "tp-lightbox-fallback" });
+    (0, import_obsidian15.setIcon)(box.createDiv(), "file");
+    box.createDiv({ text: file.name });
+    const open = box.createEl("button", { cls: "tp-dash-empty-btn is-cta", text: "Open in a tab" });
+    open.addEventListener("click", () => {
+      void this.app.workspace.getLeaf(true).openFile(file);
+      this.close();
+    });
+  }
+  /** Scroll to zoom, drag to pan, double-click to reset. */
+  attachGestures(img) {
+    this.stageEl.addEventListener(
+      "wheel",
+      (evt) => {
+        evt.preventDefault();
+        this.setZoom(this.zoom * (evt.deltaY < 0 ? 1.12 : 1 / 1.12));
+      },
+      { passive: false }
+    );
+    img.addEventListener("dblclick", () => this.setZoom(this.zoom > 1 ? 1 : 2, true));
+    let dragging = false;
+    let originX = 0;
+    let originY = 0;
+    img.addEventListener("mousedown", (evt) => {
+      if (this.zoom <= 1) return;
+      dragging = true;
+      originX = evt.clientX - this.panX;
+      originY = evt.clientY - this.panY;
+      evt.preventDefault();
+    });
+    this.stageEl.addEventListener("mousemove", (evt) => {
+      if (!dragging) return;
+      this.panX = evt.clientX - originX;
+      this.panY = evt.clientY - originY;
+      this.applyTransform();
+    });
+    for (const type of ["mouseup", "mouseleave"]) {
+      this.stageEl.addEventListener(type, () => dragging = false);
+    }
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+function openAttachment(app, files, file) {
+  if (files.length === 0) {
+    new import_obsidian15.Notice("Nothing to show.");
+    return;
+  }
+  new Lightbox(app, files, file).open();
+}
+
+// src/ui/dashboard/tabs/gallery.ts
 var IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
 function renderGallery(parent, ctx) {
   const { trip, plugin, app } = ctx;
@@ -3213,9 +3370,9 @@ function renderGallery(parent, ctx) {
   const attachFolder = app.vault.getAbstractFileByPath(
     `${trip.folderPath}/${plugin.settings.attachmentsFolder}`
   );
-  if (attachFolder instanceof import_obsidian15.TFolder) {
+  if (attachFolder instanceof import_obsidian16.TFolder) {
     const loose = attachFolder.children.filter(
-      (child) => child instanceof import_obsidian15.TFile && child.extension !== "md" && !seen.has(child.path)
+      (child) => child instanceof import_obsidian16.TFile && child.extension !== "md" && !seen.has(child.path)
     );
     if (loose.length > 0) {
       groups.push({
@@ -3237,12 +3394,13 @@ function renderGallery(parent, ctx) {
     );
     return;
   }
-  const total = groups.reduce((n, g) => n + g.files.length, 0);
+  const allFiles = groups.flatMap((g) => g.files);
+  const total = allFiles.length;
   sectionTitle(parent, `${total} attachment${total === 1 ? "" : "s"}`);
   for (const group of groups) {
     const box = parent.createDiv({ cls: "tp-gallery-group" });
     const head = box.createDiv({ cls: "tp-gallery-head" });
-    (0, import_obsidian15.setIcon)(head.createDiv({ cls: "tp-gallery-head-icon" }), group.icon);
+    (0, import_obsidian16.setIcon)(head.createDiv({ cls: "tp-gallery-head-icon" }), group.icon);
     const headText = head.createDiv({ cls: "tp-gallery-head-text" });
     headText.createDiv({ cls: "tp-gallery-head-title", text: group.title });
     if (group.detail) headText.createDiv({ cls: "tp-gallery-head-detail", text: group.detail });
@@ -3264,12 +3422,12 @@ function renderGallery(parent, ctx) {
         img.loading = "lazy";
       } else {
         const doc = cell.createDiv({ cls: "tp-gallery-doc" });
-        (0, import_obsidian15.setIcon)(doc, file.extension === "pdf" ? "file-text" : "file");
+        (0, import_obsidian16.setIcon)(doc, file.extension === "pdf" ? "file-text" : "file");
         doc.createSpan({ cls: "tp-gallery-doc-ext", text: file.extension.toUpperCase() });
       }
       cell.createDiv({ cls: "tp-gallery-caption", text: file.name });
       cell.setAttribute("title", `${file.name} \u2014 ${group.title}`);
-      cell.addEventListener("click", () => ctx.openFile(file));
+      cell.addEventListener("click", () => openAttachment(app, allFiles, file));
     }
   }
 }
@@ -3283,7 +3441,7 @@ var TABS = [
   { id: "costs", label: "Costs", icon: "wallet" },
   { id: "gallery", label: "Gallery", icon: "image" }
 ];
-var TravelDashboardView = class extends import_obsidian16.ItemView {
+var TravelDashboardView = class extends import_obsidian17.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -3413,20 +3571,20 @@ var TravelDashboardView = class extends import_obsidian16.ItemView {
         cls: "tp-icon-btn tp-dash-tripmenu",
         attr: { "aria-label": "Trip actions" }
       });
-      (0, import_obsidian16.setIcon)(menuBtn, "more-vertical");
+      (0, import_obsidian17.setIcon)(menuBtn, "more-vertical");
       menuBtn.addEventListener("click", (evt) => showTripMenu(evt, trip, this.context()));
     }
     const actions = top.createDiv({ cls: "tp-dash-quick" });
     if (trip) {
       const plan = actions.createEl("button", { cls: "tp-dash-quick-btn is-cta" });
-      (0, import_obsidian16.setIcon)(plan.createSpan(), "wand-2");
+      (0, import_obsidian17.setIcon)(plan.createSpan(), "wand-2");
       plan.createSpan({ text: "Plan trip" });
       plan.addEventListener("click", () => this.plugin.openPlanWizard(trip));
       const add = actions.createEl("button", { cls: "tp-dash-quick-btn" });
-      (0, import_obsidian16.setIcon)(add.createSpan(), "plus");
+      (0, import_obsidian17.setIcon)(add.createSpan(), "plus");
       add.createSpan({ text: "Add" });
       add.addEventListener("click", (evt) => {
-        const menu = new import_obsidian16.Menu();
+        const menu = new import_obsidian17.Menu();
         for (const def of BOOKING_KINDS) {
           menu.addItem(
             (i) => i.setTitle(def.label).setIcon(def.icon).onClick(() => this.plugin.openBookingWizard(trip, def.id))
@@ -3444,7 +3602,7 @@ var TravelDashboardView = class extends import_obsidian16.ItemView {
       const el = tabs.createDiv({
         cls: `tp-dash-tab${tab.id === this.tab ? " is-active" : ""}`
       });
-      (0, import_obsidian16.setIcon)(el.createSpan({ cls: "tp-dash-tab-icon" }), tab.icon);
+      (0, import_obsidian17.setIcon)(el.createSpan({ cls: "tp-dash-tab-icon" }), tab.icon);
       el.createSpan({ text: tab.label });
       el.addEventListener("click", () => {
         this.tab = tab.id;
@@ -3455,7 +3613,7 @@ var TravelDashboardView = class extends import_obsidian16.ItemView {
 };
 
 // src/ui/modals/bookingWizard.ts
-var import_obsidian19 = require("obsidian");
+var import_obsidian20 = require("obsidian");
 
 // src/ui/modalUtils.ts
 function keepOpenOnBackgroundClick(modal) {
@@ -3474,7 +3632,7 @@ function keepOpenOnBackgroundClick(modal) {
 }
 
 // src/ui/components/attachmentField.ts
-var import_obsidian17 = require("obsidian");
+var import_obsidian18 = require("obsidian");
 var AttachmentField = class {
   constructor(container, options = {}) {
     this.container = container;
@@ -3501,7 +3659,7 @@ var AttachmentField = class {
   render() {
     const wrap = this.container.createDiv({ cls: "tp-attach" });
     const drop = wrap.createDiv({ cls: "tp-attach-drop" });
-    (0, import_obsidian17.setIcon)(drop.createDiv({ cls: "tp-attach-icon" }), "paperclip");
+    (0, import_obsidian18.setIcon)(drop.createDiv({ cls: "tp-attach-icon" }), "paperclip");
     drop.createDiv({ cls: "tp-attach-label", text: this.label });
     drop.createDiv({ cls: "tp-attach-hint", text: "Drop files here, paste with Cmd+V, or click to choose" });
     this.inputEl = wrap.createEl("input", { cls: "tp-attach-input" });
@@ -3558,14 +3716,14 @@ var AttachmentField = class {
     this.listEl.empty();
     for (const [index, file] of this.files.entries()) {
       const chip = this.listEl.createDiv({ cls: "tp-attach-chip" });
-      (0, import_obsidian17.setIcon)(
+      (0, import_obsidian18.setIcon)(
         chip.createSpan({ cls: "tp-attach-chip-icon" }),
         /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(file.name) ? "image" : "file-text"
       );
       chip.createSpan({ cls: "tp-attach-chip-name", text: file.name });
       chip.createSpan({ cls: "tp-attach-chip-size", text: formatSize(file.size) });
       const remove = chip.createSpan({ cls: "tp-attach-chip-remove", attr: { "aria-label": "Remove" } });
-      (0, import_obsidian17.setIcon)(remove, "x");
+      (0, import_obsidian18.setIcon)(remove, "x");
       remove.addEventListener("click", (evt) => {
         evt.stopPropagation();
         this.files.splice(index, 1);
@@ -3604,7 +3762,7 @@ function formatSize(bytes) {
 }
 
 // src/ui/components/legsField.ts
-var import_obsidian18 = require("obsidian");
+var import_obsidian19 = require("obsidian");
 var LegsField = class {
   constructor(opts) {
     this.opts = opts;
@@ -3624,7 +3782,7 @@ var LegsField = class {
     }
     const add = container.createEl("button", { cls: "tp-leg-add" });
     add.type = "button";
-    (0, import_obsidian18.setIcon)(add.createSpan(), "plus");
+    (0, import_obsidian19.setIcon)(add.createSpan(), "plus");
     add.createSpan({ text: this.legs.length === 1 ? "Add a connecting flight" : "Add another leg" });
     add.addEventListener("click", () => {
       const previous = this.legs[this.legs.length - 1];
@@ -3638,7 +3796,7 @@ var LegsField = class {
   renderLayover(parent, previous, next) {
     const minutes = layoverMinutes(previous, next);
     const row2 = parent.createDiv({ cls: "tp-layover" });
-    (0, import_obsidian18.setIcon)(row2.createSpan({ cls: "tp-layover-icon" }), "hourglass");
+    (0, import_obsidian19.setIcon)(row2.createSpan({ cls: "tp-layover-icon" }), "hourglass");
     if (minutes === null) {
       row2.createSpan({ cls: "tp-layover-text", text: "Layover \u2014 add times to work it out" });
       return;
@@ -3658,7 +3816,7 @@ var LegsField = class {
     if (this.legs.length > 1) {
       const remove = head.createEl("button", { cls: "tp-icon-btn", attr: { "aria-label": "Remove leg" } });
       remove.type = "button";
-      (0, import_obsidian18.setIcon)(remove, "trash-2");
+      (0, import_obsidian19.setIcon)(remove, "trash-2");
       remove.addEventListener("click", () => {
         this.legs.splice(index, 1);
         this.render();
@@ -3798,7 +3956,7 @@ var FIELDS = {
 };
 var STEPS = ["Details", "When", "Cost", "Attachments"];
 var FLIGHT_STEPS = ["Flights", "Cost", "Attachments"];
-var BookingWizard = class extends import_obsidian19.Modal {
+var BookingWizard = class extends import_obsidian20.Modal {
   constructor(app, settings, trip, kind, currency, stars, onSubmit) {
     super(app);
     this.settings = settings;
@@ -3848,7 +4006,7 @@ var BookingWizard = class extends import_obsidian19.Modal {
     this.modalEl.addClass("tp-modal-shell");
     const def = BOOKING_KINDS.find((k) => k.id === this.draft.kind);
     const head = contentEl.createDiv({ cls: "tp-wizard-head" });
-    (0, import_obsidian19.setIcon)(head.createDiv({ cls: "tp-wizard-icon" }), def?.icon ?? "ticket");
+    (0, import_obsidian20.setIcon)(head.createDiv({ cls: "tp-wizard-icon" }), def?.icon ?? "ticket");
     const headText = head.createDiv();
     headText.createDiv({ cls: "tp-modal-title", text: `Add ${def?.label.toLowerCase() ?? "booking"}` });
     headText.createDiv({
@@ -3862,7 +4020,7 @@ var BookingWizard = class extends import_obsidian19.Modal {
       baseName: this.trip.title,
       startIndex: countAttachmentsNamed(this.app, this.settings, this.trip, this.trip.title)
     });
-    new import_obsidian19.Setting(contentEl).setClass("tp-wizard-nav").addButton((btn) => {
+    new import_obsidian20.Setting(contentEl).setClass("tp-wizard-nav").addButton((btn) => {
       this.backBtn = btn;
       btn.setButtonText("Back").onClick(() => this.go(this.step - 1));
     }).addButton((btn) => {
@@ -3911,7 +4069,7 @@ var BookingWizard = class extends import_obsidian19.Modal {
         this.renderCityField(spec);
         continue;
       }
-      new import_obsidian19.Setting(this.bodyEl).setName(spec.label).addText((t) => {
+      new import_obsidian20.Setting(this.bodyEl).setName(spec.label).addText((t) => {
         t.setPlaceholder(spec.placeholder);
         t.setValue(this.draft[spec.key]);
         t.onChange((v) => this.draft[spec.key] = v.trim());
@@ -3920,7 +4078,7 @@ var BookingWizard = class extends import_obsidian19.Modal {
     this.renderStatusAndNotes();
   }
   renderStatusAndNotes() {
-    new import_obsidian19.Setting(this.bodyEl).setName("Status").addDropdown((dd) => {
+    new import_obsidian20.Setting(this.bodyEl).setName("Status").addDropdown((dd) => {
       for (const s of BOOKING_STATUSES) dd.addOption(s.id, s.label);
       dd.setValue(this.draft.status);
       dd.onChange((v) => this.draft.status = v);
@@ -3931,7 +4089,7 @@ var BookingWizard = class extends import_obsidian19.Modal {
         text: `For ${this.trip.travellers.join(", ")} \u2014 change this on the trip.`
       });
     }
-    new import_obsidian19.Setting(this.bodyEl).setName("Notes").addTextArea((ta) => {
+    new import_obsidian20.Setting(this.bodyEl).setName("Notes").addTextArea((ta) => {
       ta.inputEl.rows = 2;
       ta.setValue(this.draft.notes);
       ta.onChange((v) => this.draft.notes = v);
@@ -3949,7 +4107,7 @@ var BookingWizard = class extends import_obsidian19.Modal {
       nearby: () => ({ country: this.trip.country, city: this.trip.city }),
       onChange: () => this.syncFromLegs()
     });
-    new import_obsidian19.Setting(this.bodyEl).setName("Return flight").setDesc("Same ticket, coming back.").addToggle((t) => {
+    new import_obsidian20.Setting(this.bodyEl).setName("Return flight").setDesc("Same ticket, coming back.").addToggle((t) => {
       t.setValue(this.hasReturn);
       t.onChange((value) => {
         this.hasReturn = value;
@@ -4012,7 +4170,7 @@ var BookingWizard = class extends import_obsidian19.Modal {
   }
   /** Text field backed by a picker, with a star button for the ones you reuse. */
   renderPickerField(spec, kind) {
-    const setting = new import_obsidian19.Setting(this.bodyEl).setName(spec.label).setDesc(
+    const setting = new import_obsidian20.Setting(this.bodyEl).setName(spec.label).setDesc(
       kind === "airline" ? "Star the airlines you fly and they stay at the top." : "Search by code, city or airport name. Star the ones you use often."
     );
     let input;
@@ -4053,7 +4211,7 @@ var BookingWizard = class extends import_obsidian19.Modal {
       const value = this.draft[spec.key];
       const starred = value.length > 0 && this.stars.isStarred(kind, value);
       starBtn.empty();
-      (0, import_obsidian19.setIcon)(starBtn, "star");
+      (0, import_obsidian20.setIcon)(starBtn, "star");
       starBtn.toggleClass("is-starred", starred);
       starBtn.toggleClass("is-disabled", value.length === 0);
       starBtn.setAttribute("aria-label", starred ? `Unstar ${value}` : `Star ${value || spec.label}`);
@@ -4070,7 +4228,7 @@ var BookingWizard = class extends import_obsidian19.Modal {
   }
   /** Stations and stops are best described by their city. */
   renderCityField(spec) {
-    new import_obsidian19.Setting(this.bodyEl).setName(spec.label).addText((t) => {
+    new import_obsidian20.Setting(this.bodyEl).setName(spec.label).addText((t) => {
       t.setPlaceholder(spec.placeholder);
       t.setValue(this.draft[spec.key]);
       t.onChange((v) => this.draft[spec.key] = v.trim());
@@ -4125,7 +4283,7 @@ var BookingWizard = class extends import_obsidian19.Modal {
     });
   }
   renderCost() {
-    new import_obsidian19.Setting(this.bodyEl).setName("Cost").setDesc("Entered once here \u2014 it flows straight into the trip's Costs tab.").addText((t) => {
+    new import_obsidian20.Setting(this.bodyEl).setName("Cost").setDesc("Entered once here \u2014 it flows straight into the trip's Costs tab.").addText((t) => {
       t.setPlaceholder("450");
       t.setValue(this.amountRaw);
       t.inputEl.inputMode = "decimal";
@@ -4143,7 +4301,7 @@ var BookingWizard = class extends import_obsidian19.Modal {
         this.renderCostPreview();
       });
     });
-    new import_obsidian19.Setting(this.bodyEl).setName("Category").setDesc("Which budget line this counts against.").addDropdown((dd) => {
+    new import_obsidian20.Setting(this.bodyEl).setName("Category").setDesc("Which budget line this counts against.").addDropdown((dd) => {
       for (const c of allCategories(this.settings.customCategories, [this.draft.category])) {
         dd.addOption(c, c);
       }
@@ -4226,7 +4384,7 @@ var BookingWizard = class extends import_obsidian19.Modal {
   async submit() {
     if (this.submitting) return;
     if (!isValidISODate(this.draft.date)) {
-      new import_obsidian19.Notice("Pick a valid date on the When step.");
+      new import_obsidian20.Notice("Pick a valid date on the When step.");
       this.go(1);
       return;
     }
@@ -4236,7 +4394,7 @@ var BookingWizard = class extends import_obsidian19.Modal {
       await this.onSubmit({ ...this.draft, title: this.effectiveTitle() }, this.attachments.getFiles());
       this.close();
     } catch (err) {
-      new import_obsidian19.Notice(err instanceof Error ? err.message : "Could not save the booking.");
+      new import_obsidian20.Notice(err instanceof Error ? err.message : "Could not save the booking.");
       console.error("[travel-planner]", err);
       this.submitting = false;
       this.nextBtn.setDisabled(false).setButtonText("Save booking");
@@ -4249,8 +4407,8 @@ var BookingWizard = class extends import_obsidian19.Modal {
 };
 
 // src/ui/modals/expenseModal.ts
-var import_obsidian20 = require("obsidian");
-var ExpenseModal = class extends import_obsidian20.Modal {
+var import_obsidian21 = require("obsidian");
+var ExpenseModal = class extends import_obsidian21.Modal {
   constructor(app, settings, trip, currency, onSubmit) {
     super(app);
     this.settings = settings;
@@ -4277,12 +4435,12 @@ var ExpenseModal = class extends import_obsidian20.Modal {
     contentEl.addClass("tp-modal");
     contentEl.createEl("h2", { text: "Log an expense", cls: "tp-modal-title" });
     contentEl.createDiv({ cls: "tp-wizard-sub", text: this.trip.title });
-    new import_obsidian20.Setting(contentEl).setName("What was it?").addText((t) => {
+    new import_obsidian21.Setting(contentEl).setName("What was it?").addText((t) => {
       t.setPlaceholder("Dinner at Proto");
       t.onChange((v) => this.draft.description = v.trim());
       window.setTimeout(() => t.inputEl.focus(), 0);
     });
-    new import_obsidian20.Setting(contentEl).setName("Amount").addText((t) => {
+    new import_obsidian21.Setting(contentEl).setName("Amount").addText((t) => {
       t.setPlaceholder("62,50");
       t.inputEl.inputMode = "decimal";
       t.onChange((v) => this.draft.amount = parseAmount(v) ?? 0);
@@ -4292,19 +4450,19 @@ var ExpenseModal = class extends import_obsidian20.Modal {
       dd.setValue(this.draft.currency);
       dd.onChange((v) => this.draft.currency = v);
     });
-    const dateSetting = new import_obsidian20.Setting(contentEl).setName("Date");
+    const dateSetting = new import_obsidian21.Setting(contentEl).setName("Date");
     const date = dateSetting.controlEl.createEl("input", { cls: "tp-date-input" });
     date.type = "date";
     date.value = this.draft.date;
     date.addEventListener("change", () => this.draft.date = date.value);
-    new import_obsidian20.Setting(contentEl).setName("Category").addDropdown((dd) => {
+    new import_obsidian21.Setting(contentEl).setName("Category").addDropdown((dd) => {
       for (const c of allCategories(this.settings.customCategories, [this.draft.category])) {
         dd.addOption(c, c);
       }
       dd.setValue(this.draft.category);
       dd.onChange((v) => this.draft.category = v);
     });
-    new import_obsidian20.Setting(contentEl).setName("Paid by").addText((t) => {
+    new import_obsidian21.Setting(contentEl).setName("Paid by").addText((t) => {
       t.setPlaceholder("Optional");
       t.onChange((v) => this.draft.paidBy = v.trim());
     });
@@ -4313,7 +4471,7 @@ var ExpenseModal = class extends import_obsidian20.Modal {
       baseName: this.trip.title,
       startIndex: countAttachmentsNamed(this.app, this.settings, this.trip, this.trip.title)
     });
-    new import_obsidian20.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton((btn) => {
+    new import_obsidian21.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton((btn) => {
       this.saveBtn = btn;
       btn.setButtonText("Save expense").setCta().onClick(() => void this.submit());
     });
@@ -4321,15 +4479,15 @@ var ExpenseModal = class extends import_obsidian20.Modal {
   async submit() {
     if (this.submitting) return;
     if (!this.draft.description) {
-      new import_obsidian20.Notice("Give the expense a description.");
+      new import_obsidian21.Notice("Give the expense a description.");
       return;
     }
     if (!Number.isFinite(this.draft.amount) || this.draft.amount <= 0) {
-      new import_obsidian20.Notice("Enter an amount above zero.");
+      new import_obsidian21.Notice("Enter an amount above zero.");
       return;
     }
     if (!isValidISODate(this.draft.date)) {
-      new import_obsidian20.Notice("Pick a valid date.");
+      new import_obsidian21.Notice("Pick a valid date.");
       return;
     }
     this.submitting = true;
@@ -4338,7 +4496,7 @@ var ExpenseModal = class extends import_obsidian20.Modal {
       await this.onSubmit({ ...this.draft }, this.attachments.getFiles());
       this.close();
     } catch (err) {
-      new import_obsidian20.Notice(err instanceof Error ? err.message : "Could not save the expense.");
+      new import_obsidian21.Notice(err instanceof Error ? err.message : "Could not save the expense.");
       console.error("[travel-planner]", err);
       this.submitting = false;
       this.saveBtn?.setDisabled(false).setButtonText("Save expense");
@@ -4351,8 +4509,8 @@ var ExpenseModal = class extends import_obsidian20.Modal {
 };
 
 // src/ui/modals/budgetModal.ts
-var import_obsidian21 = require("obsidian");
-var BudgetModal = class extends import_obsidian21.Modal {
+var import_obsidian22 = require("obsidian");
+var BudgetModal = class extends import_obsidian22.Modal {
   constructor(app, trip, existing, currency, actuals, explicitTotal, custom, onAddCategory, onSave) {
     super(app);
     this.trip = trip;
@@ -4374,7 +4532,7 @@ var BudgetModal = class extends import_obsidian21.Modal {
     contentEl.addClass("tp-modal");
     contentEl.createEl("h2", { text: "Budget", cls: "tp-modal-title" });
     contentEl.createDiv({ cls: "tp-wizard-sub", text: this.trip.title });
-    new import_obsidian21.Setting(contentEl).setName("Budget for the whole trip").setDesc("What you want the trip to cost in total. Leave blank to just add up the categories.").addText((t) => {
+    new import_obsidian22.Setting(contentEl).setName("Budget for the whole trip").setDesc("What you want the trip to cost in total. Leave blank to just add up the categories.").addText((t) => {
       t.setPlaceholder("3000");
       t.setValue(this.total !== null ? String(this.total) : "");
       t.inputEl.inputMode = "decimal";
@@ -4384,7 +4542,7 @@ var BudgetModal = class extends import_obsidian21.Modal {
         this.renderTotal();
       });
     });
-    new import_obsidian21.Setting(contentEl).setName("Currency").setDesc("Used for this trip's budget and totals.").addDropdown((dd) => {
+    new import_obsidian22.Setting(contentEl).setName("Currency").setDesc("Used for this trip's budget and totals.").addDropdown((dd) => {
       const options = /* @__PURE__ */ new Set([this.currency, ...COMMON_CURRENCIES]);
       for (const c of options) dd.addOption(c, c);
       dd.setValue(this.currency);
@@ -4399,7 +4557,7 @@ var BudgetModal = class extends import_obsidian21.Modal {
     ]);
     for (const category of categories) {
       const actual = this.actuals.get(category) ?? 0;
-      const setting = new import_obsidian21.Setting(contentEl).setName(category);
+      const setting = new import_obsidian22.Setting(contentEl).setName(category);
       if (actual > 0) {
         setting.setDesc(
           `${formatMoney({ amount: actual, currency: this.currency })} already booked`
@@ -4442,7 +4600,7 @@ var BudgetModal = class extends import_obsidian21.Modal {
     }
     let newCategory = "";
     let newAmount = "";
-    const addSetting = new import_obsidian21.Setting(contentEl).setName("Add a category");
+    const addSetting = new import_obsidian22.Setting(contentEl).setName("Add a category");
     addSetting.addText((t) => {
       t.setPlaceholder("Car hire");
       t.onChange((v) => newCategory = v.trim());
@@ -4463,7 +4621,7 @@ var BudgetModal = class extends import_obsidian21.Modal {
       const name = newCategory.trim();
       if (!name) return;
       if (allCategories(this.custom).some((c) => c.toLowerCase() === name.toLowerCase())) {
-        new import_obsidian21.Notice(`"${name}" already exists.`);
+        new import_obsidian22.Notice(`"${name}" already exists.`);
         return;
       }
       const amount = parseAmount(newAmount);
@@ -4477,13 +4635,13 @@ var BudgetModal = class extends import_obsidian21.Modal {
     addSetting.addButton((b) => b.setButtonText("Add").onClick(() => void addCategory()));
     this.totalEl = contentEl.createDiv({ cls: "tp-budget-total" });
     this.renderTotal();
-    new import_obsidian21.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton(
+    new import_obsidian22.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton(
       (b) => b.setButtonText("Save budget").setCta().onClick(async () => {
         try {
           await this.onSave(new Map(this.values), this.currency, this.total);
           this.close();
         } catch (err) {
-          new import_obsidian21.Notice(err instanceof Error ? err.message : "Could not save the budget.");
+          new import_obsidian22.Notice(err instanceof Error ? err.message : "Could not save the budget.");
           console.error("[travel-planner]", err);
         }
       })
@@ -4521,7 +4679,7 @@ var BudgetModal = class extends import_obsidian21.Modal {
 };
 
 // src/ui/modals/packingModal.ts
-var import_obsidian23 = require("obsidian");
+var import_obsidian24 = require("obsidian");
 
 // src/store/packing.ts
 var LAUNDRY_THRESHOLD = 12;
@@ -4648,7 +4806,7 @@ function renderPackingPlan(plan) {
 }
 
 // src/store/sectionWriter.ts
-var import_obsidian22 = require("obsidian");
+var import_obsidian23 = require("obsidian");
 async function replaceSection(app, file, heading, body) {
   const content = await app.vault.read(file);
   const lines2 = content.split("\n");
@@ -4716,7 +4874,7 @@ ${table}`);
 function subNoteFile(app, trip, id) {
   const path = `${trip.folderPath}/${SUB_NOTE_LABELS[id]}.md`;
   const file = app.vault.getAbstractFileByPath(path);
-  return file instanceof import_obsidian22.TFile ? file : null;
+  return file instanceof import_obsidian23.TFile ? file : null;
 }
 async function ensureSubNote(app, trip, id) {
   const existing = subNoteFile(app, trip, id);
@@ -4736,7 +4894,7 @@ async function ensureSubNote(app, trip, id) {
 }
 
 // src/ui/modals/packingModal.ts
-var PackingModal = class extends import_obsidian23.Modal {
+var PackingModal = class extends import_obsidian24.Modal {
   constructor(app, trip, onSaved) {
     super(app);
     this.trip = trip;
@@ -4764,7 +4922,7 @@ var PackingModal = class extends import_obsidian23.Modal {
     this.summaryEl = contentEl.createDiv({ cls: "tp-packing-summary" });
     this.listEl = contentEl.createDiv({ cls: "tp-packing-list" });
     this.renderList();
-    new import_obsidian23.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton((b) => {
+    new import_obsidian24.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton((b) => {
       this.saveBtn = b;
       b.setButtonText("Save list").setCta().onClick(() => void this.save());
     });
@@ -4834,7 +4992,7 @@ var PackingModal = class extends import_obsidian23.Modal {
   renderPackFor(parent) {
     const people = this.trip.travellers;
     if (people.length <= 1) return;
-    const setting = new import_obsidian23.Setting(parent).setName("Packing for").setDesc("Clothing counts scale with who you tick. Toiletries and gear stay as one each.");
+    const setting = new import_obsidian24.Setting(parent).setName("Packing for").setDesc("Clothing counts scale with who you tick. Toiletries and gear stay as one each.");
     const row2 = setting.controlEl.createDiv({ cls: "tp-settings-subnotes" });
     for (const person of people) {
       const label = row2.createEl("label", { cls: "tp-subnote" });
@@ -4851,7 +5009,7 @@ var PackingModal = class extends import_obsidian23.Modal {
   }
   /** Nothing generated covers everything; this is the escape hatch. */
   renderAddItem(parent) {
-    const setting = new import_obsidian23.Setting(parent).setName("Add an item");
+    const setting = new import_obsidian24.Setting(parent).setName("Add an item");
     let name = "";
     let section = "Misc";
     let quantity = "";
@@ -4963,11 +5121,11 @@ var PackingModal = class extends import_obsidian23.Modal {
 
 `;
       await this.app.vault.modify(file, head + out.join("\n"));
-      new import_obsidian23.Notice(`Packing list saved \u2014 ${included.length} items.`);
+      new import_obsidian24.Notice(`Packing list saved \u2014 ${included.length} items.`);
       this.onSaved();
       this.close();
     } catch (err) {
-      new import_obsidian23.Notice(err instanceof Error ? err.message : "Could not save the packing list.");
+      new import_obsidian24.Notice(err instanceof Error ? err.message : "Could not save the packing list.");
       console.error("[travel-planner]", err);
       this.saveBtn?.setDisabled(false).setButtonText("Save list");
     }
@@ -4978,8 +5136,8 @@ var PackingModal = class extends import_obsidian23.Modal {
 };
 
 // src/ui/modals/eventDetailsModal.ts
-var import_obsidian24 = require("obsidian");
-var EventDetailsModal = class extends import_obsidian24.Modal {
+var import_obsidian25 = require("obsidian");
+var EventDetailsModal = class extends import_obsidian25.Modal {
   constructor(app, trip, onSaved) {
     super(app);
     this.trip = trip;
@@ -5007,14 +5165,14 @@ var EventDetailsModal = class extends import_obsidian24.Modal {
     contentEl.createEl("h2", { text: "Event details", cls: "tp-modal-title" });
     contentEl.createDiv({ cls: "tp-wizard-sub", text: this.trip.title });
     await this.prefillFromNote();
-    const text = (name, key, placeholder) => new import_obsidian24.Setting(contentEl).setName(name).addText((t) => {
+    const text = (name, key, placeholder) => new import_obsidian25.Setting(contentEl).setName(name).addText((t) => {
       t.setPlaceholder(placeholder);
       t.setValue(this.fields[key]);
       t.onChange((v) => this.fields[key] = v.trim());
     });
     text("Venue", "venue", "Ziggo Dome");
     text("Address", "address", "De Passage 100, Amsterdam");
-    const timeRow = new import_obsidian24.Setting(contentEl).setName("Doors / start");
+    const timeRow = new import_obsidian25.Setting(contentEl).setName("Doors / start");
     for (const key of ["doors", "start"]) {
       const input = timeRow.controlEl.createEl("input", { cls: "tp-time-input" });
       input.type = "time";
@@ -5025,18 +5183,18 @@ var EventDetailsModal = class extends import_obsidian24.Modal {
     text("Tickets", "tickets", "2 \xD7 standing");
     text("Booking reference", "reference", "ABC123");
     text("Seat / section", "seat", "Block C, row 4");
-    new import_obsidian24.Setting(contentEl).setName("Line-up").addTextArea((ta) => {
+    new import_obsidian25.Setting(contentEl).setName("Line-up").addTextArea((ta) => {
       ta.inputEl.rows = 3;
       ta.setPlaceholder("Support act, main act\u2026");
       ta.setValue(this.fields.lineup);
       ta.onChange((v) => this.fields.lineup = v);
     });
-    new import_obsidian24.Setting(contentEl).setName("Notes").addTextArea((ta) => {
+    new import_obsidian25.Setting(contentEl).setName("Notes").addTextArea((ta) => {
       ta.inputEl.rows = 2;
       ta.setValue(this.fields.notes);
       ta.onChange((v) => this.fields.notes = v);
     });
-    new import_obsidian24.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton((b) => {
+    new import_obsidian25.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton((b) => {
       this.saveBtn = b;
       b.setButtonText("Save details").setCta().onClick(() => void this.save());
     });
@@ -5084,11 +5242,11 @@ var EventDetailsModal = class extends import_obsidian24.Modal {
           fm.venue = f.venue;
         });
       }
-      new import_obsidian24.Notice("Event details saved.");
+      new import_obsidian25.Notice("Event details saved.");
       this.onSaved();
       this.close();
     } catch (err) {
-      new import_obsidian24.Notice(err instanceof Error ? err.message : "Could not save the event details.");
+      new import_obsidian25.Notice(err instanceof Error ? err.message : "Could not save the event details.");
       console.error("[travel-planner]", err);
       this.saveBtn?.setDisabled(false).setButtonText("Save details");
     }
@@ -5099,8 +5257,8 @@ var EventDetailsModal = class extends import_obsidian24.Modal {
 };
 
 // src/ui/modals/foodModal.ts
-var import_obsidian25 = require("obsidian");
-var FoodModal = class extends import_obsidian25.Modal {
+var import_obsidian26 = require("obsidian");
+var FoodModal = class extends import_obsidian26.Modal {
   constructor(app, settings, trip, onSaved) {
     super(app);
     this.settings = settings;
@@ -5126,12 +5284,12 @@ var FoodModal = class extends import_obsidian25.Modal {
       cls: "tp-wizard-sub",
       text: [this.trip.title, this.trip.city].filter(Boolean).join(" \xB7 ")
     });
-    new import_obsidian25.Setting(contentEl).setName("Place").addText((t) => {
+    new import_obsidian26.Setting(contentEl).setName("Place").addText((t) => {
       t.setPlaceholder("Restaurant name");
       t.onChange((v) => this.place = v.trim());
       window.setTimeout(() => t.inputEl.focus(), 0);
     });
-    const when = new import_obsidian25.Setting(contentEl).setName("When");
+    const when = new import_obsidian26.Setting(contentEl).setName("When");
     const date = when.controlEl.createEl("input", { cls: "tp-date-input" });
     date.type = "date";
     date.value = this.date;
@@ -5142,11 +5300,11 @@ var FoodModal = class extends import_obsidian25.Modal {
     time.type = "time";
     time.setAttribute("aria-label", "Time");
     time.addEventListener("change", () => this.time = time.value);
-    new import_obsidian25.Setting(contentEl).setName("Booked by").addText((t) => {
+    new import_obsidian26.Setting(contentEl).setName("Booked by").addText((t) => {
       t.setPlaceholder("Optional");
       t.onChange((v) => this.bookedBy = v.trim());
     });
-    new import_obsidian25.Setting(contentEl).setName("Notes").addTextArea((ta) => {
+    new import_obsidian26.Setting(contentEl).setName("Notes").addTextArea((ta) => {
       ta.inputEl.rows = 2;
       ta.setPlaceholder("Reference, dress code, table by the window\u2026");
       ta.onChange((v) => this.notes = v);
@@ -5155,14 +5313,14 @@ var FoodModal = class extends import_obsidian25.Modal {
     hint.setText(
       this.trip.city ? `Places you still want to try are listed by the Food Spot block in this note, filtered to ${this.trip.city}.` : "Set a city on the trip and the Food Spot block will list places to try there."
     );
-    new import_obsidian25.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton((b) => {
+    new import_obsidian26.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton((b) => {
       this.saveBtn = b;
       b.setButtonText("Save booking").setCta().onClick(() => void this.save());
     });
   }
   async save() {
     if (!this.place) {
-      new import_obsidian25.Notice("Which place?");
+      new import_obsidian26.Notice("Which place?");
       return;
     }
     this.saveBtn?.setDisabled(true).setButtonText("Saving\u2026");
@@ -5188,11 +5346,11 @@ ${block.join("\n")}
         ["Date", "Time", "Place", "Booked by", "Notes"],
         [this.date, this.time || "", this.place, this.bookedBy || "", this.notes.replace(/\|/g, "\\|")]
       );
-      new import_obsidian25.Notice(`Booked ${this.place}.`);
+      new import_obsidian26.Notice(`Booked ${this.place}.`);
       this.onSaved();
       this.close();
     } catch (err) {
-      new import_obsidian25.Notice(err instanceof Error ? err.message : "Could not save the booking.");
+      new import_obsidian26.Notice(err instanceof Error ? err.message : "Could not save the booking.");
       console.error("[travel-planner]", err);
       this.saveBtn?.setDisabled(false).setButtonText("Save booking");
     }
@@ -5203,8 +5361,8 @@ ${block.join("\n")}
 };
 
 // src/ui/modals/tripPlanWizard.ts
-var import_obsidian26 = require("obsidian");
-var TripPlanWizard = class extends import_obsidian26.Modal {
+var import_obsidian27 = require("obsidian");
+var TripPlanWizard = class extends import_obsidian27.Modal {
   constructor(app, plugin, trip) {
     super(app);
     this.plugin = plugin;
@@ -5305,17 +5463,6 @@ var TripPlanWizard = class extends import_obsidian26.Modal {
         applies: !def.singleDay || def.hasVenue === false
       },
       {
-        key: "event",
-        title: "Event details",
-        detail: "Venue, doors, tickets.",
-        icon: "ticket",
-        done: progressOf("event-details")?.state !== "empty" && has("event-details"),
-        summary: progressOf("event-details")?.detail ?? "Not started",
-        action: () => plugin.openNoteWizard(trip, "event-details"),
-        actionLabel: "Fill in",
-        applies: def.hasVenue
-      },
-      {
         key: "activities",
         title: "What to do",
         detail: "Tours, tickets, museums, the things you're going for.",
@@ -5382,7 +5529,7 @@ var TripPlanWizard = class extends import_obsidian26.Modal {
     contentEl.empty();
     contentEl.addClass("tp-modal", "tp-plan");
     const head = contentEl.createDiv({ cls: "tp-wizard-head" });
-    (0, import_obsidian26.setIcon)(head.createDiv({ cls: "tp-wizard-icon" }), kindDef(trip.kind).icon);
+    (0, import_obsidian27.setIcon)(head.createDiv({ cls: "tp-wizard-icon" }), kindDef(trip.kind).icon);
     const headText = head.createDiv();
     headText.createDiv({ cls: "tp-modal-title", text: `Plan ${trip.title}` });
     headText.createDiv({
@@ -5404,9 +5551,9 @@ var TripPlanWizard = class extends import_obsidian26.Modal {
     for (const step of steps) {
       const row2 = list3.createDiv({ cls: `tp-plan-row${step.done ? " is-done" : ""}` });
       const mark = row2.createDiv({ cls: `tp-mark ${step.done ? "is-complete" : "is-empty"}` });
-      (0, import_obsidian26.setIcon)(mark, step.done ? "check" : "x");
+      (0, import_obsidian27.setIcon)(mark, step.done ? "check" : "x");
       const icon = row2.createDiv({ cls: "tp-plan-icon" });
-      (0, import_obsidian26.setIcon)(icon, step.icon);
+      (0, import_obsidian27.setIcon)(icon, step.icon);
       const text = row2.createDiv({ cls: "tp-plan-text" });
       text.createDiv({ cls: "tp-plan-title", text: step.title });
       text.createDiv({ cls: "tp-plan-summary", text: step.summary || step.detail });
@@ -5416,7 +5563,7 @@ var TripPlanWizard = class extends import_obsidian26.Modal {
       });
       btn.addEventListener("click", () => step.action());
     }
-    new import_obsidian26.Setting(contentEl).addButton(
+    new import_obsidian27.Setting(contentEl).addButton(
       (b) => b.setButtonText(done === steps.length ? "All done" : "Finish later").setCta().onClick(() => this.close())
     );
   }
@@ -5460,10 +5607,10 @@ async function syncBookingNotes(app, trip, bookings) {
 }
 
 // src/travel/travelService.ts
-var import_obsidian28 = require("obsidian");
+var import_obsidian29 = require("obsidian");
 
 // src/travel/googleApi.ts
-var import_obsidian27 = require("obsidian");
+var import_obsidian28 = require("obsidian");
 var GoogleApiError = class extends Error {
 };
 var GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json";
@@ -5471,7 +5618,7 @@ var MATRIX_URL = "https://maps.googleapis.com/maps/api/distancematrix/json";
 var MAX_DESTINATIONS = 25;
 async function geocode(address, apiKey) {
   const url = `${GEOCODE_URL}?address=${encodeURIComponent(address)}&key=${encodeURIComponent(apiKey)}`;
-  const response = await (0, import_obsidian27.requestUrl)({ url, throw: false });
+  const response = await (0, import_obsidian28.requestUrl)({ url, throw: false });
   if (response.status !== 200) {
     throw new GoogleApiError(`Geocoding failed with HTTP ${response.status}.`);
   }
@@ -5500,7 +5647,7 @@ async function distanceMatrix(origin, destinations, mode, apiKey, departureTime)
     const when = departureTime && departureTime.getTime() > Date.now() ? departureTime : /* @__PURE__ */ new Date();
     params.set("departure_time", String(Math.floor(when.getTime() / 1e3)));
   }
-  const response = await (0, import_obsidian27.requestUrl)({ url: `${MATRIX_URL}?${params.toString()}`, throw: false });
+  const response = await (0, import_obsidian28.requestUrl)({ url: `${MATRIX_URL}?${params.toString()}`, throw: false });
   if (response.status !== 200) {
     throw new GoogleApiError(`Distance lookup failed with HTTP ${response.status}.`);
   }
@@ -5533,7 +5680,7 @@ function describe(status, message, what) {
 
 // src/travel/travelService.ts
 function emptyTravelCache() {
-  return { legs: {}, geocode: {}, advice: {} };
+  return { legs: {}, geocode: {} };
 }
 var TravelUnavailable = class extends Error {
 };
@@ -5716,6 +5863,26 @@ var TravelService = class {
     start.setUTCHours(9, 0, 0, 0);
     return start;
   }
+  /**
+   * Drops everything cached for one trip.
+   *
+   * Cached routes are keyed by coordinate, not by trip, so this works out which
+   * coordinates belonged to it and removes any leg touching them.
+   */
+  async forgetTrip(trip) {
+    const bookings = this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${trip.folderPath}/`));
+    const keys = /* @__PURE__ */ new Set();
+    for (const file of bookings) {
+      const coord = parseLocation(this.app.metadataCache.getFileCache(file)?.frontmatter?.location);
+      if (coord) keys.add(coordKey(coord));
+    }
+    if (keys.size === 0) return;
+    for (const key of Object.keys(this.cache.legs)) {
+      const [from, to] = key.split("|");
+      if (keys.has(from) || keys.has(to)) delete this.cache.legs[key];
+    }
+    await this.persist();
+  }
   /** Wipes cached legs so the next look-up re-fetches. */
   async clearLegs() {
     this.cache.legs = {};
@@ -5733,7 +5900,7 @@ var TravelService = class {
    * user clicks the import button.
    */
   async importFoodSpotKey() {
-    const path = (0, import_obsidian28.normalizePath)(`${this.app.vault.configDir}/plugins/foodspot/data.json`);
+    const path = (0, import_obsidian29.normalizePath)(`${this.app.vault.configDir}/plugins/foodspot/data.json`);
     try {
       const raw = await this.app.vault.adapter.read(path);
       const parsed = JSON.parse(raw);
@@ -5746,7 +5913,7 @@ var TravelService = class {
 };
 
 // src/store/noteWriter.ts
-var import_obsidian29 = require("obsidian");
+var import_obsidian30 = require("obsidian");
 
 // src/store/templates.ts
 function lines(...parts) {
@@ -5986,20 +6153,20 @@ function emptyDayDates(content) {
 var TripWriteError = class extends Error {
 };
 async function ensureFolder2(app, path) {
-  const normalized = (0, import_obsidian29.normalizePath)(path);
+  const normalized = (0, import_obsidian30.normalizePath)(path);
   if (!normalized || normalized === "/") return;
   const existing = app.vault.getAbstractFileByPath(normalized);
-  if (existing instanceof import_obsidian29.TFolder) return;
+  if (existing instanceof import_obsidian30.TFolder) return;
   if (existing) throw new TripWriteError(`"${normalized}" already exists and is not a folder.`);
   const parts = normalized.split("/");
   let cursor = "";
   for (const part of parts) {
     cursor = cursor ? `${cursor}/${part}` : part;
-    if (app.vault.getAbstractFileByPath(cursor) instanceof import_obsidian29.TFolder) continue;
+    if (app.vault.getAbstractFileByPath(cursor) instanceof import_obsidian30.TFolder) continue;
     try {
       await app.vault.createFolder(cursor);
     } catch (err) {
-      if (!(app.vault.getAbstractFileByPath(cursor) instanceof import_obsidian29.TFolder)) throw err;
+      if (!(app.vault.getAbstractFileByPath(cursor) instanceof import_obsidian30.TFolder)) throw err;
     }
   }
 }
@@ -6033,7 +6200,7 @@ function tripFolderPath(settings, draft) {
     country: draft.country,
     kind: draft.kind
   });
-  return joinPath((0, import_obsidian29.normalizePath)(settings.tripsFolder), relative);
+  return joinPath((0, import_obsidian30.normalizePath)(settings.tripsFolder), relative);
 }
 function tripFrontmatter(draft) {
   const def = kindDef(draft.kind);
@@ -6044,6 +6211,7 @@ function tripFrontmatter(draft) {
     start_date: draft.startDate,
     end_date: def.singleDay ? draft.startDate : draft.endDate
   };
+  if (draft.budgetTotal !== null && draft.budgetTotal > 0) fm.budget_total = draft.budgetTotal;
   if (draft.travellers.length > 0) fm.travellers = draft.travellers;
   if (draft.originCity) fm.origin_city = draft.originCity;
   if (draft.originAirport) fm.origin_airport = draft.originAirport;
@@ -6113,7 +6281,7 @@ async function updateTrip(app, settings, trip, draft) {
   let folderPath = trip.folderPath;
   if (desiredFolder !== trip.folderPath) {
     const folder = app.vault.getAbstractFileByPath(trip.folderPath);
-    if (folder instanceof import_obsidian29.TFolder && !app.vault.getAbstractFileByPath(desiredFolder)) {
+    if (folder instanceof import_obsidian30.TFolder && !app.vault.getAbstractFileByPath(desiredFolder)) {
       await ensureFolder2(app, desiredFolder.split("/").slice(0, -1).join("/"));
       await app.fileManager.renameFile(folder, desiredFolder);
       folderPath = desiredFolder;
@@ -6130,12 +6298,12 @@ async function updateTrip(app, settings, trip, draft) {
 }
 function tripDeletionTargets(app, trip) {
   const folder = app.vault.getAbstractFileByPath(trip.folderPath);
-  if (!(folder instanceof import_obsidian29.TFolder)) return [trip.file];
+  if (!(folder instanceof import_obsidian30.TFolder)) return [trip.file];
   let tripNotes = 0;
   const walk = (dir) => {
     for (const child of dir.children) {
-      if (child instanceof import_obsidian29.TFolder) walk(child);
-      else if (child instanceof import_obsidian29.TFile && child.extension === "md") {
+      if (child instanceof import_obsidian30.TFolder) walk(child);
+      else if (child instanceof import_obsidian30.TFile && child.extension === "md") {
         const fm = app.metadataCache.getFileCache(child)?.frontmatter;
         if (fm?.type === "trip") tripNotes += 1;
       }
@@ -6147,7 +6315,7 @@ function tripDeletionTargets(app, trip) {
 function describeDeletion(app, targets) {
   const out = [];
   const walk = (item) => {
-    if (item instanceof import_obsidian29.TFolder) item.children.forEach(walk);
+    if (item instanceof import_obsidian30.TFolder) item.children.forEach(walk);
     else out.push(item.path);
   };
   targets.forEach(walk);
@@ -6213,12 +6381,12 @@ ${lines2.slice(insertAt).join("\n")}`;
 }
 function notifyError(err, fallback) {
   const message = err instanceof Error ? err.message : fallback;
-  new import_obsidian29.Notice(`Travel Planner: ${message}`);
+  new import_obsidian30.Notice(`Travel Planner: ${message}`);
   console.error("[travel-planner]", err);
 }
 
 // src/ui/view.ts
-var import_obsidian30 = require("obsidian");
+var import_obsidian31 = require("obsidian");
 var GROUPS = [
   { status: "current", label: "Happening now" },
   { status: "upcoming", label: "Upcoming" },
@@ -6233,7 +6401,7 @@ var SUB_NOTE_ICONS = {
   food: "utensils",
   "event-details": "ticket"
 };
-var TravelSidebarView = class extends import_obsidian30.ItemView {
+var TravelSidebarView = class extends import_obsidian31.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -6311,7 +6479,7 @@ var TravelSidebarView = class extends import_obsidian30.ItemView {
   renderHeader(container) {
     const header = container.createDiv({ cls: "tp-header" });
     const newBtn = header.createEl("button", { cls: "tp-new-btn" });
-    (0, import_obsidian30.setIcon)(newBtn.createSpan({ cls: "tp-new-icon" }), "plus");
+    (0, import_obsidian31.setIcon)(newBtn.createSpan({ cls: "tp-new-icon" }), "plus");
     newBtn.createSpan({ text: "New trip" });
     newBtn.addEventListener("click", () => this.plugin.openNewTripModal());
     const search = header.createEl("input", { cls: "tp-search" });
@@ -6328,7 +6496,7 @@ var TravelSidebarView = class extends import_obsidian30.ItemView {
   }
   renderEmpty(container, title, detail) {
     const empty = container.createDiv({ cls: "tp-empty" });
-    (0, import_obsidian30.setIcon)(empty.createDiv({ cls: "tp-empty-icon" }), "plane");
+    (0, import_obsidian31.setIcon)(empty.createDiv({ cls: "tp-empty-icon" }), "plane");
     empty.createDiv({ cls: "tp-empty-title", text: title });
     empty.createDiv({ cls: "tp-empty-detail", text: detail });
   }
@@ -6348,7 +6516,7 @@ var TravelSidebarView = class extends import_obsidian30.ItemView {
       cls: `tp-twisty${isOpen ? " is-open" : ""}`,
       attr: { "aria-label": isOpen ? "Collapse" : "Expand" }
     });
-    (0, import_obsidian30.setIcon)(twisty, "chevron-right");
+    (0, import_obsidian31.setIcon)(twisty, "chevron-right");
     twisty.addEventListener("click", (evt) => {
       evt.stopPropagation();
       if (isOpen) this.expanded.delete(trip.file.path);
@@ -6356,7 +6524,7 @@ var TravelSidebarView = class extends import_obsidian30.ItemView {
       this.render();
     });
     const icon = item.createDiv({ cls: "tp-trip-icon" });
-    (0, import_obsidian30.setIcon)(icon, def.icon);
+    (0, import_obsidian31.setIcon)(icon, def.icon);
     const body = item.createDiv({ cls: "tp-trip-body" });
     body.createDiv({ cls: "tp-trip-title", text: trip.title });
     const meta = body.createDiv({ cls: "tp-trip-meta" });
@@ -6370,7 +6538,7 @@ var TravelSidebarView = class extends import_obsidian30.ItemView {
       cls: "tp-icon-btn",
       attr: { "aria-label": "Trip actions" }
     });
-    (0, import_obsidian30.setIcon)(menuBtn, "more-vertical");
+    (0, import_obsidian31.setIcon)(menuBtn, "more-vertical");
     menuBtn.addEventListener("click", (evt) => {
       evt.stopPropagation();
       this.showMenu(evt, trip);
@@ -6424,7 +6592,7 @@ var TravelSidebarView = class extends import_obsidian30.ItemView {
       const dot = row2.createDiv({ cls: "tp-dot", attr: { "aria-label": this.stateLabel(state) } });
       dot.setAttribute("title", this.stateLabel(state));
       const iconEl = row2.createDiv({ cls: "tp-subnote-icon" });
-      (0, import_obsidian30.setIcon)(iconEl, sub.id ? SUB_NOTE_ICONS[sub.id] ?? "file-text" : "file-text");
+      (0, import_obsidian31.setIcon)(iconEl, sub.id ? SUB_NOTE_ICONS[sub.id] ?? "file-text" : "file-text");
       const text = row2.createDiv({ cls: "tp-subnote-text" });
       text.createDiv({ cls: "tp-subnote-name", text: sub.label });
       text.createDiv({
@@ -6443,7 +6611,7 @@ var TravelSidebarView = class extends import_obsidian30.ItemView {
       row2.addEventListener("contextmenu", (evt) => {
         evt.preventDefault();
         evt.stopPropagation();
-        const menu = new import_obsidian30.Menu();
+        const menu = new import_obsidian31.Menu();
         menu.addItem(
           (i) => i.setTitle("Open").setIcon("file-text").onClick(() => void this.openFile(sub.file, false))
         );
@@ -6475,7 +6643,7 @@ var TravelSidebarView = class extends import_obsidian30.ItemView {
     return `In ${Math.round(days / 30)} months`;
   }
   showMenu(evt, trip) {
-    const menu = new import_obsidian30.Menu();
+    const menu = new import_obsidian31.Menu();
     menu.addItem(
       (item) => item.setTitle("Open").setIcon("file-text").onClick(() => void this.plugin.openTrip(trip))
     );
@@ -6501,7 +6669,7 @@ var TravelSidebarView = class extends import_obsidian30.ItemView {
     menu.addItem(
       (item) => item.setTitle("Copy folder path").setIcon("clipboard-copy").onClick(async () => {
         await navigator.clipboard.writeText(trip.folderPath);
-        new import_obsidian30.Notice(`Copied ${trip.folderPath}`);
+        new import_obsidian31.Notice(`Copied ${trip.folderPath}`);
       })
     );
     menu.addSeparator();
@@ -6513,7 +6681,7 @@ var TravelSidebarView = class extends import_obsidian30.ItemView {
 };
 
 // src/ui/modals/tripModal.ts
-var import_obsidian31 = require("obsidian");
+var import_obsidian32 = require("obsidian");
 
 // src/ui/components/dateRange.ts
 var DURATIONS = [1, 2, 3, 4, 5, 7, 10, 14, 21];
@@ -6634,7 +6802,7 @@ var DateRangeField = class {
 };
 
 // src/ui/modals/tripModal.ts
-var TripModal = class _TripModal extends import_obsidian31.Modal {
+var TripModal = class _TripModal extends import_obsidian32.Modal {
   constructor(app, settings, mode, initial, onSubmit) {
     super(app);
     this.settings = settings;
@@ -6662,6 +6830,7 @@ var TripModal = class _TripModal extends import_obsidian31.Modal {
       travellers: initial.travellers ?? (mode === "create" ? [...settings.household] : []),
       originCity: initial.originCity ?? (mode === "create" ? settings.homeCity : ""),
       originAirport: initial.originAirport ?? (mode === "create" ? settings.homeAirport : ""),
+      budgetTotal: initial.budgetTotal ?? null,
       subNotes: initial.subNotes ?? [...settings.subNotesByKind[kind] ?? kindDef(kind).subNotes]
     };
     this.titleIsAuto = !this.draft.title;
@@ -6682,6 +6851,7 @@ var TripModal = class _TripModal extends import_obsidian31.Modal {
         travellers: trip.travellers,
         originCity: trip.originCity,
         originAirport: trip.originAirport,
+        budgetTotal: trip.budgetTotal,
         subNotes: []
       },
       onSubmit
@@ -6713,13 +6883,13 @@ var TripModal = class _TripModal extends import_obsidian31.Modal {
     this.dates.setSingleDay(kindDef(this.draft.kind).singleDay);
     if (this.mode === "create") {
       this.renderSubNotePicker(contentEl);
-      new import_obsidian31.Setting(contentEl).setName("Notes").addTextArea((ta) => {
+      new import_obsidian32.Setting(contentEl).setName("Notes").addTextArea((ta) => {
         ta.setPlaceholder("Anything you already know about this trip\u2026");
         ta.inputEl.rows = 3;
         ta.onChange((v) => this.draft.notes = v);
       });
     }
-    new import_obsidian31.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton((btn) => {
+    new import_obsidian32.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton((btn) => {
       this.submitBtn = btn;
       btn.setButtonText(this.mode === "create" ? "Create trip" : "Save changes").setCta().onClick(() => void this.submit());
     });
@@ -6738,7 +6908,7 @@ var TripModal = class _TripModal extends import_obsidian31.Modal {
     for (const def of KINDS) {
       const btn = row2.createEl("button", { cls: "tp-kind" });
       btn.type = "button";
-      (0, import_obsidian31.setIcon)(btn.createSpan({ cls: "tp-kind-icon" }), def.icon);
+      (0, import_obsidian32.setIcon)(btn.createSpan({ cls: "tp-kind-icon" }), def.icon);
       btn.createSpan({ cls: "tp-kind-label", text: def.label });
       btn.addEventListener("click", () => this.setKind(def.id));
       this.kindButtons.set(def.id, btn);
@@ -6767,7 +6937,7 @@ var TripModal = class _TripModal extends import_obsidian31.Modal {
     }
   }
   renderPlaceFields(parent) {
-    new import_obsidian31.Setting(parent).setName("Title").setDesc("Shown in the sidebar and used as the note name.").addText(
+    new import_obsidian32.Setting(parent).setName("Title").setDesc("Shown in the sidebar and used as the note name.").addText(
       (t) => {
         this.titleInput = t.inputEl;
         t.setPlaceholder("e.g. Japan 2026, or Radiohead at Ziggo Dome");
@@ -6778,7 +6948,7 @@ var TripModal = class _TripModal extends import_obsidian31.Modal {
         });
       }
     );
-    new import_obsidian31.Setting(parent).setName("Country").addText((t) => {
+    new import_obsidian32.Setting(parent).setName("Country").addText((t) => {
       this.countryInput = t.inputEl;
       t.setPlaceholder("Start typing\u2026");
       t.setValue(this.draft.country);
@@ -6787,7 +6957,7 @@ var TripModal = class _TripModal extends import_obsidian31.Modal {
         this.draft.country = value;
       });
     });
-    new import_obsidian31.Setting(parent).setName("City").setDesc("Drives the Food Spot embed, so it should match how Food Spot spells it.").addText((t) => {
+    new import_obsidian32.Setting(parent).setName("City").setDesc("Drives the Food Spot embed, so it should match how Food Spot spells it.").addText((t) => {
       t.setPlaceholder("Start typing\u2026");
       t.setValue(this.draft.city);
       t.onChange((v) => this.setCity(v.trim(), false));
@@ -6798,7 +6968,7 @@ var TripModal = class _TripModal extends import_obsidian31.Modal {
         (value) => this.setCity(value, true)
       );
     });
-    new import_obsidian31.Setting(parent).setName("Travelling from").setDesc("Your origin city and home airport, pre-filled from settings.").addText((t) => {
+    new import_obsidian32.Setting(parent).setName("Travelling from").setDesc("Your origin city and home airport, pre-filled from settings.").addText((t) => {
       t.setPlaceholder("City");
       t.setValue(this.draft.originCity);
       t.onChange((v) => this.draft.originCity = v.trim());
@@ -6822,14 +6992,23 @@ var TripModal = class _TripModal extends import_obsidian31.Modal {
         () => ({ country: this.settings.defaultCountry, city: this.draft.originCity })
       );
     });
-    new import_obsidian31.Setting(parent).setName("Who's going").setDesc("Separate names with commas. Drives packing quantities and the cost split.").addText((t) => {
+    new import_obsidian32.Setting(parent).setName("Budget").setDesc("Roughly what you want the whole trip to cost. Used everywhere costs are shown.").addText((t) => {
+      t.setPlaceholder("3000");
+      t.inputEl.inputMode = "decimal";
+      t.setValue(this.draft.budgetTotal !== null ? String(this.draft.budgetTotal) : "");
+      t.onChange((v) => {
+        const amount = parseAmount(v);
+        this.draft.budgetTotal = amount !== null && amount > 0 ? amount : null;
+      });
+    });
+    new import_obsidian32.Setting(parent).setName("Who's going").setDesc("Separate names with commas. Drives packing quantities and the cost split.").addText((t) => {
       t.setPlaceholder("Iwan, Gaurav");
       t.setValue(this.draft.travellers.join(", "));
       t.onChange((v) => {
         this.draft.travellers = v.split(",").map((name) => name.trim()).filter(Boolean);
       });
     });
-    this.venueSetting = new import_obsidian31.Setting(parent).setName("Venue").addText((t) => {
+    this.venueSetting = new import_obsidian32.Setting(parent).setName("Venue").addText((t) => {
       t.setPlaceholder("e.g. Ziggo Dome");
       t.setValue(this.draft.venue);
       t.onChange((v) => {
@@ -6899,13 +7078,13 @@ var TripModal = class _TripModal extends import_obsidian31.Modal {
     if (!this.draft.title.trim()) {
       if (this.draft.city) this.draft.title = this.autoTitle() || this.draft.city;
       else {
-        new import_obsidian31.Notice("Give the trip a title.");
+        new import_obsidian32.Notice("Give the trip a title.");
         this.titleInput.focus();
         return;
       }
     }
     if (!isValidISODate(this.draft.startDate)) {
-      new import_obsidian31.Notice("Pick a start date.");
+      new import_obsidian32.Notice("Pick a start date.");
       return;
     }
     this.submitting = true;
@@ -6915,7 +7094,7 @@ var TripModal = class _TripModal extends import_obsidian31.Modal {
       await this.onSubmit({ ...this.draft });
       this.close();
     } catch (err) {
-      new import_obsidian31.Notice(err instanceof Error ? err.message : "Could not save the trip.");
+      new import_obsidian32.Notice(err instanceof Error ? err.message : "Could not save the trip.");
       console.error("[travel-planner]", err);
       this.submitting = false;
       this.submitBtn?.setDisabled(false).setButtonText(this.mode === "create" ? "Create trip" : "Save changes");
@@ -6927,8 +7106,8 @@ var TripModal = class _TripModal extends import_obsidian31.Modal {
 };
 
 // src/ui/modals/confirmDelete.ts
-var import_obsidian32 = require("obsidian");
-var ConfirmDeleteModal = class extends import_obsidian32.Modal {
+var import_obsidian33 = require("obsidian");
+var ConfirmDeleteModal = class extends import_obsidian33.Modal {
   constructor(app, trip, onConfirm) {
     super(app);
     this.trip = trip;
@@ -6961,7 +7140,7 @@ var ConfirmDeleteModal = class extends import_obsidian32.Modal {
       cls: "tp-delete-note",
       text: "Files follow your vault's \u201CDeleted files\u201D setting \u2014 normally the trash, where you can still get them back."
     });
-    new import_obsidian32.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton(
+    new import_obsidian33.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton(
       (btn) => btn.setButtonText("Delete trip").setWarning().onClick(async () => {
         btn.setDisabled(true);
         await this.onConfirm();
@@ -6975,8 +7154,8 @@ var ConfirmDeleteModal = class extends import_obsidian32.Modal {
 };
 
 // src/ui/modals/addDayModal.ts
-var import_obsidian33 = require("obsidian");
-var AddDayModal = class extends import_obsidian33.Modal {
+var import_obsidian34 = require("obsidian");
+var AddDayModal = class extends import_obsidian34.Modal {
   constructor(app, plugin, preselected, onDone) {
     super(app);
     this.plugin = plugin;
@@ -6984,6 +7163,8 @@ var AddDayModal = class extends import_obsidian33.Modal {
     this.notes = { morning: "", afternoon: "", evening: "" };
     /** Activity note path -> the slot it has been put in for this day. */
     this.placement = /* @__PURE__ */ new Map();
+    /** Days already carrying content, so the dropdown can mark them. */
+    this.planned = /* @__PURE__ */ new Set();
     this.trip = preselected ?? this.inferTrip();
     this.date = this.defaultDate();
   }
@@ -7017,10 +7198,10 @@ var AddDayModal = class extends import_obsidian33.Modal {
     const trips = this.plugin.store.getTrips();
     if (trips.length === 0) {
       contentEl.createEl("p", { text: "No trips yet. Create one first." });
-      new import_obsidian33.Setting(contentEl).addButton((b) => b.setButtonText("Close").onClick(() => this.close()));
+      new import_obsidian34.Setting(contentEl).addButton((b) => b.setButtonText("Close").onClick(() => this.close()));
       return;
     }
-    new import_obsidian33.Setting(contentEl).setName("Trip").addDropdown((dd) => {
+    new import_obsidian34.Setting(contentEl).setName("Trip").addDropdown((dd) => {
       for (const trip of trips) dd.addOption(trip.file.path, trip.title);
       dd.setValue(this.trip?.file.path ?? trips[0].file.path);
       if (!this.trip) this.trip = trips[0];
@@ -7034,21 +7215,48 @@ var AddDayModal = class extends import_obsidian33.Modal {
         this.renderSlots();
       });
     });
-    const dateSetting = new import_obsidian33.Setting(contentEl).setName("Date");
-    this.dateInput = dateSetting.controlEl.createEl("input", { cls: "tp-date-input" });
+    const daySetting = new import_obsidian34.Setting(contentEl).setName("Day");
+    this.daySelect = daySetting.controlEl.createEl("select", { cls: "dropdown" });
+    this.renderDayOptions();
+    this.daySelect.addEventListener("change", () => {
+      this.date = this.daySelect.value;
+      this.syncPlacement();
+      this.renderDayOptions();
+      this.renderSlots();
+    });
+    this.dateInput = daySetting.controlEl.createEl("input", { cls: "tp-date-input" });
     this.dateInput.type = "date";
     this.dateInput.value = this.date;
     this.dateInput.addEventListener("change", () => {
       if (!isValidISODate(this.dateInput.value)) return;
       this.date = this.dateInput.value;
       this.syncPlacement();
+      this.renderDayOptions();
       this.renderSlots();
     });
     this.applyDateBounds();
     this.bodyEl = contentEl.createDiv();
     this.syncPlacement();
     this.renderSlots();
-    new import_obsidian33.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton((btn) => btn.setButtonText("Save day").setCta().onClick(() => void this.addDay()));
+    new import_obsidian34.Setting(contentEl).addButton((btn) => btn.setButtonText("Close").onClick(() => this.close())).addButton(
+      (btn) => btn.setButtonText("Save day").onClick(() => void this.addDay(false))
+    ).addButton(
+      (btn) => btn.setButtonText("Save & next day").setCta().onClick(() => void this.addDay(true))
+    );
+  }
+  /** Day 1 … Day N, each marked with whether it has anything in it yet. */
+  renderDayOptions() {
+    if (!this.trip || !this.daySelect) return;
+    this.daySelect.empty();
+    const days = datesInRange(this.trip.startDate, this.trip.endDate, 90);
+    for (const [index, date] of days.entries()) {
+      const parsed = parseISO(date);
+      const label = parsed ? `Day ${index + 1} \xB7 ${parsed.getUTCDate()} ${monthName(date)}` : `Day ${index + 1}`;
+      const done = this.planned.has(date) ? "" : " \u2014 empty";
+      const option = this.daySelect.createEl("option", { text: label + done, value: date });
+      if (date === this.date) option.selected = true;
+    }
+    if (this.dateInput) this.dateInput.value = this.date;
   }
   /** Reflect what the activities already say about this date. */
   syncPlacement() {
@@ -7087,7 +7295,7 @@ var AddDayModal = class extends import_obsidian33.Modal {
         if (elsewhere) row2.createSpan({ cls: "tp-slot-activity-meta", text: `on ${elsewhere}` });
       }
       const addRow = section.createDiv({ cls: "tp-slot-add" });
-      (0, import_obsidian33.setIcon)(addRow.createSpan(), "plus");
+      (0, import_obsidian34.setIcon)(addRow.createSpan(), "plus");
       addRow.createSpan({ text: activities.length ? "Add another activity" : "Add an activity" });
       addRow.addEventListener("click", () => {
         if (this.trip) this.plugin.openBookingWizard(this.trip, "activity");
@@ -7108,8 +7316,10 @@ var AddDayModal = class extends import_obsidian33.Modal {
     const file = this.app.vault.getAbstractFileByPath(
       `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`
     );
-    if (!(file instanceof import_obsidian33.TFile)) return;
+    if (!(file instanceof import_obsidian34.TFile)) return;
     const empty = emptyDayDates(await this.app.vault.cachedRead(file));
+    const all = datesInRange(this.trip.startDate, this.trip.endDate, 90);
+    this.planned = new Set(all.filter((d) => !empty.has(d)));
     const next = [...empty].sort().find((d) => d >= this.trip.startDate);
     if (next) this.date = next;
   }
@@ -7118,13 +7328,13 @@ var AddDayModal = class extends import_obsidian33.Modal {
     if (isValidISODate(this.trip.startDate)) this.dateInput.min = this.trip.startDate;
     if (isValidISODate(this.trip.endDate)) this.dateInput.max = this.trip.endDate;
   }
-  async addDay() {
+  async addDay(advance) {
     if (!this.trip) {
-      new import_obsidian33.Notice("Pick a trip first.");
+      new import_obsidian34.Notice("Pick a trip first.");
       return;
     }
     if (!isValidISODate(this.date)) {
-      new import_obsidian33.Notice("Pick a valid date.");
+      new import_obsidian34.Notice("Pick a valid date.");
       return;
     }
     const byPath = new Map(this.activities().map((a) => [a.file.path, a]));
@@ -7141,7 +7351,7 @@ var AddDayModal = class extends import_obsidian33.Modal {
     };
     const path = `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`;
     let file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof import_obsidian33.TFile)) {
+    if (!(file instanceof import_obsidian34.TFile)) {
       file = await this.app.vault.create(
         path,
         `---
@@ -7158,7 +7368,7 @@ type: itinerary
       evening: sectionFor("evening")
     });
     if (result === "duplicate") {
-      new import_obsidian33.Notice(`${this.date} already has plans. Edit the note to change them.`);
+      new import_obsidian34.Notice(`${this.date} already has plans. Edit the note to change them.`);
       return;
     }
     for (const activity of this.activities()) {
@@ -7170,12 +7380,28 @@ type: itinerary
       }
     }
     const placed = this.placement.size;
-    new import_obsidian33.Notice(
+    new import_obsidian34.Notice(
       placed > 0 ? `Planned ${this.date} with ${placed} activit${placed === 1 ? "y" : "ies"}.` : `Planned ${this.date}.`
     );
+    this.planned.add(this.date);
     this.plugin.bookings.invalidate();
     this.onDone();
-    this.close();
+    if (!advance) {
+      this.close();
+      return;
+    }
+    const days = datesInRange(this.trip.startDate, this.trip.endDate, 90);
+    const next = days.find((d) => d > this.date);
+    if (!next) {
+      new import_obsidian34.Notice("That was the last day.");
+      this.close();
+      return;
+    }
+    this.date = next;
+    this.notes = { morning: "", afternoon: "", evening: "" };
+    this.syncPlacement();
+    this.renderDayOptions();
+    this.renderSlots();
   }
   onClose() {
     this.contentEl.empty();
@@ -7183,8 +7409,8 @@ type: itinerary
 };
 
 // src/settings/settingsTab.ts
-var import_obsidian34 = require("obsidian");
-var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
+var import_obsidian35 = require("obsidian");
+var TravelPlannerSettingTab = class extends import_obsidian35.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -7197,14 +7423,14 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
       cls: "tp-settings-version",
       text: `Travel Planner ${this.plugin.manifest.version} \u2014 running build loaded ${this.plugin.loadedAt}`
     });
-    new import_obsidian34.Setting(containerEl).setName("Trips").setHeading();
-    new import_obsidian34.Setting(containerEl).setName("Trips folder").setDesc("Root folder holding every trip.").addText(
+    new import_obsidian35.Setting(containerEl).setName("Trips").setHeading();
+    new import_obsidian35.Setting(containerEl).setName("Trips folder").setDesc("Root folder holding every trip.").addText(
       (t) => t.setPlaceholder("Trips").setValue(this.plugin.settings.tripsFolder).onChange(async (v) => {
         this.plugin.settings.tripsFolder = v.trim() || "Trips";
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian34.Setting(containerEl).setName("Folder pattern").setDesc(
+    new import_obsidian35.Setting(containerEl).setName("Folder pattern").setDesc(
       "Folder created per trip, relative to the trips folder. Placeholders: {year} {month} {start} {end} {title} {city} {country} {kind}. Use / for subfolders."
     ).addText(
       (t) => t.setPlaceholder("{year}/{start} {title}").setValue(this.plugin.settings.folderPattern).onChange(async (v) => {
@@ -7212,7 +7438,7 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian34.Setting(containerEl).setName("Default country").setDesc("Pre-filled when you create a trip.").addText((t) => {
+    new import_obsidian35.Setting(containerEl).setName("Default country").setDesc("Pre-filled when you create a trip.").addText((t) => {
       t.setValue(this.plugin.settings.defaultCountry).onChange(async (v) => {
         this.plugin.settings.defaultCountry = v.trim();
         await this.plugin.saveSettings();
@@ -7222,15 +7448,15 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
         await this.plugin.saveSettings();
       });
     });
-    new import_obsidian34.Setting(containerEl).setName("Default kind").addDropdown((dd) => {
+    new import_obsidian35.Setting(containerEl).setName("Default kind").addDropdown((dd) => {
       for (const def of KINDS) dd.addOption(def.id, def.label);
       dd.setValue(this.plugin.settings.defaultKind).onChange(async (v) => {
         this.plugin.settings.defaultKind = v;
         await this.plugin.saveSettings();
       });
     });
-    new import_obsidian34.Setting(containerEl).setName("You").setHeading();
-    new import_obsidian34.Setting(containerEl).setName("Home city").setDesc("Pre-fills the origin of a new trip.").addText((t) => {
+    new import_obsidian35.Setting(containerEl).setName("You").setHeading();
+    new import_obsidian35.Setting(containerEl).setName("Home city").setDesc("Pre-fills the origin of a new trip.").addText((t) => {
       t.setPlaceholder("Rotterdam");
       t.setValue(this.plugin.settings.homeCity);
       t.onChange(async (v) => {
@@ -7248,7 +7474,7 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
         () => this.plugin.settings.defaultCountry
       );
     });
-    new import_obsidian34.Setting(containerEl).setName("Home airport").setDesc("Where you usually fly out of.").addText((t) => {
+    new import_obsidian35.Setting(containerEl).setName("Home airport").setDesc("Where you usually fly out of.").addText((t) => {
       t.setPlaceholder("Amsterdam (AMS)");
       t.setValue(this.plugin.settings.homeAirport);
       t.onChange(async (v) => {
@@ -7266,7 +7492,7 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
         () => ({ country: this.plugin.settings.defaultCountry, city: this.plugin.settings.homeCity })
       );
     });
-    new import_obsidian34.Setting(containerEl).setName("Who usually travels").setDesc("Comma-separated. A new trip starts with these names.").addText((t) => {
+    new import_obsidian35.Setting(containerEl).setName("Who usually travels").setDesc("Comma-separated. A new trip starts with these names.").addText((t) => {
       t.setPlaceholder("Iwan, Gaurav");
       t.setValue(this.plugin.settings.household.join(", "));
       t.onChange(async (v) => {
@@ -7274,15 +7500,15 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
         await this.plugin.saveSettings();
       });
     });
-    new import_obsidian34.Setting(containerEl).setName("Sidebar").setHeading();
-    new import_obsidian34.Setting(containerEl).setName("Show past trips").setDesc("Turn off to keep the sidebar to what's still ahead of you.").addToggle(
+    new import_obsidian35.Setting(containerEl).setName("Sidebar").setHeading();
+    new import_obsidian35.Setting(containerEl).setName("Show past trips").setDesc("Turn off to keep the sidebar to what's still ahead of you.").addToggle(
       (t) => t.setValue(this.plugin.settings.showPastTrips).onChange(async (v) => {
         this.plugin.settings.showPastTrips = v;
         await this.plugin.saveSettings();
         this.plugin.refreshViews();
       })
     );
-    new import_obsidian34.Setting(containerEl).setName("Confirm before deleting").setDesc("Show the confirmation dialogue listing exactly which files go.").addToggle(
+    new import_obsidian35.Setting(containerEl).setName("Confirm before deleting").setDesc("Show the confirmation dialogue listing exactly which files go.").addToggle(
       (t) => t.setValue(this.plugin.settings.confirmDelete).onChange(async (v) => {
         this.plugin.settings.confirmDelete = v;
         await this.plugin.saveSettings();
@@ -7294,18 +7520,13 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
     this.displayTemplates(containerEl);
   }
   displayDocuments(containerEl) {
-    new import_obsidian34.Setting(containerEl).setName("Documents & advice").setHeading();
-    new import_obsidian34.Setting(containerEl).setName("Passports").setDesc(
-      "Comma-separated countries. Each one is checked against the destination for visa requirements."
-    ).addText((t) => {
-      t.setPlaceholder("Netherlands");
-      t.setValue(this.plugin.settings.passportCountries.join(", "));
-      t.onChange(async (v) => {
-        this.plugin.settings.passportCountries = v.split(",").map((c) => c.trim()).filter(Boolean);
-        await this.plugin.saveSettings();
-      });
+    new import_obsidian35.Setting(containerEl).setName("Documents & advice").setHeading();
+    containerEl.createDiv({
+      cls: "tp-dash-hint",
+      text: "Passports checked against every destination. The first one is the default for new trips."
     });
-    new import_obsidian34.Setting(containerEl).setName("Dutch government travel advice").setDesc("Fetches the colour code from nederlandwereldwijd.nl when you ask it to.").addToggle(
+    this.renderPassports(containerEl);
+    new import_obsidian35.Setting(containerEl).setName("Dutch government travel advice").setDesc("Fetches the colour code from nederlandwereldwijd.nl when you ask it to.").addToggle(
       (t) => t.setValue(this.plugin.settings.travelAdviceEnabled).onChange(async (v) => {
         this.plugin.settings.travelAdviceEnabled = v;
         await this.plugin.saveSettings();
@@ -7316,13 +7537,62 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
       text: "Visa data comes from the open passport-index dataset and travel advice from the Dutch Ministry of Foreign Affairs. Both are guidance: entry rules change without notice, so confirm with the embassy before booking."
     });
   }
+  /** Add and remove passports by name, rather than editing a comma list. */
+  renderPassports(containerEl) {
+    const list3 = containerEl.createDiv({ cls: "tp-passport-list" });
+    const draw = () => {
+      list3.empty();
+      const passports = this.plugin.settings.passportCountries;
+      if (passports.length === 0) {
+        list3.createDiv({ cls: "tp-dash-hint", text: "No passports set \u2014 no visa check will run." });
+      }
+      for (const [index, passport] of passports.entries()) {
+        const row2 = list3.createDiv({ cls: "tp-passport-row" });
+        (0, import_obsidian35.setIcon)(row2.createSpan({ cls: "tp-passport-icon" }), "book-user");
+        row2.createSpan({ cls: "tp-passport-name", text: passport });
+        if (index === 0) row2.createSpan({ cls: "tp-passport-default", text: "default" });
+        const remove = row2.createEl("button", {
+          cls: "tp-icon-btn",
+          attr: { "aria-label": `Remove ${passport}` }
+        });
+        (0, import_obsidian35.setIcon)(remove, "x");
+        remove.addEventListener("click", async () => {
+          this.plugin.settings.passportCountries = passports.filter((p) => p !== passport);
+          await this.plugin.saveSettings();
+          draw();
+        });
+      }
+    };
+    let pending = "";
+    const add = async () => {
+      const name = pending.trim();
+      if (!name) return;
+      if (this.plugin.settings.passportCountries.includes(name)) {
+        new import_obsidian35.Notice(`${name} is already listed.`);
+        return;
+      }
+      this.plugin.settings.passportCountries = [...this.plugin.settings.passportCountries, name];
+      await this.plugin.saveSettings();
+      pending = "";
+      this.display();
+    };
+    new import_obsidian35.Setting(containerEl).setName("Add a passport").addText((t) => {
+      t.setPlaceholder("Netherlands");
+      t.onChange((v) => pending = v.trim());
+      new CountrySuggest(this.app, t.inputEl, (value) => {
+        pending = value;
+        void add();
+      });
+    }).addButton((b) => b.setButtonText("Add").onClick(() => void add()));
+    draw();
+  }
   displayTravel(containerEl) {
-    new import_obsidian34.Setting(containerEl).setName("Travel times").setHeading();
+    new import_obsidian35.Setting(containerEl).setName("Travel times").setHeading();
     containerEl.createDiv({
       cls: "tp-settings-note",
       text: "Travel times use the Google Maps Geocoding and Distance Matrix APIs, which bill your Google Cloud account per request. Nothing is sent anywhere until you switch this on. Results are cached, so each route is paid for once."
     });
-    new import_obsidian34.Setting(containerEl).setName("Enable travel times").setDesc("Distances from your accommodation to the airport, activities and restaurants.").addToggle(
+    new import_obsidian35.Setting(containerEl).setName("Enable travel times").setDesc("Distances from your accommodation to the airport, activities and restaurants.").addToggle(
       (t) => t.setValue(this.plugin.settings.travelTimesEnabled).onChange(async (v) => {
         this.plugin.settings.travelTimesEnabled = v;
         await this.plugin.saveSettings();
@@ -7330,7 +7600,7 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
       })
     );
     if (!this.plugin.settings.travelTimesEnabled) return;
-    new import_obsidian34.Setting(containerEl).setName("Google API key").setDesc("Needs Geocoding API and Distance Matrix API enabled on the project.").addText((t) => {
+    new import_obsidian35.Setting(containerEl).setName("Google API key").setDesc("Needs Geocoding API and Distance Matrix API enabled on the project.").addText((t) => {
       t.inputEl.type = "password";
       t.setPlaceholder("AIza\u2026");
       t.setValue(this.plugin.settings.googleApiKey);
@@ -7342,16 +7612,16 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
       (btn) => btn.setIcon("download").setTooltip("Use the key from Food Spot").onClick(async () => {
         const key = await this.plugin.travel.importFoodSpotKey();
         if (!key) {
-          new import_obsidian34.Notice("No Google key found in Food Spot's settings.");
+          new import_obsidian35.Notice("No Google key found in Food Spot's settings.");
           return;
         }
         this.plugin.settings.googleApiKey = key;
         await this.plugin.saveSettings();
-        new import_obsidian34.Notice("Imported the Google key from Food Spot.");
+        new import_obsidian35.Notice("Imported the Google key from Food Spot.");
         this.display();
       })
     );
-    new import_obsidian34.Setting(containerEl).setName("Modes to look up").setDesc("Each mode is a separate billed request per route.").then((setting) => {
+    new import_obsidian35.Setting(containerEl).setName("Modes to look up").setDesc("Each mode is a separate billed request per route.").then((setting) => {
       const row2 = setting.controlEl.createDiv({ cls: "tp-settings-subnotes" });
       for (const mode of TRAVEL_MODES) {
         const label = row2.createEl("label", { cls: "tp-subnote" });
@@ -7371,21 +7641,21 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
       }
     });
     const counts = this.plugin.travel.countCached();
-    new import_obsidian34.Setting(containerEl).setName("Cached results").setDesc(
+    new import_obsidian35.Setting(containerEl).setName("Cached results").setDesc(
       `${counts.legs} route${counts.legs === 1 ? "" : "s"} and ${counts.addresses} address${counts.addresses === 1 ? "" : "es"} stored. Clearing means paying to look them up again.`
     ).addButton(
       (btn) => btn.setButtonText("Clear cache").setWarning().onClick(async () => {
         await this.plugin.travel.clearLegs();
         this.plugin.travelPlaces.clear();
-        new import_obsidian34.Notice("Travel time cache cleared.");
+        new import_obsidian35.Notice("Travel time cache cleared.");
         this.display();
       })
     );
   }
   displayFoodSpot(containerEl) {
-    new import_obsidian34.Setting(containerEl).setName("Food Spot").setHeading();
+    new import_obsidian35.Setting(containerEl).setName("Food Spot").setHeading();
     const installed = this.plugin.isFoodSpotAvailable();
-    new import_obsidian34.Setting(containerEl).setName("Add a Food Spot block").setDesc(
+    new import_obsidian35.Setting(containerEl).setName("Add a Food Spot block").setDesc(
       installed ? "Each trip's Food note gets a foodspot block filtered to the trip's city." : `The Food Spot plugin ("${FOODSPOT_PLUGIN_ID}") isn't enabled, so the block is written as plain text for later.`
     ).addToggle(
       (t) => t.setValue(this.plugin.settings.foodSpotEnabled).onChange(async (v) => {
@@ -7393,7 +7663,7 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian34.Setting(containerEl).setName("Food Spot view").setDesc("Which layout the generated block asks for.").addDropdown((dd) => {
+    new import_obsidian35.Setting(containerEl).setName("Food Spot view").setDesc("Which layout the generated block asks for.").addDropdown((dd) => {
       dd.addOption("cards", "Cards");
       dd.addOption("list", "List");
       dd.addOption("table", "Table");
@@ -7405,10 +7675,10 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
     });
   }
   displayTemplates(containerEl) {
-    new import_obsidian34.Setting(containerEl).setName("Notes per trip kind").setDesc("Which sub-notes get created. These are the defaults; you can still tick and untick per trip.").setHeading();
+    new import_obsidian35.Setting(containerEl).setName("Notes per trip kind").setDesc("Which sub-notes get created. These are the defaults; you can still tick and untick per trip.").setHeading();
     const ids = Object.keys(SUB_NOTE_LABELS);
     for (const def of KINDS) {
-      const setting = new import_obsidian34.Setting(containerEl).setName(def.label);
+      const setting = new import_obsidian35.Setting(containerEl).setName(def.label);
       const row2 = setting.controlEl.createDiv({ cls: "tp-settings-subnotes" });
       for (const id of ids) {
         const label = row2.createEl("label", { cls: "tp-subnote" });
@@ -7436,7 +7706,7 @@ var TravelPlannerSettingTab = class extends import_obsidian34.PluginSettingTab {
 };
 
 // src/main.ts
-var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
+var TravelPlannerPlugin = class extends import_obsidian36.Plugin {
   constructor() {
     super(...arguments);
     this.settings = { ...DEFAULT_SETTINGS };
@@ -7445,6 +7715,14 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
     this.travelPlaces = /* @__PURE__ */ new Map();
     /** Wall-clock time this build was loaded, shown in settings to spot a stale plugin. */
     this.loadedAt = "";
+    /**
+     * Travel advice, held in memory only.
+     *
+     * Deliberately not written to disk: it is safety guidance that can change
+     * overnight, and a stored answer would outlive the situation it described —
+     * and linger after the trip it was fetched for is deleted.
+     */
+    this.adviceCache = /* @__PURE__ */ new Map();
   }
   async onload() {
     this.loadedAt = (/* @__PURE__ */ new Date()).toLocaleTimeString();
@@ -7593,8 +7871,7 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
     };
     this.travelCache = {
       legs: raw?.travelCache?.legs ?? {},
-      geocode: raw?.travelCache?.geocode ?? {},
-      advice: raw?.travelCache?.advice ?? {}
+      geocode: raw?.travelCache?.geocode ?? {}
     };
   }
   async persist() {
@@ -7673,7 +7950,7 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
         this.bookings.invalidate();
         this.store.invalidate();
         await syncBookingNotes(this.app, trip, this.bookings.getBookings(trip));
-        new import_obsidian35.Notice(`Added \u201C${draft.title}\u201D.`);
+        new import_obsidian36.Notice(`Added \u201C${draft.title}\u201D.`);
       }
     ).open();
   }
@@ -7683,19 +7960,12 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
       await createExpense(this.app, this.settings, trip, { ...draft, attachments: paths });
       this.bookings.invalidate();
       this.store.invalidate();
-      new import_obsidian35.Notice(`Logged \u201C${draft.description}\u201D.`);
+      new import_obsidian36.Notice(`Logged \u201C${draft.description}\u201D.`);
     }).open();
   }
   /** Cached advice for a country, without touching the network. */
   peekAdvice(country) {
-    const hit = this.travelCache.advice?.[country];
-    if (!hit) return null;
-    return {
-      colour: hit.colour,
-      country,
-      url: hit.url,
-      fetchedAt: hit.fetchedAt
-    };
+    return this.adviceCache.get(country) ?? null;
   }
   /**
    * Fetches the Dutch government travel advice for a country.
@@ -7706,27 +7976,21 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
    */
   async refreshAdvice(country, onDone) {
     if (!country) {
-      new import_obsidian35.Notice("Set a country on the trip first.");
+      new import_obsidian36.Notice("Set a country on the trip first.");
       return;
     }
-    const notice = new import_obsidian35.Notice("Checking travel advice\u2026", 0);
+    const notice = new import_obsidian36.Notice("Checking travel advice\u2026", 0);
     try {
       const advice = await fetchAdvice(country);
-      if (!this.travelCache.advice) this.travelCache.advice = {};
-      this.travelCache.advice[country] = {
-        colour: advice.colour,
-        url: advice.url,
-        fetchedAt: advice.fetchedAt
-      };
-      await this.persist();
+      this.adviceCache.set(country, advice);
       notice.hide();
-      new import_obsidian35.Notice(`${country}: code ${ADVICE_MEANING[advice.colour].label.toLowerCase()}.`);
+      new import_obsidian36.Notice(`${country}: code ${ADVICE_MEANING[advice.colour].label.toLowerCase()}.`);
       onDone?.();
       this.refreshViews();
     } catch (err) {
       notice.hide();
       const message = err instanceof AdviceUnavailable ? err.message : err instanceof Error ? err.message : "Could not fetch travel advice.";
-      new import_obsidian35.Notice(`Travel Planner: ${message}`, 8e3);
+      new import_obsidian36.Notice(`Travel Planner: ${message}`, 8e3);
       console.error("[travel-planner]", err);
     }
   }
@@ -7756,7 +8020,7 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
         await saveBudget(this.app, trip, budget, currency, total);
         this.bookings.invalidate();
         this.store.invalidate();
-        new import_obsidian35.Notice("Budget saved.");
+        new import_obsidian36.Notice("Budget saved.");
       }
     ).open();
   }
@@ -7774,7 +8038,7 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
     const initial = kind ? { kind, subNotes: [...this.settings.subNotesByKind[kind] ?? []] } : {};
     new TripModal(this.app, this.settings, "create", initial, async (draft) => {
       const result = await createTrip(this.app, this.settings, draft, this.isFoodSpotAvailable());
-      new import_obsidian35.Notice(
+      new import_obsidian36.Notice(
         `Created \u201C${draft.title}\u201D with ${result.subNoteFiles.length} note${result.subNoteFiles.length === 1 ? "" : "s"}.`
       );
       this.store.invalidate();
@@ -7786,7 +8050,7 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
   openEditTripModal(trip) {
     TripModal.forEdit(this.app, this.settings, trip, async (draft) => {
       await updateTrip(this.app, this.settings, trip, draft);
-      new import_obsidian35.Notice(`Updated \u201C${draft.title}\u201D.`);
+      new import_obsidian36.Notice(`Updated \u201C${draft.title}\u201D.`);
       this.store.invalidate();
     }).open();
   }
@@ -7846,7 +8110,12 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
     const run = async () => {
       try {
         const count = await deleteTrip(this.app, trip);
-        new import_obsidian35.Notice(`Deleted \u201C${trip.title}\u201D (${count} file${count === 1 ? "" : "s"}).`);
+        this.travelPlaces.delete(trip.folderPath);
+        if (trip.country) this.adviceCache.delete(trip.country);
+        await this.travel.forgetTrip(trip);
+        new import_obsidian36.Notice(`Deleted \u201C${trip.title}\u201D (${count} file${count === 1 ? "" : "s"}).`);
+        this.bookings.invalidate();
+        this.progress.clear();
         this.store.invalidate();
       } catch (err) {
         notifyError(err, "Could not delete the trip.");
@@ -7868,10 +8137,10 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
    */
   async computeTravelTimes(trip, onDone, force = false) {
     if (!this.travel.isConfigured()) {
-      new import_obsidian35.Notice("Travel Planner: switch on travel times and add a Google API key in settings.");
+      new import_obsidian36.Notice("Travel Planner: switch on travel times and add a Google API key in settings.");
       return;
     }
-    const notice = new import_obsidian35.Notice("Working out travel times\u2026", 0);
+    const notice = new import_obsidian36.Notice("Working out travel times\u2026", 0);
     try {
       if (force) await this.travel.clearLegs();
       const places = await this.travel.placesFor(trip, this.bookings.getBookings(trip));
@@ -7879,14 +8148,14 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
       const origin = places.hotels[0];
       if (!origin) {
         notice.hide();
-        new import_obsidian35.Notice("Add an accommodation booking first \u2014 distances are measured from it.");
+        new import_obsidian36.Notice("Add an accommodation booking first \u2014 distances are measured from it.");
         onDone?.();
         return;
       }
       const destinations = [...places.airports, ...places.activities, ...places.restaurants];
       if (destinations.length === 0) {
         notice.hide();
-        new import_obsidian35.Notice("Nothing to measure to yet. Add a flight, an activity, or Food Spot restaurants in this city.");
+        new import_obsidian36.Notice("Nothing to measure to yet. Add a flight, an activity, or Food Spot restaurants in this city.");
         onDone?.();
         return;
       }
@@ -7897,13 +8166,13 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
         this.travel.departureTimeFor(trip)
       );
       notice.hide();
-      new import_obsidian35.Notice(`Travel times ready for ${destinations.length} places.`);
+      new import_obsidian36.Notice(`Travel times ready for ${destinations.length} places.`);
       onDone?.();
       this.refreshViews();
     } catch (err) {
       notice.hide();
       const message = err instanceof TravelUnavailable ? err.message : err instanceof Error ? err.message : "Could not work out travel times.";
-      new import_obsidian35.Notice(`Travel Planner: ${message}`, 8e3);
+      new import_obsidian36.Notice(`Travel Planner: ${message}`, 8e3);
       console.error("[travel-planner]", err);
     }
   }
@@ -7943,14 +8212,14 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
       await replaceSection(this.app, foodNote.file, "Travel times", foodTable);
       written += 1;
     }
-    new import_obsidian35.Notice(
+    new import_obsidian36.Notice(
       written === 0 ? "Nothing to write yet \u2014 calculate travel times first." : `Travel times written into ${written} note${written === 1 ? "" : "s"}.`
     );
   }
   async openTrip(trip, newTab = false) {
     const file = this.app.vault.getAbstractFileByPath(trip.file.path);
-    if (!(file instanceof import_obsidian35.TFile)) {
-      new import_obsidian35.Notice("That trip note no longer exists.");
+    if (!(file instanceof import_obsidian36.TFile)) {
+      new import_obsidian36.Notice("That trip note no longer exists.");
       this.store.invalidate();
       return;
     }

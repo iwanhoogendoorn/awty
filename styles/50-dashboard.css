@@ -875,6 +875,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Leave room for the countdown badge pinned to the top right. */
+  padding-right: 3.2em;
 }
 
 .tp-card-where {

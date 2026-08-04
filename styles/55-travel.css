@@ -258,3 +258,41 @@
   color: var(--text-faint);
   line-height: 1.45;
 }
+
+.tp-passport-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 0.6em;
+}
+
+.tp-passport-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.35em 0.6em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.tp-passport-icon {
+  display: flex;
+  color: var(--text-accent);
+}
+
+.tp-passport-icon .svg-icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+.tp-passport-name {
+  flex: 1;
+}
+
+.tp-passport-default {
+  padding: 0 0.45em;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}

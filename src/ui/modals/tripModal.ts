@@ -5,6 +5,7 @@ import { KINDS, SUB_NOTE_LABELS, kindDef } from "../../types";
 import { DateRangeField } from "../components/dateRange";
 import { AirportSuggest, CitySuggest, CountrySuggest, countryForCity } from "../components/suggest";
 import { isValidISODate, monthName, todayISO, yearOf } from "../../util/dates";
+import { parseAmount } from "../../util/money";
 
 export type TripModalMode = "create" | "edit";
 
@@ -49,6 +50,7 @@ export class TripModal extends Modal {
         initial.travellers ?? (mode === "create" ? [...settings.household] : []),
       originCity: initial.originCity ?? (mode === "create" ? settings.homeCity : ""),
       originAirport: initial.originAirport ?? (mode === "create" ? settings.homeAirport : ""),
+      budgetTotal: initial.budgetTotal ?? null,
       subNotes: initial.subNotes ?? [...(settings.subNotesByKind[kind] ?? kindDef(kind).subNotes)],
     };
     this.titleIsAuto = !this.draft.title;
@@ -75,6 +77,7 @@ export class TripModal extends Modal {
         travellers: trip.travellers,
         originCity: trip.originCity,
         originAirport: trip.originAirport,
+        budgetTotal: trip.budgetTotal,
         subNotes: [],
       },
       onSubmit,
@@ -250,6 +253,19 @@ export class TripModal extends Modal {
           // Where you are leaving from, not where you are going.
           () => ({ country: this.settings.defaultCountry, city: this.draft.originCity }),
         );
+      });
+
+    new Setting(parent)
+      .setName("Budget")
+      .setDesc("Roughly what you want the whole trip to cost. Used everywhere costs are shown.")
+      .addText((t) => {
+        t.setPlaceholder("3000");
+        t.inputEl.inputMode = "decimal";
+        t.setValue(this.draft.budgetTotal !== null ? String(this.draft.budgetTotal) : "");
+        t.onChange((v) => {
+          const amount = parseAmount(v);
+          this.draft.budgetTotal = amount !== null && amount > 0 ? amount : null;
+        });
       });
 
     new Setting(parent)

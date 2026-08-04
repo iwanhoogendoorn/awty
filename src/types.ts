@@ -8,6 +8,11 @@ export type TripKind = "holiday" | "city-break" | "day-trip" | "concert" | "even
 
 export type TripStatus = "current" | "upcoming" | "past";
 
+/**
+ * `event-details` is no longer created: a concert is a trip with one headline
+ * activity, and having both meant the same venue and tickets could be recorded
+ * in two places. The id stays so notes made by older versions still read.
+ */
 export type SubNoteId =
   | "itinerary"
   | "packing"
@@ -66,7 +71,7 @@ export const KINDS: readonly KindDef[] = [
     icon: "music",
     singleDay: true,
     defaultDurationDays: 1,
-    subNotes: ["event-details", "transport", "food"],
+    subNotes: ["itinerary", "transport", "food"],
     hasVenue: true,
   },
   {
@@ -75,7 +80,7 @@ export const KINDS: readonly KindDef[] = [
     icon: "ticket",
     singleDay: true,
     defaultDurationDays: 1,
-    subNotes: ["event-details", "transport", "food"],
+    subNotes: ["itinerary", "transport", "food"],
     hasVenue: true,
   },
   {
@@ -129,6 +134,8 @@ export interface Trip {
   /** Where you are leaving from — a trip has two ends, not one. */
   originCity: string;
   originAirport: string;
+  /** Budget for the whole trip, or null when none was set. */
+  budgetTotal: number | null;
 }
 
 /** The form payload shared by the new-trip and edit-trip modals. */
@@ -145,6 +152,8 @@ export interface TripDraft {
   travellers: string[];
   originCity: string;
   originAirport: string;
+  /** Budget for the whole trip, asked once and reused everywhere. */
+  budgetTotal: number | null;
 }
 
 export interface TravelPlannerSettings {

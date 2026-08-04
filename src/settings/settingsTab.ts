@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting, setIcon } from "obsidian";
 import { TRAVEL_MODES } from "../travel/types";
 import type TravelPlannerPlugin from "../main";
 import type { SubNoteId, TripKind } from "../types";
@@ -168,22 +168,11 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
   private displayDocuments(containerEl: HTMLElement): void {
     new Setting(containerEl).setName("Documents & advice").setHeading();
 
-    new Setting(containerEl)
-      .setName("Passports")
-      .setDesc(
-        "Comma-separated countries. Each one is checked against the destination for visa requirements.",
-      )
-      .addText((t) => {
-        t.setPlaceholder("Netherlands");
-        t.setValue(this.plugin.settings.passportCountries.join(", "));
-        t.onChange(async (v) => {
-          this.plugin.settings.passportCountries = v
-            .split(",")
-            .map((c) => c.trim())
-            .filter(Boolean);
-          await this.plugin.saveSettings();
-        });
-      });
+    containerEl.createDiv({
+      cls: "tp-dash-hint",
+      text: "Passports checked against every destination. The first one is the default for new trips.",
+    });
+    this.renderPassports(containerEl);
 
     new Setting(containerEl)
       .setName("Dutch government travel advice")
@@ -201,6 +190,66 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
         "Visa data comes from the open passport-index dataset and travel advice from the Dutch Ministry of Foreign Affairs. " +
         "Both are guidance: entry rules change without notice, so confirm with the embassy before booking.",
     });
+  }
+
+  /** Add and remove passports by name, rather than editing a comma list. */
+  private renderPassports(containerEl: HTMLElement): void {
+    const list = containerEl.createDiv({ cls: "tp-passport-list" });
+
+    const draw = (): void => {
+      list.empty();
+      const passports = this.plugin.settings.passportCountries;
+
+      if (passports.length === 0) {
+        list.createDiv({ cls: "tp-dash-hint", text: "No passports set — no visa check will run." });
+      }
+
+      for (const [index, passport] of passports.entries()) {
+        const row = list.createDiv({ cls: "tp-passport-row" });
+        setIcon(row.createSpan({ cls: "tp-passport-icon" }), "book-user");
+        row.createSpan({ cls: "tp-passport-name", text: passport });
+        if (index === 0) row.createSpan({ cls: "tp-passport-default", text: "default" });
+
+        const remove = row.createEl("button", {
+          cls: "tp-icon-btn",
+          attr: { "aria-label": `Remove ${passport}` },
+        });
+        setIcon(remove, "x");
+        remove.addEventListener("click", async () => {
+          this.plugin.settings.passportCountries = passports.filter((p) => p !== passport);
+          await this.plugin.saveSettings();
+          draw();
+        });
+      }
+    };
+
+    let pending = "";
+    const add = async (): Promise<void> => {
+      const name = pending.trim();
+      if (!name) return;
+      if (this.plugin.settings.passportCountries.includes(name)) {
+        new Notice(`${name} is already listed.`);
+        return;
+      }
+      this.plugin.settings.passportCountries = [...this.plugin.settings.passportCountries, name];
+      await this.plugin.saveSettings();
+      pending = "";
+      this.display();
+    };
+
+    new Setting(containerEl)
+      .setName("Add a passport")
+      .addText((t) => {
+        t.setPlaceholder("Netherlands");
+        t.onChange((v) => (pending = v.trim()));
+        new CountrySuggest(this.app, t.inputEl, (value) => {
+          pending = value;
+          void add();
+        });
+      })
+      .addButton((b) => b.setButtonText("Add").onClick(() => void add()));
+
+    draw();
   }
 
   private displayTravel(containerEl: HTMLElement): void {

@@ -5,6 +5,7 @@ import { fileFromLink } from "../../../bookings/bookingStore";
 import { BOOKING_KINDS } from "../../../bookings/types";
 import { formatMoney } from "../../../util/money";
 import { formatDateRange } from "../../../util/dates";
+import { openAttachment } from "../../modals/lightbox";
 
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
 
@@ -109,7 +110,9 @@ export function renderGallery(parent: HTMLElement, ctx: DashboardContext): void 
     return;
   }
 
-  const total = groups.reduce((n, g) => n + g.files.length, 0);
+  // Every attachment on the trip, so the viewer can page through them all.
+  const allFiles = groups.flatMap((g) => g.files);
+  const total = allFiles.length;
   sectionTitle(parent, `${total} attachment${total === 1 ? "" : "s"}`);
 
   for (const group of groups) {
@@ -146,7 +149,7 @@ export function renderGallery(parent: HTMLElement, ctx: DashboardContext): void 
 
       cell.createDiv({ cls: "tp-gallery-caption", text: file.name });
       cell.setAttribute("title", `${file.name} — ${group.title}`);
-      cell.addEventListener("click", () => ctx.openFile(file));
+      cell.addEventListener("click", () => openAttachment(app, allFiles, file));
     }
   }
 }

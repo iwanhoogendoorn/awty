@@ -8,7 +8,7 @@ import { DAY_SLOTS } from "../../bookings/types";
 import { assignBookingToDay } from "../../bookings/bookingWriter";
 import { emptyDayDates, insertItineraryDay } from "../../store/noteWriter";
 import { formatMoney } from "../../util/money";
-import { isValidISODate, todayISO } from "../../util/dates";
+import { datesInRange, isValidISODate, monthName, parseISO, todayISO } from "../../util/dates";
 
 /**
  * Plans a day out of the activities you have already added.
@@ -26,7 +26,10 @@ export class AddDayModal extends Modal {
   /** Activity note path -> the slot it has been put in for this day. */
   private placement = new Map<string, DaySlot>();
   private dateInput!: HTMLInputElement;
+  private daySelect!: HTMLSelectElement;
   private bodyEl!: HTMLElement;
+  /** Days already carrying content, so the dropdown can mark them. */
+  private planned = new Set<string>();
 
   constructor(
     app: App,
@@ -97,14 +100,26 @@ export class AddDayModal extends Modal {
       });
     });
 
-    const dateSetting = new Setting(contentEl).setName("Date");
-    this.dateInput = dateSetting.controlEl.createEl("input", { cls: "tp-date-input" });
+    // Every day of the trip in one dropdown, so planning eight days does not
+    // mean opening this eight times.
+    const daySetting = new Setting(contentEl).setName("Day");
+    this.daySelect = daySetting.controlEl.createEl("select", { cls: "dropdown" });
+    this.renderDayOptions();
+    this.daySelect.addEventListener("change", () => {
+      this.date = this.daySelect.value;
+      this.syncPlacement();
+      this.renderDayOptions();
+      this.renderSlots();
+    });
+
+    this.dateInput = daySetting.controlEl.createEl("input", { cls: "tp-date-input" });
     this.dateInput.type = "date";
     this.dateInput.value = this.date;
     this.dateInput.addEventListener("change", () => {
       if (!isValidISODate(this.dateInput.value)) return;
       this.date = this.dateInput.value;
       this.syncPlacement();
+      this.renderDayOptions();
       this.renderSlots();
     });
     this.applyDateBounds();
@@ -114,8 +129,34 @@ export class AddDayModal extends Modal {
     this.renderSlots();
 
     new Setting(contentEl)
-      .addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close()))
-      .addButton((btn) => btn.setButtonText("Save day").setCta().onClick(() => void this.addDay()));
+      .addButton((btn) => btn.setButtonText("Close").onClick(() => this.close()))
+      .addButton((btn) =>
+        btn.setButtonText("Save day").onClick(() => void this.addDay(false)),
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Save & next day")
+          .setCta()
+          .onClick(() => void this.addDay(true)),
+      );
+  }
+
+  /** Day 1 … Day N, each marked with whether it has anything in it yet. */
+  private renderDayOptions(): void {
+    if (!this.trip || !this.daySelect) return;
+    this.daySelect.empty();
+
+    const days = datesInRange(this.trip.startDate, this.trip.endDate, 90);
+    for (const [index, date] of days.entries()) {
+      const parsed = parseISO(date);
+      const label = parsed
+        ? `Day ${index + 1} · ${parsed.getUTCDate()} ${monthName(date)}`
+        : `Day ${index + 1}`;
+      const done = this.planned.has(date) ? "" : " — empty";
+      const option = this.daySelect.createEl("option", { text: label + done, value: date });
+      if (date === this.date) option.selected = true;
+    }
+    if (this.dateInput) this.dateInput.value = this.date;
   }
 
   /** Reflect what the activities already say about this date. */
@@ -189,6 +230,8 @@ export class AddDayModal extends Modal {
     );
     if (!(file instanceof TFile)) return;
     const empty = emptyDayDates(await this.app.vault.cachedRead(file));
+    const all = datesInRange(this.trip.startDate, this.trip.endDate, 90);
+    this.planned = new Set(all.filter((d) => !empty.has(d)));
     const next = [...empty].sort().find((d) => d >= this.trip!.startDate);
     if (next) this.date = next;
   }
@@ -199,7 +242,7 @@ export class AddDayModal extends Modal {
     if (isValidISODate(this.trip.endDate)) this.dateInput.max = this.trip.endDate;
   }
 
-  private async addDay(): Promise<void> {
+  private async addDay(advance: boolean): Promise<void> {
     if (!this.trip) {
       new Notice("Pick a trip first.");
       return;
@@ -262,9 +305,28 @@ export class AddDayModal extends Modal {
         ? `Planned ${this.date} with ${placed} activit${placed === 1 ? "y" : "ies"}.`
         : `Planned ${this.date}.`,
     );
+    this.planned.add(this.date);
     this.plugin.bookings.invalidate();
     this.onDone();
-    this.close();
+
+    if (!advance) {
+      this.close();
+      return;
+    }
+
+    // Stay open and step to the next day, so a week is planned in one sitting.
+    const days = datesInRange(this.trip.startDate, this.trip.endDate, 90);
+    const next = days.find((d) => d > this.date);
+    if (!next) {
+      new Notice("That was the last day.");
+      this.close();
+      return;
+    }
+    this.date = next;
+    this.notes = { morning: "", afternoon: "", evening: "" };
+    this.syncPlacement();
+    this.renderDayOptions();
+    this.renderSlots();
   }
 
   onClose(): void {
