@@ -187,19 +187,26 @@ const GENERATED_CALLOUT = /^>\s*(\d+ days? —|Quantities )/;
 export function readPackingExtras(content: string): PackingExtras {
   const extras: PackingExtras = { preamble: [], bySection: new Map() };
   let section: string | null = null;
-  let fenced = false;
+  let fence: { char: string; length: number } | null = null;
 
   // The frontmatter is preserved separately by the writer. Reading it as
   // preamble wrote a second copy into the body, and a third on the next save.
   for (const raw of stripFrontmatter(content).split("\n")) {
     const line = raw.trim();
 
-    if (/^(```|~~~)/.test(line)) {
-      fenced = !fenced;
+    // Fences pair by character and length, as in noteSections: a four-backtick
+    // block showing a three-backtick example must not flip the state inside.
+    const marker = /^(`{3,}|~{3,})/.exec(line);
+    if (marker) {
+      const char = marker[1][0];
+      const length = marker[1].length;
+      if (!fence) fence = { char, length };
+      else if (char === fence.char && length >= fence.length && line.split("").every((c) => c === char))
+        fence = null;
       push(raw);
       continue;
     }
-    if (!fenced) {
+    if (!fence) {
       if (/^#\s/.test(line)) continue;
       const heading = /^##\s+(.+)$/.exec(line);
       if (heading) {

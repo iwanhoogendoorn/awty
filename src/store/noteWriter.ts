@@ -309,8 +309,11 @@ export async function insertItineraryDay(
         break;
       }
     }
-    const next = [...lines.slice(0, headingAt + 1), body, ...lines.slice(end)].join("\n");
-    await app.vault.modify(file, next.replace(/\n{3,}/g, "\n\n"));
+    // Tidy only what was written: collapsing blank runs across the whole note
+    // reformatted days this edit never touched.
+    const cleaned = body.replace(/\n{3,}/g, "\n\n").replace(/\s+$/, "");
+    const next = [...lines.slice(0, headingAt + 1), cleaned, "", ...lines.slice(end)].join("\n");
+    await app.vault.modify(file, next.replace(/\n{4,}/g, "\n\n\n").trimEnd() + "\n");
     return "filled";
   }
 

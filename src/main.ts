@@ -785,6 +785,14 @@ export default class AwtyPlugin extends Plugin {
       return;
     }
 
+    // The settings UI refuses to untick the last mode, but the persisted list
+    // can still be empty (hand-edited data.json, older versions). Geocoding
+    // for zero modes bills and then announces success over nothing.
+    if (this.settings.travelModes.length === 0) {
+      new Notice("Pick at least one travel mode in settings first.");
+      return;
+    }
+
     const notice = new Notice("Working out travel times…", 0);
     try {
       // Scoped to this trip. clearLegs() empties the cache for every trip, so

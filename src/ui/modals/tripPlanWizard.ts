@@ -48,6 +48,10 @@ export class TripPlanWizard extends Modal {
     // Wizards launched from here change the answers, so redraw when they land.
     this.unsubscribe = this.plugin.store.onChange(() => this.render());
     this.render();
+    // Progress comes from file reads the dashboard normally triggers. Opened
+    // fresh after a reload, the cache is empty and every note read as "Not
+    // started" — so the wizard fills the cache itself and paints once more.
+    void this.hydrate();
   }
 
   onClose(): void {
@@ -83,7 +87,9 @@ export class TripPlanWizard extends Modal {
       return note ? plugin.progress.peek(note.file) : null;
     };
 
-    const bookings = plugin.bookings.getBookings(trip);
+    // A cancelled flight is not a planned flight; counting it kept the step
+    // green after the only booking behind it was struck through.
+    const bookings = plugin.bookings.getBookings(trip).filter((b) => b.status !== "cancelled");
     const of = (kind: string) => bookings.filter((b) => b.kind === kind);
     const flights = [...of("flight"), ...of("transport")];
     const stays = of("stay");
@@ -250,6 +256,20 @@ export class TripPlanWizard extends Modal {
         applies: has("packing"),
       },
     ].filter((step) => step.applies);
+  }
+
+  private async hydrate(): Promise<void> {
+    let changed = false;
+    for (const sub of this.plugin.store.getSubNotes(this.currentTrip())) {
+      if (this.plugin.progress.peek(sub.file)) continue;
+      try {
+        await this.plugin.progress.get(sub.file, sub.id);
+        changed = true;
+      } catch (err) {
+        console.error(`[awty] could not read ${sub.file.path}`, err);
+      }
+    }
+    if (changed) this.render();
   }
 
   private render(): void {

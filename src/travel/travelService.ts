@@ -225,7 +225,16 @@ export class TravelService {
     if (!hit) return { known: false, leg: null };
     // Transit depends on the day it is asked about — a Sunday timetable is not
     // a Tuesday one — so an answer for another date is not an answer for this.
-    if (on && mode === "transit" && hit.on && hit.on !== on) return { known: false, leg: hit.d < 0 ? null : { mode, distanceMeters: hit.d, durationSeconds: hit.t } };
+    // An entry without a date predates dates being recorded, so there is no
+    // saying which timetable answered it; treat it as a miss for fetching
+    // while still showing it. `hit.on &&` here made legacy entries valid for
+    // every date forever.
+    if (on && mode === "transit" && hit.on !== on) {
+      return {
+        known: false,
+        leg: hit.d < 0 ? null : { mode, distanceMeters: hit.d, durationSeconds: hit.t },
+      };
+    }
     if (hit.d < 0) {
       const stale = Date.now() - hit.at > NO_ROUTE_TTL_MS;
       return { known: !stale, leg: null };

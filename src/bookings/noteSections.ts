@@ -14,7 +14,7 @@ import { stripFrontmatter } from "../util/frontmatter";
  */
 const OWNED_HEADINGS = ["notes", "attachments", "receipt", "outbound", "return", "itinerary"];
 
-const FENCE = /^\s*(```|~~~)/;
+const FENCE = /^\s*(`{3,}|~{3,})/;
 
 /**
  * Walks a note, saying which lines sit inside a code fence.
@@ -22,19 +22,36 @@ const FENCE = /^\s*(```|~~~)/;
  * Both parsers below look for `##` at the start of a line, and a fenced block
  * of markdown examples is exactly where `## Attachments` appears without being
  * a heading. Treating one as a section boundary truncated everything after it.
+ *
+ * Fences pair like markdown says they do: a block opened with four backticks
+ * — the standard way to show a three-backtick example — closes only on four
+ * or more, and tildes do not close backticks. Treating every ``` as a toggle
+ * flipped the state mid-example and everything after read as fenced.
  */
 function* scanLines(content: string): Generator<{ line: string; fenced: boolean }> {
-  let fenced = false;
-  // Without this the YAML block is read as prose above the first heading, and
-  // whatever is kept gets written back into the body — growing on every save.
+  let fence: { char: string; length: number } | null = null;
+  // Without stripFrontmatter the YAML block is read as prose above the first
+  // heading, and whatever is kept gets written back — growing on every save.
   for (const line of stripFrontmatter(content).split("\n")) {
-    if (FENCE.test(line)) {
-      // The fence markers are content in their own right.
+    const marker = FENCE.exec(line);
+    if (marker) {
+      const char = marker[1][0];
+      const length = marker[1].length;
+      if (!fence) {
+        fence = { char, length };
+        // The fence markers are content in their own right.
+        yield { line, fenced: true };
+        continue;
+      }
+      const closes =
+        char === fence.char &&
+        length >= fence.length &&
+        line.trim().split("").every((c) => c === char);
       yield { line, fenced: true };
-      fenced = !fenced;
+      if (closes) fence = null;
       continue;
     }
-    yield { line, fenced };
+    yield { line, fenced: fence !== null };
   }
 }
 

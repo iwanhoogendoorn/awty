@@ -1641,6 +1641,26 @@ test("only a table we generated is treated as generated", () => {
   assert.equal(m.customSections(`# Rausion\n\n${kept}`), kept);
 });
 
+test("a four-backtick fence showing a three-backtick example stays one block", () => {
+  // Toggling on every ``` flipped the state inside the example, so the rest
+  // of the note read as fenced and its sections were mishandled.
+  const note = [
+    "# Stay", "",
+    "## How to embed", "",
+    "````md",
+    "```foodspot",
+    "view: cards",
+    "```",
+    "````", "",
+    "## Door code", "", "4821",
+  ].join("\n");
+  const kept = m.customSections(note);
+  assert.match(kept, /````md/, kept);
+  assert.match(kept, /## Door code/, "the section after the example is still seen");
+  assert.match(kept, /4821/);
+  assert.equal(m.sectionText(note, "Door code"), "4821");
+});
+
 test("a real note's frontmatter never reaches the body", () => {
   // The preservation tests all used notes without frontmatter, so they passed
   // while every actual edit copied the YAML into the body — and again on the

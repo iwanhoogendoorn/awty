@@ -46,7 +46,7 @@ export class AddDayModal extends Modal {
   private statusEl!: HTMLElement;
 
   private saveTimer = 0;
-  private saving = false;
+  private inFlight: Promise<void> | null = null;
   /** Days edited since the last write, so a flush knows what to persist. */
   private pending = new Set<string>();
 
@@ -227,9 +227,21 @@ export class AddDayModal extends Modal {
 
   private async flush(): Promise<void> {
     window.clearTimeout(this.saveTimer);
-    if (this.saving || this.pending.size === 0) return;
+    // A write may still be running. Returning here was how Done lost edits:
+    // anything typed while that write ran sat in pending, the button's flush
+    // bailed out, and the modal closed over it.
+    while (this.inFlight) await this.inFlight;
+    if (this.pending.size === 0) return;
 
-    this.saving = true;
+    this.inFlight = this.writePending();
+    try {
+      await this.inFlight;
+    } finally {
+      this.inFlight = null;
+    }
+  }
+
+  private async writePending(): Promise<void> {
     const dates = [...this.pending];
     this.pending.clear();
 
@@ -239,14 +251,17 @@ export class AddDayModal extends Modal {
       this.onDone();
       this.setStatus("Saved.");
       this.renderDayOptions();
+      // Edits made while this ran are pending again; write them next tick.
+      if (this.pending.size > 0) this.saveTimer = window.setTimeout(() => void this.flush(), 0);
     } catch (err) {
-      // Put them back so a later flush retries rather than losing the edit.
+      // Put them back so a later flush retries rather than losing the edit —
+      // and actually schedule that flush: "trying again shortly" used to be a
+      // promise nothing kept, so a transient failure was permanent.
       for (const date of dates) this.pending.add(date);
       this.setStatus("Could not save — trying again shortly.");
+      this.saveTimer = window.setTimeout(() => void this.flush(), 4000);
       new Notice(err instanceof Error ? err.message : "Could not save the day.", 8000);
       console.error("[awty]", err);
-    } finally {
-      this.saving = false;
     }
   }
 
