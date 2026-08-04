@@ -6,6 +6,7 @@ import { DateRangeField } from "../components/dateRange";
 import { AirportSuggest, CitySuggest, CountrySuggest, countryForCity } from "../components/suggest";
 import { isValidISODate, monthName, todayISO, yearOf } from "../../util/dates";
 import { parseAmount } from "../../util/money";
+import { replaceLastToken } from "../../util/search";
 
 export type TripModalMode = "create" | "edit";
 
@@ -264,20 +265,37 @@ export class TripModal extends Modal {
       .setName("Passports")
       .setDesc("Checked against the destination for visa requirements. Separate with commas.")
       .addText((t) => {
+        // The suggestion replaces the fragment being typed, not the whole
+        // field: picking "Netherlands" after typing "net" must not leave "net"
+        // behind as a second passport.
+        let raw = this.draft.passports.join(", ");
+
+        const commit = (list: string[]): void => {
+          const seen = new Set<string>();
+          const unique = list
+            .map((name) => name.trim())
+            .filter((name) => {
+              const key = name.toLowerCase();
+              if (!name || seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+          this.draft.passports = unique;
+          raw = unique.join(", ");
+          t.setValue(raw);
+        };
+
         t.setPlaceholder(this.settings.passportCountries.join(", ") || "Netherlands");
-        t.setValue(this.draft.passports.join(", "));
+        t.setValue(raw);
         t.onChange((v) => {
+          raw = v;
           this.draft.passports = v
             .split(",")
             .map((c) => c.trim())
             .filter(Boolean);
         });
-        new CountrySuggest(this.app, t.inputEl, (value) => {
-          // Appends rather than replacing, so a second passport is one pick away.
-          const next = [...this.draft.passports.filter((p) => p !== value), value];
-          this.draft.passports = next;
-          t.setValue(next.join(", "));
-        });
+
+        new CountrySuggest(this.app, t.inputEl, (value) => commit(replaceLastToken(raw, value)));
       });
 
     new Setting(parent)

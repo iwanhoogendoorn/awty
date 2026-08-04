@@ -1482,6 +1482,17 @@ function flattenByRank(groups) {
   ranked.sort((a, b) => a.rank - b.rank);
   return ranked.map((r) => r.value);
 }
+function replaceLastToken(raw, chosen) {
+  const parts = raw.split(",");
+  parts.pop();
+  const seen = /* @__PURE__ */ new Set();
+  return [...parts, chosen].map((part) => part.trim()).filter((part) => {
+    const key = part.toLowerCase();
+    if (!part || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 // src/ui/components/suggest.ts
 var CountrySuggest = class extends import_obsidian3.AbstractInputSuggest {
@@ -7352,16 +7363,26 @@ var TripModal = class _TripModal extends import_obsidian32.Modal {
       );
     });
     new import_obsidian32.Setting(parent).setName("Passports").setDesc("Checked against the destination for visa requirements. Separate with commas.").addText((t) => {
+      let raw = this.draft.passports.join(", ");
+      const commit = (list3) => {
+        const seen = /* @__PURE__ */ new Set();
+        const unique = list3.map((name) => name.trim()).filter((name) => {
+          const key = name.toLowerCase();
+          if (!name || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        this.draft.passports = unique;
+        raw = unique.join(", ");
+        t.setValue(raw);
+      };
       t.setPlaceholder(this.settings.passportCountries.join(", ") || "Netherlands");
-      t.setValue(this.draft.passports.join(", "));
+      t.setValue(raw);
       t.onChange((v) => {
+        raw = v;
         this.draft.passports = v.split(",").map((c) => c.trim()).filter(Boolean);
       });
-      new CountrySuggest(this.app, t.inputEl, (value) => {
-        const next = [...this.draft.passports.filter((p) => p !== value), value];
-        this.draft.passports = next;
-        t.setValue(next.join(", "));
-      });
+      new CountrySuggest(this.app, t.inputEl, (value) => commit(replaceLastToken(raw, value)));
     });
     new import_obsidian32.Setting(parent).setName("Budget").setDesc("Roughly what you want the whole trip to cost. Used everywhere costs are shown.").addText((t) => {
       t.setPlaceholder("3000");

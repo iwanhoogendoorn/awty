@@ -20,7 +20,7 @@ export { routeTitle, layoverMinutes, formatLayover } from "./src/bookings/legs.t
 export { parseConfirmation, parseIcs, parseConfirmationText, parseLooseDate } from "./src/flights/parseConfirmation.ts";
 export { splitFlightNumber } from "./src/flights/flightNumber.ts";
 export { decodeQuotedPrintable, extractIcsFromEmail } from "./src/flights/parseConfirmation.ts";
-export { fold, rankMatches, flattenByRank } from "./src/util/search.ts";
+export { fold, rankMatches, flattenByRank, replaceLastToken } from "./src/util/search.ts";
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
 export { allCategories, COST_CATEGORIES } from "./src/bookings/types.ts";
 export { parseAdviceColour, adviceUrlFor, isStale, ADVICE_TTL_MS } from "./src/travel/adviceData.ts";
@@ -338,6 +338,16 @@ test("a countryless city search surfaces real places, not Afghan villages", () =
   // Each country's capital-ish first entry outranks the tail of any other.
   const firsts = new Set(Object.values(m.CITIES).map((list) => list[0]));
   assert.ok(firsts.has(global[0]), "the very first entry should be a country's largest city");
+});
+
+test("picking a suggestion replaces what was typed, not appends to it", () => {
+  // Typing "net" then picking Netherlands produced "net, Netherlands".
+  assert.deepEqual(m.replaceLastToken("net", "Netherlands"), ["Netherlands"]);
+  assert.deepEqual(m.replaceLastToken("Netherlands, ger", "Germany"), ["Netherlands", "Germany"]);
+  assert.deepEqual(m.replaceLastToken("", "Netherlands"), ["Netherlands"]);
+  // The same country twice is one passport.
+  assert.deepEqual(m.replaceLastToken("Netherlands, neth", "Netherlands"), ["Netherlands"]);
+  assert.deepEqual(m.replaceLastToken("netherlands, x", "Netherlands"), ["netherlands"]);
 });
 
 // ------------------------------------------------------------------ visa

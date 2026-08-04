@@ -67,3 +67,25 @@ export function flattenByRank(groups: Record<string, readonly string[]>): string
   ranked.sort((a, b) => a.rank - b.rank);
   return ranked.map((r) => r.value);
 }
+
+/**
+ * Replaces the fragment currently being typed in a comma-separated field with a
+ * chosen value.
+ *
+ * Picking "Netherlands" after typing "net" must not leave "net" behind as a
+ * separate entry — which is exactly what appending did.
+ */
+export function replaceLastToken(raw: string, chosen: string): string[] {
+  const parts = raw.split(",");
+  parts.pop();
+
+  const seen = new Set<string>();
+  return [...parts, chosen]
+    .map((part) => part.trim())
+    .filter((part) => {
+      const key = part.toLowerCase();
+      if (!part || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
