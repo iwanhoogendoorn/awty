@@ -1591,6 +1591,26 @@ test("a budget is done once travel, a bed and food are all costed", () => {
   assert.equal(all.detail, "3 lines");
   assert.equal(all.ratio, 1);
 
+  // The note holds two tables: categories planned, and things costed. Adding
+  // them together reported a number matching neither — four budgeted
+  // categories plus three costed lines read as "7 lines".
+  const lines = [
+    line("Transport", 827, "Flight"),
+    line("Accommodation", 1456, "Rausion"),
+    line("Shopping", 200, "Shopping"),
+  ];
+  const targets = new Map([
+    ["Transport", 827], ["Accommodation", 1456], ["Food & drink", 1400], ["Shopping", 200],
+  ]);
+  const both = [
+    "# Budget", "",
+    "## Planned", "", m.budgetPlanTable(targets, lines, "EUR"), "",
+    "## Expenses", "", m.budgetLinesTable(lines), "",
+  ].join("\n");
+  const p = m.analyseNote("budget", both);
+  assert.equal(p.state, "complete");
+  assert.equal(p.detail, "3 lines", "the costed lines, not the categories as well");
+
   // A target with nothing spent counts: budgeting is the point of the note.
   const targetsOnly = m.analyseNote(
     "budget",

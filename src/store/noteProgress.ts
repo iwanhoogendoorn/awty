@@ -22,8 +22,48 @@ const EMPTY: NoteProgress = { state: "empty", detail: "Not started", ratio: null
  */
 export const BUDGET_ESSENTIALS = ["Transport", "Accommodation", "Food & drink"] as const;
 
+/**
+ * Data rows in the table under one `## Heading`.
+ *
+ * The Budget note has two tables — the categories planned, and the things
+ * actually costed — and counting every row in the note added them together.
+ * A budget with four categories and three costed lines reported "7 lines",
+ * which is neither number and matches nothing on screen.
+ */
+function countRowsUnder(body: string, heading: string): number {
+  const wanted = heading.trim().toLowerCase();
+  let inside = false;
+  let rows = 0;
+
+  for (const raw of body.split("\n")) {
+    const line = raw.trim();
+    const found = /^##\s+(.+?)\s*$/.exec(line);
+    if (found) {
+      inside = found[1].trim().toLowerCase() === wanted;
+      continue;
+    }
+    if (!inside || !line.startsWith("|")) continue;
+
+    const cells = line.slice(1, line.endsWith("|") ? -1 : undefined).split("|");
+    if (cells.every((c) => /^:?-{2,}:?$/.test(c.trim()))) continue;
+    if (cells.some((c) => /^\*\*.+\*\*$/.test(c.trim()))) continue;
+    if (cells.length > 1 ? cells.slice(1).every((c) => c.trim() === "") : cells[0].trim() === "") {
+      continue;
+    }
+    rows += 1;
+  }
+  // The header sits above the rule and is not a row.
+  return Math.max(rows - 1, 0);
+}
+
 function shortName(category: string): string {
   return category === "Food & drink" ? "food" : category.toLowerCase();
+}
+
+/** "3 lines" — the things actually costed, which is what the Costs tab lists. */
+function costedLines(body: string, fallback: number): string {
+  const rows = /^##\s+expenses\s*$/im.test(body) ? countRowsUnder(body, "Expenses") : fallback;
+  return `${rows} line${rows === 1 ? "" : "s"}`;
 }
 
 /**
@@ -222,7 +262,7 @@ export function analyseNote(id: SubNoteId | null, content: string): NoteProgress
       state: ratio >= 1 ? "complete" : "started",
       detail:
         missing.length === 0
-          ? `${s.tableRows} line${s.tableRows === 1 ? "" : "s"}`
+          ? costedLines(body, s.tableRows)
           : `no ${missing.map(shortName).join(", no ")} yet`,
       ratio,
     };
