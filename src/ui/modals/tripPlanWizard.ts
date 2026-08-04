@@ -56,11 +56,21 @@ export class TripPlanWizard extends Modal {
     this.contentEl.empty();
   }
 
-  /** Re-reads the trip, since a wizard may have renamed or moved it. */
+  /**
+   * Re-reads the trip, since a wizard may have renamed or moved it.
+   *
+   * Matching on the folder alone found nothing once an edit moved the trip to
+   * a new folder, and fell back to the object captured when the wizard opened
+   * — so every later step used the old title, dates and paths. The note itself
+   * survives the move, so its path is what identifies the trip.
+   */
   private currentTrip(): Trip {
-    return (
-      this.plugin.store.getTrips().find((t) => t.folderPath === this.trip.folderPath) ?? this.trip
-    );
+    const trips = this.plugin.store.getTrips();
+    const found =
+      trips.find((t) => t.file.path === this.trip.file.path) ??
+      trips.find((t) => t.folderPath === this.trip.folderPath);
+    if (found) this.trip = found;
+    return this.trip;
   }
 
   private buildSteps(trip: Trip): Step[] {

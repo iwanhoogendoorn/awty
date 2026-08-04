@@ -106,8 +106,14 @@ export class AwtySidebarView extends ItemView {
       for (const trip of trips) {
         for (const sub of this.plugin.store.getSubNotes(trip)) {
           if (this.plugin.progress.peek(sub.file)) continue;
-          await this.plugin.progress.get(sub.file, sub.id);
-          changed = true;
+          try {
+            await this.plugin.progress.get(sub.file, sub.id);
+            changed = true;
+          } catch (err) {
+            // One unreadable note used to reject out of the loop, leaving
+            // every note after it unread and the view quietly stale.
+            console.error(`[awty] could not read ${sub.file.path}`, err);
+          }
         }
       }
       if (changed) {

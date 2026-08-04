@@ -55,8 +55,18 @@ export class AwtySettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
+  /**
+   * Controls change the live settings object and then save. If the write fails
+   * the change looks applied and reverts on the next restart, so the failure
+   * has to be said out loud rather than becoming an unhandled rejection.
+   */
   private async save(): Promise<void> {
-    await this.plugin.saveSettings();
+    try {
+      await this.plugin.saveSettings();
+    } catch (err) {
+      console.error("[awty] could not save settings", err);
+      new Notice("AWTY: could not save that setting — it will revert when Obsidian restarts.", 8000);
+    }
   }
 
   /** A titled panel with an icon, a subtitle and an optional status chip. */
@@ -726,6 +736,14 @@ export class AwtySettingTab extends PluginSettingTab {
         const current = new Set(s.travelModes);
         if (box.checked) current.add(mode.id);
         else current.delete(mode.id);
+
+        // With no modes at all, Calculate still resolves and geocodes places —
+        // billed — then requests no routes and announces it is ready.
+        if (current.size === 0) {
+          box.checked = true;
+          new Notice("Keep at least one travel mode, or there is nothing to measure.");
+          return;
+        }
         s.travelModes = TRAVEL_MODES.map((m) => m.id).filter((id) => current.has(id));
         await this.save();
         modes.setChip(`${s.travelModes.length} of 3`, "ok");

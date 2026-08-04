@@ -235,12 +235,19 @@ export default class AwtyPlugin extends Plugin {
     // Repairs flights saved before a direct flight stored its legs. Deferred
     // so it never delays opening the vault.
     this.app.workspace.onLayoutReady(() => {
-      void backfillFlightLegs(this.app, this.settings).then((repaired) => {
-        if (repaired === 0) return;
-        this.bookings.invalidate();
-        this.refreshViews();
-        console.info(`[awty] filled in legs for ${repaired} flight(s)`);
-      });
+      void backfillFlightLegs(this.app, this.settings)
+        .then((repaired) => {
+          if (repaired === 0) return;
+          this.bookings.invalidate();
+          this.refreshViews();
+          console.info(`[awty] filled in legs for ${repaired} flight(s)`);
+        })
+        // Detached work with no catch is an unhandled rejection at startup and
+        // nothing on screen to say the repair never ran.
+        .catch((err) => {
+          console.error("[awty] could not repair flight legs", err);
+          new Notice("AWTY: could not finish repairing flight details — see the console.");
+        });
     });
 
     // One kind per command, so each can carry its own hotkey.

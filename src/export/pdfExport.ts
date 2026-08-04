@@ -523,6 +523,10 @@ async function exportHtmlToPdf(html: string, suggestedName: string): Promise<Pdf
                 // Margins live in the document's own @page padding.
                 margins: { marginType: "none" },
               });
+              // The timeout may have fired while this was printing. It has
+              // already cleaned up and reported failure; writing the file and
+              // announcing success now would resolve the same promise twice.
+              if (settled) return;
               bits.writeFile(target, data);
               settled = true;
               cleanup();

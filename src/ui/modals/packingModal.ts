@@ -25,6 +25,8 @@ export class PackingModal extends Modal {
   private rows: Row[] = [];
   /** Names selected to pack for; empty means just you. */
   private packFor: Set<string>;
+  /** Generated items deliberately unticked, remembered on the note. */
+  private excluded = new Set<string>();
   private saveBtn: ButtonComponent | null = null;
   private listEl!: HTMLElement;
   private summaryEl!: HTMLElement;
@@ -73,6 +75,13 @@ export class PackingModal extends Modal {
   /** Calculated plan, overlaid with what the note already says. */
   private async buildRows(days: number): Promise<void> {
     const plan = buildPackingPlan(days, this.trip.kind);
+    const file = subNoteFile(this.app, this.trip, "packing");
+    const fm = file ? this.app.metadataCache.getFileCache(file)?.frontmatter : undefined;
+    this.excluded = new Set(
+      (Array.isArray(fm?.packing_excluded) ? fm.packing_excluded : []).map((v: unknown) =>
+        String(v).toLowerCase(),
+      ),
+    );
     const existing = await this.readExisting();
 
     for (const section of plan.sections) {
@@ -82,7 +91,11 @@ export class PackingModal extends Modal {
           section: section.title,
           label: item.label,
           quantity: item.quantity,
-          include: found ? found.present : true,
+          // An item you unticked is absent from the note, which used to look
+          // identical to one this trip had never generated — so it came back
+          // ticked every time the modal was reopened. The exclusions are
+          // recorded on the note instead.
+          include: found ? found.present : !this.excluded.has(item.label.toLowerCase()),
           packed: found?.packed ?? false,
         });
       }
@@ -312,6 +325,12 @@ export class PackingModal extends Modal {
       const fmEnd = content.startsWith("---") ? content.indexOf("\n---", 3) : -1;
       const head = fmEnd === -1 ? "" : `${content.slice(0, fmEnd + 4)}\n\n`;
       await this.app.vault.modify(file, head + out.join("\n"));
+
+      const excluded = this.rows.filter((r) => !r.include).map((r) => r.label);
+      await this.app.fileManager.processFrontMatter(file, (front) => {
+        if (excluded.length) front.packing_excluded = excluded;
+        else delete front.packing_excluded;
+      });
 
       new Notice(`Packing list saved — ${included.length} items.`);
       this.onSaved();

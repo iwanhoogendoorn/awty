@@ -148,12 +148,20 @@ const SLUG_OVERRIDES = {
   US: "verenigde-staten-van-amerika",
 };
 
+/**
+ * Whether the site has a page for this slug.
+ *
+ * Returns null when the question could not be answered — offline, rate
+ * limited, HEAD rejected — which is not the same as "no such country" and must
+ * not be recorded as one.
+ */
 async function probe(slug) {
   try {
     const response = await fetch(`${ADVICE_BASE}/${slug}`, { method: "HEAD" });
+    if (response.status >= 500 || response.status === 429) return null;
     return response.ok;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -166,17 +174,38 @@ async function buildAdviceSlugs() {
     console.log(`advice: reusing ${Object.keys(slugs).length} cached slugs (--probe to recheck)`);
   } else {
     console.log(`advice: probing ${ISO2.length} slugs against ${ADVICE_BASE} …`);
+    // Start from what is already known. A probe that cannot reach the site
+    // used to look identical to one that found nothing, and the run then
+    // overwrote a good file with an empty one.
+    const previous = fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, "utf8")) : {};
+    slugs = { ...previous };
+    let unreachable = 0;
+
     for (const code of ISO2) {
       const candidates = [SLUG_OVERRIDES[code], slugify(dutch.of(code))].filter(Boolean);
       for (const candidate of candidates) {
         // Sequential and unhurried: this is a government site being scanned
         // once at build time, not a hot path.
-        if (await probe(candidate)) {
+        const answer = await probe(candidate);
+        if (answer === null) {
+          unreachable += 1;
+          break;
+        }
+        if (answer) {
           slugs[code] = candidate;
           break;
         }
       }
       await new Promise((resolve) => setTimeout(resolve, 60));
+    }
+
+    const failed = unreachable / ISO2.length;
+    if (failed > 0.1) {
+      console.error(
+        `advice: ${unreachable} of ${ISO2.length} probes could not reach the site — refusing to ` +
+          `overwrite ${Object.keys(previous).length} known slugs. Try again when it is up.`,
+      );
+      process.exit(1);
     }
     fs.writeFileSync(cachePath, JSON.stringify(slugs, null, 2) + "\n");
     console.log(`advice: ${Object.keys(slugs).length} of ${ISO2.length} countries have advice`);
