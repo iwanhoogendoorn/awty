@@ -233,7 +233,10 @@ export async function createBooking(
     if (draft.address) fm.address = draft.address;
     if (draft.operator) fm.operator = draft.operator;
     if (draft.seat) fm.seat = draft.seat;
-    if (draft.legs.length > 1) fm.legs = legsToFrontmatter(draft.legs);
+    // Stored even for a direct flight: without it the outbound arrival has to
+    // be inferred from the booking's end, which on a return ticket is when you
+    // land back home — an outbound "journey" of seven days.
+    if (draft.legs.length > 0) fm.legs = legsToFrontmatter(draft.legs);
     if (draft.returnLegs.length > 0) fm.return_legs = legsToFrontmatter(draft.returnLegs);
     if (links.length) fm.attachments = links;
   });

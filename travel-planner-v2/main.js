@@ -1883,7 +1883,7 @@ async function createBooking(app, settings, trip, draft) {
     if (draft.address) fm.address = draft.address;
     if (draft.operator) fm.operator = draft.operator;
     if (draft.seat) fm.seat = draft.seat;
-    if (draft.legs.length > 1) fm.legs = legsToFrontmatter(draft.legs);
+    if (draft.legs.length > 0) fm.legs = legsToFrontmatter(draft.legs);
     if (draft.returnLegs.length > 0) fm.return_legs = legsToFrontmatter(draft.returnLegs);
     if (links.length) fm.attachments = links;
   });
@@ -2238,6 +2238,7 @@ function renderFlights(parent, ctx) {
       { label: "Return", legs: inbound, fallbackTime: flight.returnTime }
     ];
     for (const direction of directions) {
+      const oneWay = !flight.returnDate;
       const legs = direction.legs.length > 0 ? direction.legs : direction.label === "Outbound" ? [
         {
           operator: flight.operator,
@@ -2246,8 +2247,8 @@ function renderFlights(parent, ctx) {
           to: flight.to,
           date: flight.date,
           depTime: flight.time,
-          arrDate: flight.endDate,
-          arrTime: flight.endTime
+          arrDate: oneWay ? flight.endDate : "",
+          arrTime: oneWay ? flight.endTime : ""
         }
       ] : [];
       if (legs.length === 0) continue;
@@ -2270,12 +2271,16 @@ function renderFlights(parent, ctx) {
         );
       }
       text.createDiv({ cls: "tp-around-dist", text: bits.join(" \xB7 ") });
-      const total = totalJourneyMinutes(legs);
+      const raw = totalJourneyMinutes(legs);
+      const total = raw !== null && raw > 24 * 60 ? null : raw;
       const times2 = row2.createDiv({ cls: "tp-around-times" });
       const chip = times2.createDiv({ cls: "tp-around-chip is-flight" });
       (0, import_obsidian6.setIcon)(chip.createSpan({ cls: "tp-around-chip-icon" }), "plane");
       chip.createSpan({ text: total === null ? "\u2014" : formatLayover(total) });
-      chip.setAttribute("title", "Total journey, including time on the ground");
+      chip.setAttribute(
+        "title",
+        total === null ? "Arrival time not recorded \u2014 re-save the flight to fill it in" : "Total journey, including time on the ground"
+      );
       row2.addEventListener("click", () => ctx.openFile(flight.file));
     }
   }

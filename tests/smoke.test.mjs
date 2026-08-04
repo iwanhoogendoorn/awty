@@ -16,7 +16,7 @@ export * from "./src/util/paths.ts";
 export { foodSpotBlock } from "./src/store/templates.ts";
 export { analyseNote } from "./src/store/noteProgress.ts";
 export { emptyDayDates, readDaySections } from "./src/store/itinerary.ts";
-export { routeTitle, layoverMinutes, formatLayover } from "./src/bookings/legs.ts";
+export { routeTitle, layoverMinutes, formatLayover, totalJourneyMinutes } from "./src/bookings/legs.ts";
 export { parseConfirmation, parseIcs, parseConfirmationText, parseLooseDate } from "./src/flights/parseConfirmation.ts";
 export { splitFlightNumber } from "./src/flights/flightNumber.ts";
 export { renderTripDocument, escapeHtml } from "./src/export/tripDocument.ts";
@@ -707,6 +707,28 @@ test("route titles describe the journey, not the first keystroke", () => {
   assert.equal(m.routeTitle([leg("AMS", "DBV")]), "AMS → DBV");
   assert.equal(m.routeTitle([leg("AMS", "IST"), leg("IST", "DBV")]), "AMS → DBV via IST");
   assert.equal(m.routeTitle([]), "");
+});
+
+test("a journey is measured leg to leg, not to the end of the ticket", () => {
+  const leg = (date, dep, arrDate, arr) => ({
+    operator: "", number: "", from: "", to: "", date, depTime: dep, arrDate, arrTime: arr,
+  });
+
+  // Outbound only: 17 Aug 10:15 to 12:35 is 2h20, not seven days.
+  const outbound = [leg("2026-08-17", "10:15", "2026-08-17", "12:35")];
+  assert.equal(m.totalJourneyMinutes(outbound), 140);
+  assert.equal(m.formatLayover(140), "2 h 20 min");
+
+  // Reading the return's arrival as the outbound's is what produced 173 h.
+  const wrong = [leg("2026-08-17", "10:15", "2026-08-24", "12:55")];
+  assert.ok(m.totalJourneyMinutes(wrong) > 24 * 60, "the bad shape is detectable as absurd");
+
+  // A connection counts the ground time between legs.
+  const connecting = [
+    leg("2026-08-17", "10:15", "2026-08-17", "13:40"),
+    leg("2026-08-17", "15:45", "2026-08-17", "17:30"),
+  ];
+  assert.equal(m.totalJourneyMinutes(connecting), 435);
 });
 
 test("layovers are computed, and refuse to guess without times", () => {

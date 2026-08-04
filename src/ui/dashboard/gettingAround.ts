@@ -235,6 +235,11 @@ function renderFlights(parent: HTMLElement, ctx: DashboardContext): void {
 
     for (const direction of directions) {
       // A direct flight has no legs recorded; fall back to the booking itself.
+      // Bookings saved before legs were stored for direct flights have no legs
+      // at all. The booking's own end is the outbound arrival only on a
+      // one-way; on a return ticket it is when you land back home, so the
+      // arrival is left unknown rather than reported as seven days.
+      const oneWay = !flight.returnDate;
       const legs =
         direction.legs.length > 0
           ? direction.legs
@@ -247,8 +252,8 @@ function renderFlights(parent: HTMLElement, ctx: DashboardContext): void {
                   to: flight.to,
                   date: flight.date,
                   depTime: flight.time,
-                  arrDate: flight.endDate,
-                  arrTime: flight.endTime,
+                  arrDate: oneWay ? flight.endDate : "",
+                  arrTime: oneWay ? flight.endTime : "",
                 },
               ]
             : [];
@@ -276,12 +281,20 @@ function renderFlights(parent: HTMLElement, ctx: DashboardContext): void {
       }
       text.createDiv({ cls: "tp-around-dist", text: bits.join(" · ") });
 
-      const total = totalJourneyMinutes(legs);
+      // The longest scheduled flight on earth is under 20 hours; anything
+      // beyond a day is data being misread, and a number is worse than none.
+      const raw = totalJourneyMinutes(legs);
+      const total = raw !== null && raw > 24 * 60 ? null : raw;
       const times = row.createDiv({ cls: "tp-around-times" });
       const chip = times.createDiv({ cls: "tp-around-chip is-flight" });
       setIcon(chip.createSpan({ cls: "tp-around-chip-icon" }), "plane");
       chip.createSpan({ text: total === null ? "—" : formatLayover(total) });
-      chip.setAttribute("title", "Total journey, including time on the ground");
+      chip.setAttribute(
+        "title",
+        total === null
+          ? "Arrival time not recorded — re-save the flight to fill it in"
+          : "Total journey, including time on the ground",
+      );
 
       row.addEventListener("click", () => ctx.openFile(flight.file));
     }
