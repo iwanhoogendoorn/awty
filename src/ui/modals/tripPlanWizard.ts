@@ -23,6 +23,11 @@ interface Step {
   detail: string;
   icon: string;
   done: boolean;
+  /**
+   * Something is outstanding and it matters — a visa to arrange, a card to
+   * file. An empty ring reads as "nothing here", which is the opposite.
+   */
+  attention?: boolean;
   /** What you'd say out loud about this step's current state. */
   summary: string;
   action: () => void;
@@ -176,6 +181,10 @@ export class TripPlanWizard extends Modal {
         detail: "Visas, and the current government travel advice.",
         icon: "shield-check",
         done: needsNoAction && advice !== null,
+        // Outstanding entry requirements are work with a deadline, and red
+        // advice is a reason to think again about going at all. Neither is
+        // "not started", which is what an empty ring says.
+        attention: !needsNoAction || advice?.colour === "rood",
         summary: documentSummary,
         action: () => {
           for (const country of tripCountries(trip)) {
@@ -342,10 +351,19 @@ export class TripPlanWizard extends Modal {
 
     const list = contentEl.createDiv({ cls: "awty-plan-list" });
     for (const step of steps) {
-      const row = list.createDiv({ cls: `awty-plan-row${step.done ? " is-done" : ""}` });
+      const state = step.done ? "is-complete" : step.attention ? "is-attention" : "is-empty";
+      const row = list.createDiv({
+        cls: `awty-plan-row${step.done ? " is-done" : ""}${step.attention ? " is-attention" : ""}`,
+      });
 
-      const mark = row.createDiv({ cls: `awty-mark ${step.done ? "is-complete" : "is-empty"}` });
-      setIcon(mark, step.done ? "check" : "x");
+      const mark = row.createDiv({ cls: `awty-mark ${state}` });
+      // A ring says "not yet"; an exclamation says "this one is waiting on you".
+      if (step.done) setIcon(mark, "check");
+      else if (step.attention) setIcon(mark, "alert-triangle");
+      mark.setAttribute(
+        "aria-label",
+        step.done ? "Done" : step.attention ? "Needs attention" : "Not started",
+      );
 
       const icon = row.createDiv({ cls: "awty-plan-icon" });
       setIcon(icon, step.icon);

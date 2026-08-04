@@ -193,6 +193,20 @@
   clip-path: inset(50% 0 0 0);
 }
 
+/* Waiting on you, as against not begun: an empty ring says "nothing here",
+   which is the opposite of a visa you have not arranged yet. */
+.awty-mark.is-attention {
+  background: var(--color-orange);
+  border: none;
+  color: var(--text-on-accent);
+}
+
+.awty-mark.is-attention .svg-icon {
+  width: 11px;
+  height: 11px;
+  stroke-width: 3;
+}
+
 .awty-mark.is-small.is-empty,
 .awty-mark.is-small.is-started {
   border-width: 1.5px;

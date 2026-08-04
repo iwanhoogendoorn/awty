@@ -826,3 +826,7 @@
   flex: 1;
   min-width: 12em;
 }
+
+.awty-plan-row.is-attention .awty-plan-title {
+  color: var(--text-normal);
+}
