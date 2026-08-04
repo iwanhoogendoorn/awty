@@ -13,7 +13,7 @@ import {
 import { daysBetween, formatDateRange } from "../../util/dates";
 import { formatMoney, formatTotals, sumMoney } from "../../util/money";
 import { checkVisa, exceedsAllowance } from "../../travel/visa";
-import { entryExtrasFor } from "../../data/entryExtras";
+import { entryExtrasChecked, entryExtrasFor } from "../../data/entryExtras";
 import { ADVICE_MEANING } from "../../travel/advice";
 
 interface Step {
@@ -121,7 +121,9 @@ export class TripPlanWizard extends Modal {
     const extras = tripCountries(trip)
       .flatMap((country) => entryExtrasFor(country))
       .filter((extra) => extra.status === "required");
-    const needsNoAction = blocking.length === 0 && extras.length === 0;
+    // A country nobody has checked is not a country known to be clear.
+    const unchecked = tripCountries(trip).filter((country) => !entryExtrasChecked(country));
+    const needsNoAction = blocking.length === 0 && extras.length === 0 && unchecked.length === 0;
 
     const documentSummary = (() => {
       const parts: string[] = [];
@@ -130,6 +132,7 @@ export class TripPlanWizard extends Modal {
       else parts.push("No visa needed");
       if (extras.length === 1) parts.push(extras[0].name);
       else if (extras.length > 1) parts.push(`${extras.length} arrival formalities`);
+      else if (unchecked.length > 0) parts.push(`arrival rules unchecked for ${unchecked[0]}`);
       if (advice) parts.push(`advice ${ADVICE_MEANING[advice.colour].label.toLowerCase()}`);
       else parts.push("advice not checked");
       return parts.join(" · ");

@@ -126,6 +126,16 @@ export const ENTRY_EXTRAS: EntryExtra[] = [
     cost: "Free",
   },
   {
+    country: "Malaysia",
+    name: "Malaysia Digital Arrival Card (MDAC)",
+    detail:
+      "Required of every foreign visitor however long they stay, submitted within three days before arriving.",
+    url: "https://imigresen-online.imi.gov.my/mdac/main",
+    when: "before",
+    status: "required",
+    cost: "Free",
+  },
+  {
     country: "Indonesia",
     name: "All Indonesia customs declaration",
     detail: "Customs declaration submitted online, from two days before you arrive.",
@@ -152,6 +162,49 @@ export const ENTRY_EXTRAS_COMING: EntryExtra[] = [
     cost: "€20",
   },
 ];
+
+/**
+ * Countries whose entry formalities have actually been looked at.
+ *
+ * This matters more than the list above. Eleven entries out of nearly two
+ * hundred countries means silence is the common case, and silence reads as
+ * "nothing needed" — which is exactly the mistake this file exists to prevent.
+ * A country not in this set gets told so, and pointed at the advice page,
+ * rather than being passed off as clear.
+ */
+export const ENTRY_EXTRAS_CHECKED = new Set<string>([
+  ...ENTRY_EXTRAS.map((extra) => extra.country),
+  // Looked at and found to want nothing beyond the visa answer.
+  "Netherlands",
+  "Belgium",
+  "Germany",
+  "France",
+  "Spain",
+  "Italy",
+  "Portugal",
+  "Greece",
+  "Croatia",
+  "Montenegro",
+  "Austria",
+  "Switzerland",
+  "Ireland",
+  "Denmark",
+  "Sweden",
+  "Norway",
+  "Poland",
+  "Czech Republic",
+  "Hungary",
+  "Turkey",
+  "Morocco",
+  "Mexico",
+]);
+
+/** Whether anyone has checked what this country asks for beyond a visa. */
+export function entryExtrasChecked(country: string): boolean {
+  const wanted = country.trim();
+  if (!wanted) return false;
+  return [...ENTRY_EXTRAS_CHECKED].some((known) => known.toLowerCase() === wanted.toLowerCase());
+}
 
 /** Everything extra a country asks for, in force first. */
 export function entryExtrasFor(country: string): EntryExtra[] {

@@ -24,7 +24,7 @@ export { renderTripDocument, escapeHtml } from "./src/export/tripDocument.ts";
 export { decodeQuotedPrintable, extractIcsFromEmail } from "./src/flights/parseConfirmation.ts";
 export { fold, rankMatches, flattenByRank, flattenGroups, replaceLastToken } from "./src/util/search.ts";
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
-export { entryExtrasFor, ENTRY_EXTRAS, ENTRY_EXTRAS_COMING, ENTRY_EXTRAS_VERIFIED } from "./src/data/entryExtras.ts";
+export { entryExtrasFor, entryExtrasChecked, ENTRY_EXTRAS, ENTRY_EXTRAS_COMING, ENTRY_EXTRAS_VERIFIED } from "./src/data/entryExtras.ts";
 export { allCategories, COST_CATEGORIES, BOOKING_KINDS } from "./src/bookings/types.ts";
 export { CREATABLE_SUB_NOTES, SUB_NOTE_LABELS, KINDS, tripStops, tripCities, tripCountries, joinPlaces } from "./src/types.ts";
 export { parseAdviceColour, adviceUrlFor, isStale, ADVICE_TTL_MS } from "./src/travel/adviceData.ts";
@@ -1680,6 +1680,13 @@ test("no visa needed is not the same as nothing to do", () => {
     assert.ok(extra.detail.length > 20, `${extra.name} needs a real explanation`);
     assert.ok(["before", "arrival"].includes(extra.when), extra.name);
   }
+
+  // The list covers eleven countries out of nearly two hundred, so the common
+  // case is "not checked" — and that has to be said, not left as silence.
+  assert.equal(m.entryExtrasChecked("Thailand"), true, "on the list");
+  assert.equal(m.entryExtrasChecked("croatia"), true, "looked at, nothing extra");
+  assert.equal(m.entryExtrasChecked("Bhutan"), false, "never looked at");
+  assert.equal(m.entryExtrasChecked(""), false);
 
   // Announced is kept apart from required: telling someone to arrange a thing
   // that does not exist yet is its own kind of wrong.

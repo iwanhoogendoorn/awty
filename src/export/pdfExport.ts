@@ -7,7 +7,7 @@ import { BOOKING_KINDS } from "../bookings/types";
 import { fileFromLink, totalsByCategory } from "../bookings/bookingStore";
 import { checkVisa } from "../travel/visa";
 import { ADVICE_MEANING } from "../travel/adviceData";
-import { entryExtrasFor } from "../data/entryExtras";
+import { entryExtrasChecked, entryExtrasFor } from "../data/entryExtras";
 import { formatMoney, formatTotals, sumMoney } from "../util/money";
 import {
   datesInRange,
@@ -105,7 +105,16 @@ export async function buildTripDocument(
 
     // Arrival cards and authorisations are not visas, and a document you take
     // with you is exactly where "no visa needed, but do this" belongs.
-    for (const extra of entryExtrasFor(country)) {
+    const extras = entryExtrasFor(country);
+    if (extras.length === 0 && !entryExtrasChecked(country)) {
+      documents.push({
+        label: `${country} · arrival formalities not checked`,
+        detail:
+          "Many countries want an arrival card or an authorisation even without a visa. This one has not been checked — read the official travel advice before you fly.",
+        tone: "unknown",
+      });
+    }
+    for (const extra of extras) {
       const coming = extra.status === "announced";
       documents.push({
         label: `${country} · ${extra.name}${coming ? " (announced, not yet in force)" : ""}`,

@@ -4,7 +4,7 @@ import { sectionTitle } from "./common";
 import { checkVisa, exceedsAllowance } from "../../travel/visa";
 import { ADVICE_MEANING, adviceUrlFor, isStale } from "../../travel/advice";
 import { tripCountries } from "../../types";
-import { ENTRY_EXTRAS_VERIFIED, entryExtrasFor } from "../../data/entryExtras";
+import { ENTRY_EXTRAS_VERIFIED, entryExtrasChecked, entryExtrasFor } from "../../data/entryExtras";
 import { daysBetween } from "../../util/dates";
 
 /**
@@ -108,9 +108,31 @@ function renderVisa(parent: HTMLElement, ctx: DashboardContext, country: string)
  */
 function renderEntryExtras(parent: HTMLElement, country: string): void {
   const extras = entryExtrasFor(country);
-  if (extras.length === 0) return;
-
   const list = parent.createDiv({ cls: "awty-doc-list-rows" });
+
+  // Eleven countries are covered out of nearly two hundred, so most trips land
+  // here. Showing nothing would read as "nothing needed", which is the very
+  // mistake this section exists to prevent.
+  if (extras.length === 0) {
+    const checked = entryExtrasChecked(country);
+    const row = list.createDiv({ cls: `awty-doc-item is-${checked ? "good" : "unknown"}` });
+    setIcon(row.createDiv({ cls: "awty-doc-item-icon" }), checked ? "check" : "help-circle");
+
+    const body = row.createDiv({ cls: "awty-doc-item-body" });
+    body.createDiv({
+      cls: "awty-doc-item-title",
+      text: checked
+        ? "Nothing beyond the visa answer"
+        : "Arrival formalities not checked for this country",
+    });
+    body.createDiv({
+      cls: "awty-doc-item-detail",
+      text: checked
+        ? `Looked at on ${ENTRY_EXTRAS_VERIFIED}. Rules move, so confirm before you book.`
+        : "Many countries want an arrival card or an authorisation even when no visa is needed. This plugin has not checked this one — read the travel advice below, which lists entry requirements.",
+    });
+    return;
+  }
   for (const extra of extras) {
     const coming = extra.status === "announced";
     const row = list.createDiv({ cls: `awty-doc-item is-${coming ? "unknown" : "warn"}` });
