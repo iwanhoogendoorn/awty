@@ -211,6 +211,9 @@
 .awty-stop-input {
   flex: 1;
   min-width: 0;
+  /* Matches the height of a Setting's own text field, so a row of stops does
+     not sit taller than the fields above and below it. */
+  font-size: var(--font-ui-small);
 }
 
 .awty-stop-btn {

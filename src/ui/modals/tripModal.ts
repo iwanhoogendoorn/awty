@@ -364,6 +364,10 @@ export class TripModal extends Modal {
       });
 
       const country = row.createEl("input", { cls: "awty-stop-input" });
+      // Obsidian styles input[type="text"], and an attribute selector does not
+      // match an input that never declares one — which is why these looked
+      // like raw browser boxes next to every other field.
+      country.type = "text";
       country.placeholder = "Country";
       country.value = stop.country;
       country.addEventListener("input", () => {
@@ -377,6 +381,7 @@ export class TripModal extends Modal {
       });
 
       const city = row.createEl("input", { cls: "awty-stop-input" });
+      city.type = "text";
       city.placeholder = "City";
       city.value = stop.city;
       city.addEventListener("input", () => {
