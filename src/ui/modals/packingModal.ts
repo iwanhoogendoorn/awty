@@ -22,7 +22,8 @@ interface Row {
  */
 export class PackingModal extends Modal {
   private rows: Row[] = [];
-  private travellers = 1;
+  /** Defaults to who is actually on the trip. */
+  private travellers: number;
   private saveBtn: ButtonComponent | null = null;
   private listEl!: HTMLElement;
   private summaryEl!: HTMLElement;
@@ -33,6 +34,7 @@ export class PackingModal extends Modal {
     private onSaved: () => void,
   ) {
     super(app);
+    this.travellers = Math.min(4, Math.max(1, trip.travellers.length || 1));
   }
 
   async onOpen(): Promise<void> {

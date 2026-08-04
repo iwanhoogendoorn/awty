@@ -14,6 +14,12 @@ type Listener = () => void;
 
 const STATUS_ORDER: Record<TripStatus, number> = { current: 0, upcoming: 1, past: 2 };
 
+function list(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((v) => str(v)).filter(Boolean);
+  const single = str(value);
+  return single ? single.split(",").map((v) => v.trim()).filter(Boolean) : [];
+}
+
 function str(value: unknown): string {
   if (typeof value === "string") return value.trim();
   if (typeof value === "number") return String(value);
@@ -153,6 +159,9 @@ export class TripStore {
         startDate,
         endDate,
         status: tripStatus(startDate, endDate, today),
+        travellers: list(fm.travellers),
+        originCity: str(fm.origin_city),
+        originAirport: str(fm.origin_airport),
       });
     }
 

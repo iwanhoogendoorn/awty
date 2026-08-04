@@ -8,6 +8,7 @@ import { setIcon } from "obsidian";
  */
 export class AttachmentField {
   private files: File[] = [];
+  private pasteHandler: ((evt: ClipboardEvent) => void) | null = null;
   private listEl!: HTMLElement;
   private inputEl!: HTMLInputElement;
 
@@ -24,7 +25,7 @@ export class AttachmentField {
     const drop = wrap.createDiv({ cls: "tp-attach-drop" });
     setIcon(drop.createDiv({ cls: "tp-attach-icon" }), "paperclip");
     drop.createDiv({ cls: "tp-attach-label", text: this.label });
-    drop.createDiv({ cls: "tp-attach-hint", text: "Drop files here, or click to choose" });
+    drop.createDiv({ cls: "tp-attach-hint", text: "Drop files here, paste with Cmd+V, or click to choose" });
 
     this.inputEl = wrap.createEl("input", { cls: "tp-attach-input" });
     this.inputEl.type = "file";
@@ -54,6 +55,24 @@ export class AttachmentField {
     drop.addEventListener("drop", (evt: DragEvent) => {
       this.add(Array.from(evt.dataTransfer?.files ?? []));
     });
+
+    // Paste works anywhere in the modal, so a screenshot copied from a booking
+    // confirmation goes straight in with Cmd+V.
+    this.pasteHandler = (evt: ClipboardEvent) => {
+      const files = Array.from(evt.clipboardData?.files ?? []);
+      if (files.length === 0) return;
+      evt.preventDefault();
+      // Pasted images arrive named "image.png" every time; stamp them so a
+      // second paste does not look like a duplicate of the first.
+      this.add(
+        files.map((file, index) =>
+          file.name && file.name !== "image.png"
+            ? file
+            : new File([file], `pasted-${this.files.length + index + 1}.png`, { type: file.type }),
+        ),
+      );
+    };
+    document.addEventListener("paste", this.pasteHandler);
 
     this.listEl = wrap.createDiv({ cls: "tp-attach-list" });
     this.renderList();
@@ -91,6 +110,12 @@ export class AttachmentField {
 
   getFiles(): File[] {
     return [...this.files];
+  }
+
+  /** Modals must call this on close, or the paste listener outlives them. */
+  destroy(): void {
+    if (this.pasteHandler) document.removeEventListener("paste", this.pasteHandler);
+    this.pasteHandler = null;
   }
 }
 

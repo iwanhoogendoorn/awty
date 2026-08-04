@@ -5,6 +5,8 @@ import type { BookingDraft } from "../../bookings/bookingWriter";
 import type { TravelPlannerSettings, Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
 import { AirlineSuggest, AirportSuggest, CitySuggest } from "../components/suggest";
+import { LegsField } from "../components/legsField";
+import { emptyLeg, routeTitle, totalJourneyMinutes, formatLayover } from "../../bookings/legs";
 import { COMMON_CURRENCIES, formatMoney, parseAmount } from "../../util/money";
 import { formatDateRange, isValidISODate, todayISO } from "../../util/dates";
 
@@ -68,6 +70,7 @@ export class BookingWizard extends Modal {
   private backBtn!: ButtonComponent;
   private nextBtn!: ButtonComponent;
   private amountRaw = "";
+  private legsField: LegsField | null = null;
 
   constructor(
     app: App,
@@ -101,6 +104,7 @@ export class BookingWizard extends Modal {
       seat: "",
       notes: "",
       attachments: [],
+      legs: kind === "flight" ? [emptyLeg(start)] : [],
     };
   }
 
@@ -176,17 +180,14 @@ export class BookingWizard extends Modal {
   }
 
   private renderDetails(): void {
+    if (this.draft.kind === "flight") {
+      this.renderFlightLegs();
+      this.renderStatusAndNotes();
+      return;
+    }
     for (const spec of FIELDS[this.draft.kind]) {
       // Anything with a known set of answers gets a picker; only genuinely
       // free-form fields stay as text boxes.
-      if (spec.key === "operator" && this.draft.kind === "flight") {
-        this.renderPickerField(spec, "airline");
-        continue;
-      }
-      if ((spec.key === "from" || spec.key === "to") && this.draft.kind === "flight") {
-        this.renderPickerField(spec, "airport");
-        continue;
-      }
       if ((spec.key === "from" || spec.key === "to") && this.draft.kind === "transport") {
         this.renderCityField(spec);
         continue;
@@ -198,17 +199,66 @@ export class BookingWizard extends Modal {
       });
     }
 
+    this.renderStatusAndNotes();
+  }
+
+  private renderStatusAndNotes(): void {
     new Setting(this.bodyEl).setName("Status").addDropdown((dd) => {
       for (const s of BOOKING_STATUSES) dd.addOption(s.id, s.label);
       dd.setValue(this.draft.status);
       dd.onChange((v) => (this.draft.status = v as BookingStatus));
     });
 
+    if (this.trip.travellers.length > 1) {
+      new Setting(this.bodyEl)
+        .setName("For")
+        .setDesc("Who this booking covers.")
+        .addText((t) => {
+          t.setPlaceholder(this.trip.travellers.join(", "));
+          t.setValue(this.draft.seat);
+          t.onChange((v) => (this.draft.seat = v.trim()));
+        });
+    }
+
     new Setting(this.bodyEl).setName("Notes").addTextArea((ta) => {
       ta.inputEl.rows = 2;
       ta.setValue(this.draft.notes);
       ta.onChange((v) => (this.draft.notes = v));
     });
+  }
+
+  /** Direct or connecting; the editor handles both and works out the layovers. */
+  private renderFlightLegs(): void {
+    const host = this.bodyEl.createDiv();
+    this.legsField = new LegsField({
+      app: this.app,
+      container: host,
+      legs: this.draft.legs,
+      defaultDate: this.draft.date,
+      stars: this.stars,
+      nearby: () => ({ country: this.trip.country, city: this.trip.city }),
+      onChange: () => this.syncFromLegs(),
+    });
+    this.syncFromLegs();
+  }
+
+  /** Collapses the legs down to the flat fields the rest of the plugin reads. */
+  private syncFromLegs(): void {
+    if (!this.legsField) return;
+    const legs = this.legsField.getLegs();
+    this.draft.legs = legs;
+    if (legs.length === 0) return;
+
+    const first = legs[0];
+    const last = legs[legs.length - 1];
+    this.draft.from = first.from;
+    this.draft.to = last.to;
+    this.draft.operator = first.operator;
+    this.draft.date = first.date || this.draft.date;
+    this.draft.time = first.depTime;
+    this.draft.endDate = last.arrDate || last.date || this.draft.date;
+    this.draft.endTime = last.arrTime;
+    if (!this.draft.title) this.draft.title = legs.map((l) => l.number).filter(Boolean).join(" + ");
   }
 
   /** Text field backed by a picker, with a star button for the ones you reuse. */
@@ -295,6 +345,14 @@ export class BookingWizard extends Modal {
   }
 
   private renderWhen(): void {
+    if (this.draft.kind === "flight") {
+      this.bodyEl.createDiv({
+        cls: "tp-dash-hint",
+        text: "Dates and times live on each leg, back on the Details step.",
+      });
+      this.bodyEl.createDiv({ cls: "tp-wizard-summary-value", text: this.whenSummary() });
+      return;
+    }
     const isStay = this.draft.kind === "stay";
     const wrap = this.bodyEl.createDiv({ cls: "tp-daterange" });
 
@@ -433,7 +491,14 @@ export class BookingWizard extends Modal {
   private whenSummary(): string {
     const range = formatDateRange(this.draft.date, this.draft.endDate);
     const times = [this.draft.time, this.draft.endTime].filter(Boolean).join(" → ");
-    return times ? `${range} · ${times}` : range;
+    const base = times ? `${range} · ${times}` : range;
+    if (this.draft.legs.length > 1) {
+      const total = totalJourneyMinutes(this.draft.legs);
+      const stops = this.draft.legs.length - 1;
+      const label = `${stops} stop${stops === 1 ? "" : "s"}`;
+      return total === null ? `${base} · ${label}` : `${base} · ${label}, ${formatLayover(total)} total`;
+    }
+    return base;
   }
 
   /** Falls back to something readable when the title field was left blank. */
@@ -444,6 +509,8 @@ export class BookingWizard extends Modal {
       }
       return this.draft.title;
     }
+    const route = routeTitle(this.draft.legs);
+    if (route) return route;
     if (this.draft.from && this.draft.to) return `${this.draft.from} → ${this.draft.to}`;
     if (this.draft.operator) return this.draft.operator;
     return BOOKING_KINDS.find((k) => k.id === this.draft.kind)?.label ?? "Booking";
@@ -471,6 +538,7 @@ export class BookingWizard extends Modal {
   }
 
   onClose(): void {
+    this.attachments?.destroy();
     this.contentEl.empty();
   }
 }

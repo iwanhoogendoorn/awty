@@ -74,6 +74,9 @@ function tripFrontmatter(draft: TripDraft): Record<string, unknown> {
     start_date: draft.startDate,
     end_date: def.singleDay ? draft.startDate : draft.endDate,
   };
+  if (draft.travellers.length > 0) fm.travellers = draft.travellers;
+  if (draft.originCity) fm.origin_city = draft.originCity;
+  if (draft.originAirport) fm.origin_airport = draft.originAirport;
   if (draft.country) fm.country = draft.country;
   if (draft.city) fm.city = draft.city;
   if (def.hasVenue && draft.venue) fm.venue = draft.venue;

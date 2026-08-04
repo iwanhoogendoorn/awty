@@ -3,7 +3,7 @@ import { TRAVEL_MODES } from "../travel/types";
 import type TravelPlannerPlugin from "../main";
 import type { SubNoteId, TripKind } from "../types";
 import { FOODSPOT_PLUGIN_ID, KINDS, SUB_NOTE_LABELS, kindDef } from "../types";
-import { CountrySuggest } from "../ui/components/suggest";
+import { AirportSuggest, CitySuggest, CountrySuggest } from "../ui/components/suggest";
 
 export class TravelPlannerSettingTab extends PluginSettingTab {
   constructor(
@@ -77,6 +77,57 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
         await this.plugin.saveSettings();
       });
     });
+
+    new Setting(containerEl).setName("You").setHeading();
+
+    new Setting(containerEl)
+      .setName("Home city")
+      .setDesc("Pre-fills the origin of a new trip.")
+      .addText((t) => {
+        t.setPlaceholder("Rotterdam");
+        t.setValue(this.plugin.settings.homeCity);
+        t.onChange(async (v) => {
+          this.plugin.settings.homeCity = v.trim();
+          await this.plugin.saveSettings();
+        });
+        new CitySuggest(this.app, t.inputEl, () => "", async (value) => {
+          this.plugin.settings.homeCity = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Home airport")
+      .setDesc("Where you usually fly out of.")
+      .addText((t) => {
+        t.setPlaceholder("Amsterdam (AMS)");
+        t.setValue(this.plugin.settings.homeAirport);
+        t.onChange(async (v) => {
+          this.plugin.settings.homeAirport = v.trim();
+          await this.plugin.saveSettings();
+        });
+        new AirportSuggest(
+          this.app,
+          t.inputEl,
+          (v) => this.plugin.settings.starredAirports.includes(v),
+          async (value) => {
+            this.plugin.settings.homeAirport = value;
+            await this.plugin.saveSettings();
+          },
+        );
+      });
+
+    new Setting(containerEl)
+      .setName("Who usually travels")
+      .setDesc("Comma-separated. A new trip starts with these names.")
+      .addText((t) => {
+        t.setPlaceholder("Iwan, Gaurav");
+        t.setValue(this.plugin.settings.household.join(", "));
+        t.onChange(async (v) => {
+          this.plugin.settings.household = v.split(",").map((n) => n.trim()).filter(Boolean);
+          await this.plugin.saveSettings();
+        });
+      });
 
     new Setting(containerEl).setName("Sidebar").setHeading();
 

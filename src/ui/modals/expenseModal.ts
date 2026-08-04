@@ -121,6 +121,7 @@ export class ExpenseModal extends Modal {
   }
 
   onClose(): void {
+    this.attachments?.destroy();
     this.contentEl.empty();
   }
 }

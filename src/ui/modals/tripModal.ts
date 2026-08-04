@@ -2,7 +2,7 @@ import { App, ButtonComponent, Modal, Notice, Setting, setIcon } from "obsidian"
 import type { SubNoteId, TravelPlannerSettings, Trip, TripDraft, TripKind } from "../../types";
 import { KINDS, SUB_NOTE_LABELS, kindDef } from "../../types";
 import { DateRangeField } from "../components/dateRange";
-import { CitySuggest, CountrySuggest, countryForCity } from "../components/suggest";
+import { AirportSuggest, CitySuggest, CountrySuggest, countryForCity } from "../components/suggest";
 import { isValidISODate, monthName, todayISO, yearOf } from "../../util/dates";
 
 export type TripModalMode = "create" | "edit";
@@ -44,6 +44,10 @@ export class TripModal extends Modal {
       startDate: start,
       endDate: initial.endDate ?? start,
       notes: initial.notes ?? "",
+      travellers:
+        initial.travellers ?? (mode === "create" ? [...settings.household] : []),
+      originCity: initial.originCity ?? (mode === "create" ? settings.homeCity : ""),
+      originAirport: initial.originAirport ?? (mode === "create" ? settings.homeAirport : ""),
       subNotes: initial.subNotes ?? [...(settings.subNotesByKind[kind] ?? kindDef(kind).subNotes)],
     };
     this.titleIsAuto = !this.draft.title;
@@ -67,6 +71,9 @@ export class TripModal extends Modal {
         venue: trip.venue,
         startDate: trip.startDate,
         endDate: trip.endDate,
+        travellers: trip.travellers,
+        originCity: trip.originCity,
+        originAirport: trip.originAirport,
         subNotes: [],
       },
       onSubmit,
@@ -210,6 +217,48 @@ export class TripModal extends Modal {
           () => this.draft.country,
           (value) => this.setCity(value, true),
         );
+      });
+
+    // A trip has two ends. Only ever recording the destination made "where am
+    // I flying from?" unanswerable without opening a booking.
+    new Setting(parent)
+      .setName("Travelling from")
+      .setDesc("Your origin city and home airport, pre-filled from settings.")
+      .addText((t) => {
+        t.setPlaceholder("City");
+        t.setValue(this.draft.originCity);
+        t.onChange((v) => (this.draft.originCity = v.trim()));
+        new CitySuggest(
+          this.app,
+          t.inputEl,
+          () => "",
+          (value) => (this.draft.originCity = value),
+        );
+      })
+      .addText((t) => {
+        t.setPlaceholder("Airport");
+        t.setValue(this.draft.originAirport);
+        t.onChange((v) => (this.draft.originAirport = v.trim()));
+        new AirportSuggest(
+          this.app,
+          t.inputEl,
+          () => false,
+          (value) => (this.draft.originAirport = value),
+        );
+      });
+
+    new Setting(parent)
+      .setName("Who's going")
+      .setDesc("Separate names with commas. Drives packing quantities and the cost split.")
+      .addText((t) => {
+        t.setPlaceholder("Iwan, Gaurav");
+        t.setValue(this.draft.travellers.join(", "));
+        t.onChange((v) => {
+          this.draft.travellers = v
+            .split(",")
+            .map((name) => name.trim())
+            .filter(Boolean);
+        });
       });
 
     this.venueSetting = new Setting(parent).setName("Venue").addText((t) => {

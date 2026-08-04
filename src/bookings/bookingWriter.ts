@@ -4,6 +4,7 @@ import { BOOKING_KINDS } from "./types";
 import type { TravelPlannerSettings, Trip } from "../types";
 import { joinPath, sanitizeName } from "../util/paths";
 import { airportFromLabel } from "../ui/components/suggest";
+import { legsToFrontmatter, layoverMinutes, formatLayover, type FlightLeg } from "./legs";
 
 export interface BookingDraft {
   kind: BookingKind;
@@ -24,6 +25,8 @@ export interface BookingDraft {
   notes: string;
   /** Vault paths of files to attach, already inside the vault. */
   attachments: string[];
+  /** Flight legs; a direct flight is one, a connection is several. */
+  legs: FlightLeg[];
 }
 
 export interface ExpenseDraft {
@@ -129,6 +132,30 @@ function bookingBody(draft: BookingDraft, attachmentLinks: string[]): string {
 
   const out = [`# ${draft.title}`, ""];
   if (rows.length) out.push("| | |", "|---|---|", ...rows, "");
+
+  if (draft.legs.length > 1) {
+    out.push("## Itinerary", "");
+    out.push("| Leg | Airline | Flight | From | To | Departs | Arrives |");
+    out.push("|---|---|---|---|---|---|---|");
+    draft.legs.forEach((leg, index) => {
+      const arrives = leg.arrDate && leg.arrDate !== leg.date
+        ? `${leg.arrTime} (+1)`
+        : leg.arrTime;
+      out.push(
+        `| ${index + 1} | ${leg.operator} | ${leg.number} | ${leg.from} | ${leg.to} | ${leg.date} ${leg.depTime} | ${arrives} |`,
+      );
+    });
+    out.push("");
+    // Connection times are the thing you actually worry about when booking.
+    const layovers: string[] = [];
+    for (let i = 1; i < draft.legs.length; i += 1) {
+      const gap = layoverMinutes(draft.legs[i - 1], draft.legs[i]);
+      if (gap !== null) {
+        layovers.push(`- ${formatLayover(gap)} in ${draft.legs[i - 1].to || "transit"}`);
+      }
+    }
+    if (layovers.length) out.push("**Layovers**", "", ...layovers, "");
+  }
   if (draft.notes.trim()) out.push("## Notes", "", draft.notes.trim(), "");
   if (attachmentLinks.length) {
     out.push("## Attachments", "");
@@ -184,6 +211,7 @@ export async function createBooking(
     if (draft.to) fm.to = draft.to;
     if (draft.operator) fm.operator = draft.operator;
     if (draft.seat) fm.seat = draft.seat;
+    if (draft.legs.length > 1) fm.legs = legsToFrontmatter(draft.legs);
     if (links.length) fm.attachments = links;
   });
 

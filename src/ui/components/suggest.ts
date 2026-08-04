@@ -134,8 +134,19 @@ export class AirportSuggest extends AbstractInputSuggest<AirportRecord> {
     input: HTMLInputElement,
     private isStarred: (value: string) => boolean,
     private onPick: (value: string, airport: AirportRecord) => void,
+    /** Where the trip is, so local airports come first instead of Aalborg. */
+    private nearby?: () => { country: string; city: string },
   ) {
     super(app, input);
+  }
+
+  /** Trip city first, then trip country, then everywhere else. */
+  private locality(a: AirportRecord): number {
+    const near = this.nearby?.();
+    if (!near) return 2;
+    if (near.city && fold(a.c) === fold(near.city)) return 0;
+    if (near.country && fold(a.y) === fold(near.country)) return 1;
+    return 2;
   }
 
   protected getSuggestions(query: string): AirportRecord[] {
@@ -146,7 +157,13 @@ export class AirportSuggest extends AbstractInputSuggest<AirportRecord> {
       return [...starred, ...rest];
     };
 
-    if (!q) return starredFirst(AIRPORTS.slice(0, 60)).slice(0, 50);
+    // With nothing typed, offer what is plausibly relevant rather than the
+    // alphabetical head of a six-thousand-row list.
+    if (!q) {
+      const local = AIRPORTS.filter((a) => this.locality(a) < 2);
+      const pool = local.length > 0 ? local : AIRPORTS.slice(0, 60);
+      return starredFirst(pool).slice(0, 50);
+    }
 
     // An exact code wins outright — "AMS" should never be buried under cities
     // that merely contain those letters.
@@ -167,12 +184,15 @@ export class AirportSuggest extends AbstractInputSuggest<AirportRecord> {
       if (codePrefix.length + cityPrefix.length > 60) break;
     }
 
+    const byLocality = (list: AirportRecord[]) =>
+      [...list].sort((x, y) => this.locality(x) - this.locality(y));
+
     const ordered = [
       ...(exact ? [exact] : []),
-      ...starredFirst(cityPrefix),
-      ...codePrefix,
-      ...cityContains,
-      ...nameContains,
+      ...starredFirst(byLocality(cityPrefix)),
+      ...byLocality(codePrefix),
+      ...byLocality(cityContains),
+      ...byLocality(nameContains),
     ];
     return ordered.slice(0, 50);
   }

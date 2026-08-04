@@ -124,6 +124,11 @@ export interface Trip {
   /** ISO YYYY-MM-DD; equal to startDate for single-day kinds. */
   endDate: string;
   status: TripStatus;
+  /** Who is going. Drives packing quantities and the per-person cost split. */
+  travellers: string[];
+  /** Where you are leaving from — a trip has two ends, not one. */
+  originCity: string;
+  originAirport: string;
 }
 
 /** The form payload shared by the new-trip and edit-trip modals. */
@@ -137,6 +142,9 @@ export interface TripDraft {
   endDate: string;
   notes: string;
   subNotes: SubNoteId[];
+  travellers: string[];
+  originCity: string;
+  originAirport: string;
 }
 
 export interface TravelPlannerSettings {
@@ -180,6 +188,11 @@ export interface TravelPlannerSettings {
   starredAirlines: string[];
   /** Airports pinned to the top of the from/to pickers. */
   starredAirports: string[];
+  /** Where you normally travel from, used to pre-fill the origin of a new trip. */
+  homeCity: string;
+  homeAirport: string;
+  /** Everyone who might come along; a new trip starts with the first of these. */
+  household: string[];
 }
 
 /** Google travel modes; duplicated here to keep the settings type dependency-free. */
@@ -209,6 +222,9 @@ export const DEFAULT_SETTINGS: TravelPlannerSettings = {
   travelModes: ["driving", "transit"],
   starredAirlines: [],
   starredAirports: [],
+  homeCity: "",
+  homeAirport: "",
+  household: [],
 };
 
 export const TRAVEL_VIEW_TYPE = "travel-planner-sidebar";
