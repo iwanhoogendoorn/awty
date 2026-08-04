@@ -2799,22 +2799,7 @@
   height: 0.85em;
 }
 
-.tp-settings-version {
-  margin-bottom: 1em;
-  font-size: var(--font-ui-smaller);
-  color: var(--text-faint);
-  font-family: var(--font-monospace);
-}
 
-.tp-settings-note {
-  margin: 0.4em 0 0.9em;
-  padding: 0.7em 0.9em;
-  border-radius: var(--radius-s);
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-  line-height: 1.5;
-}
 
 /* ------------------------------------------------- documents & advice */
 
@@ -2952,43 +2937,15 @@
   line-height: 1.45;
 }
 
-.tp-passport-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 0.6em;
-}
 
-.tp-passport-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5em;
-  padding: 0.35em 0.6em;
-  border-radius: var(--radius-s);
-  background: var(--background-secondary);
-}
 
-.tp-passport-icon {
-  display: flex;
-  color: var(--text-accent);
-}
 
 .tp-passport-icon .svg-icon {
   width: 0.95em;
   height: 0.95em;
 }
 
-.tp-passport-name {
-  flex: 1;
-}
 
-.tp-passport-default {
-  padding: 0 0.45em;
-  border-radius: 999px;
-  background: var(--background-modifier-border);
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-}
 
 /* Says what is missing, rather than the section vanishing entirely. */
 .tp-around-notice {
@@ -3020,4 +2977,228 @@
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   line-height: 1.45;
+}
+
+
+/* === 60-settings.css === */
+/* ==========================================================================
+   Settings — left nav over grouped panels, following the Food Spot layout.
+   ========================================================================== */
+
+.tp-settings {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.tp-settings-nav {
+  flex: 0 0 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 0;
+}
+
+.tp-settings-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tp-settings-nav-item:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.tp-settings-nav-item.is-active {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.tp-settings-nav-item.is-active .tp-settings-nav-icon svg {
+  color: var(--interactive-accent);
+}
+
+.tp-settings-nav-icon {
+  display: flex;
+}
+
+.tp-settings-nav-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tp-settings-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 700px) {
+  .tp-settings {
+    flex-direction: column;
+  }
+  .tp-settings-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    position: static;
+    width: 100%;
+  }
+}
+
+/* --- panel ---------------------------------------------------------------- */
+
+.tp-sgroup {
+  background: var(--background-secondary);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.tp-sgroup-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.tp-sgroup-icon {
+  display: flex;
+  color: var(--interactive-accent);
+}
+
+.tp-sgroup-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tp-sgroup-titles {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tp-sgroup-title {
+  font-weight: 600;
+}
+
+.tp-sgroup-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.tp-sgroup-body .setting-item {
+  border-top: none;
+  padding: 10px 0;
+}
+
+.tp-sgroup-label {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+/* --- status chip ---------------------------------------------------------- */
+
+.tp-sgroup-head .tp-chip {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tp-sgroup-head .tp-chip-ok {
+  color: var(--color-green);
+}
+
+.tp-sgroup-head .tp-chip-warn {
+  color: var(--color-orange);
+}
+
+.tp-sgroup-head .tp-chip-pending {
+  color: var(--text-muted);
+}
+
+/* --- inline help and notes ------------------------------------------------ */
+
+.tp-setting-help {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--background-modifier-hover);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.tp-setting-note {
+  margin: 6px 0 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* --- removable pills ------------------------------------------------------ */
+
+.tp-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+
+.tp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  font-size: 12px;
+}
+
+.tp-pill-icon {
+  display: flex;
+  color: var(--text-accent);
+}
+
+.tp-pill-icon svg,
+.tp-pill-x svg {
+  width: 12px;
+  height: 12px;
+}
+
+.tp-pill-tag {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.tp-pill-x {
+  display: flex;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.tp-pill-x:hover {
+  color: var(--color-red);
 }
