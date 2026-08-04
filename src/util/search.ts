@@ -53,3 +53,17 @@ export function rankMatches(items: readonly string[], query: string, limit = 50)
 
   return [...prefix, ...wordStart, ...contains].slice(0, limit);
 }
+
+/**
+ * Flattens a country-keyed map into one list ordered by each entry's position
+ * within its own country, so prominent places come first regardless of which
+ * country they belong to.
+ */
+export function flattenByRank(groups: Record<string, readonly string[]>): string[] {
+  const ranked: { value: string; rank: number }[] = [];
+  for (const list of Object.values(groups)) {
+    for (const [index, value] of list.entries()) ranked.push({ value, rank: index });
+  }
+  ranked.sort((a, b) => a.rank - b.rank);
+  return ranked.map((r) => r.value);
+}

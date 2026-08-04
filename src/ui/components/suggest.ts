@@ -3,7 +3,7 @@ import { COUNTRIES } from "../../data/countries";
 import { AIRLINES, airlineLabel } from "../../data/airlines";
 import { AIRPORTS, type AirportRecord } from "../../data/airports";
 import { CITIES } from "../../data/cities";
-import { fold, rankMatches as rank } from "../../util/search";
+import { flattenByRank, fold, rankMatches as rank } from "../../util/search";
 
 export class CountrySuggest extends AbstractInputSuggest<string> {
   constructor(
@@ -33,28 +33,50 @@ export class CountrySuggest extends AbstractInputSuggest<string> {
   }
 }
 
+/**
+ * Every city, ordered by how prominent it is inside its own country.
+ *
+ * Each country's list arrives population-descending, so an entry's index is a
+ * usable stand-in for importance. Flattening country-by-country instead put the
+ * whole of Afghanistan ahead of Amsterdam, which is how searching "a" with no
+ * country selected returned Aïbak. Built once, on first use.
+ */
+let GLOBAL_CITIES: string[] | null = null;
+
+function globalCities(): string[] {
+  if (!GLOBAL_CITIES) GLOBAL_CITIES = flattenByRank(CITIES);
+  return GLOBAL_CITIES;
+}
+
 export class CitySuggest extends AbstractInputSuggest<string> {
   constructor(
     app: App,
     input: HTMLInputElement,
     private getCountry: () => string,
     private onPick: (value: string) => void,
+    /** Searched first when no country is set — usually where you live. */
+    private preferredCountry?: () => string,
   ) {
     super(app, input);
   }
 
   protected getSuggestions(query: string): string[] {
     const country = this.getCountry();
-    // With no country chosen yet, search every city so the picker is still
-    // usable — you may well know the city before you think about the country.
-    const pool = country ? (CITIES[country] ?? []) : Object.values(CITIES).flat();
-    return rank(pool, query, country ? 50 : 30);
+    if (country) return rank(CITIES[country] ?? [], query, 50);
+
+    // No country chosen: offer the country you usually travel from first, then
+    // the rest of the world by prominence.
+    const preferred = this.preferredCountry?.() ?? "";
+    const local = preferred ? rank(CITIES[preferred] ?? [], query, 12) : [];
+    const seen = new Set(local);
+    const global = rank(globalCities(), query, 40).filter((c) => !seen.has(c));
+    return [...local, ...global].slice(0, 40);
   }
 
   renderSuggestion(value: string, el: HTMLElement): void {
     el.setText(value);
     if (!this.getCountry()) {
-      const owner = Object.keys(CITIES).find((c) => CITIES[c].includes(value));
+      const owner = countryForCity(value);
       if (owner) el.createSpan({ cls: "tp-suggest-hint", text: owner });
     }
   }

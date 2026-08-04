@@ -15,7 +15,7 @@ export * from "./src/util/dates.ts";
 export * from "./src/util/paths.ts";
 export { foodSpotBlock } from "./src/store/templates.ts";
 export { analyseNote } from "./src/store/noteProgress.ts";
-export { fold, rankMatches } from "./src/util/search.ts";
+export { fold, rankMatches, flattenByRank } from "./src/util/search.ts";
 export { AIRPORTS } from "./src/data/airports.ts";
 export { AIRLINES, airlineLabel } from "./src/data/airlines.ts";
 export { buildPackingPlan, effectiveDays, renderPackingPlan } from "./src/store/packing.ts";
@@ -311,6 +311,23 @@ test("blockquote callouts and italic placeholders are not content", () => {
     "# Budget\n\n> **When:** 17 Aug\n\n_Add trip overview here._\n",
   );
   assert.equal(p.state, "empty");
+});
+
+test("a countryless city search surfaces real places, not Afghan villages", () => {
+  // Flattening country-by-country put all of Afghanistan ahead of Amsterdam, so
+  // typing "a" with no country selected returned Aïbak and Andkhōy.
+  const global = m.flattenByRank(m.CITIES);
+  const hits = m.rankMatches(global, "amster", 10);
+  assert.equal(hits[0], "Amsterdam");
+
+  const a = m.rankMatches(global, "a", 20);
+  assert.ok(
+    a.some((city) => ["Amsterdam", "Athens", "Ankara", "Auckland", "Atlanta"].includes(city)),
+    `expected a major city near the top, got ${JSON.stringify(a.slice(0, 8))}`,
+  );
+  // Each country's capital-ish first entry outranks the tail of any other.
+  const firsts = new Set(Object.values(m.CITIES).map((list) => list[0]));
+  assert.ok(firsts.has(global[0]), "the very first entry should be a country's largest city");
 });
 
 // ------------------------------------------------------------- airports

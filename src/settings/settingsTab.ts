@@ -90,10 +90,16 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
           this.plugin.settings.homeCity = v.trim();
           await this.plugin.saveSettings();
         });
-        new CitySuggest(this.app, t.inputEl, () => "", async (value) => {
-          this.plugin.settings.homeCity = value;
-          await this.plugin.saveSettings();
-        });
+        new CitySuggest(
+          this.app,
+          t.inputEl,
+          () => "",
+          async (value) => {
+            this.plugin.settings.homeCity = value;
+            await this.plugin.saveSettings();
+          },
+          () => this.plugin.settings.defaultCountry,
+        );
       });
 
     new Setting(containerEl)
@@ -114,6 +120,7 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
             this.plugin.settings.homeAirport = value;
             await this.plugin.saveSettings();
           },
+          () => ({ country: this.plugin.settings.defaultCountry, city: this.plugin.settings.homeCity }),
         );
       });
 

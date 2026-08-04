@@ -104,7 +104,8 @@ export class BookingWizard extends Modal {
       seat: "",
       notes: "",
       attachments: [],
-      legs: kind === "flight" ? [emptyLeg(start)] : [],
+      // The trip already knows where you are leaving from; no reason to ask twice.
+      legs: kind === "flight" ? [{ ...emptyLeg(start), from: trip.originAirport }] : [],
     };
   }
 

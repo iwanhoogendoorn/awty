@@ -233,6 +233,7 @@ export class TripModal extends Modal {
           t.inputEl,
           () => "",
           (value) => (this.draft.originCity = value),
+          () => this.settings.defaultCountry,
         );
       })
       .addText((t) => {
@@ -244,6 +245,8 @@ export class TripModal extends Modal {
           t.inputEl,
           () => false,
           (value) => (this.draft.originAirport = value),
+          // Where you are leaving from, not where you are going.
+          () => ({ country: this.settings.defaultCountry, city: this.draft.originCity }),
         );
       });
 

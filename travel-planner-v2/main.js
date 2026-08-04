@@ -1420,6 +1420,14 @@ function rankMatches(items, query, limit = 50) {
   }
   return [...prefix, ...wordStart, ...contains].slice(0, limit);
 }
+function flattenByRank(groups) {
+  const ranked = [];
+  for (const list3 of Object.values(groups)) {
+    for (const [index, value] of list3.entries()) ranked.push({ value, rank: index });
+  }
+  ranked.sort((a, b) => a.rank - b.rank);
+  return ranked.map((r) => r.value);
+}
 
 // src/ui/components/suggest.ts
 var CountrySuggest = class extends import_obsidian3.AbstractInputSuggest {
@@ -1443,21 +1451,31 @@ var CountrySuggest = class extends import_obsidian3.AbstractInputSuggest {
     this.close();
   }
 };
+var GLOBAL_CITIES = null;
+function globalCities() {
+  if (!GLOBAL_CITIES) GLOBAL_CITIES = flattenByRank(CITIES);
+  return GLOBAL_CITIES;
+}
 var CitySuggest = class extends import_obsidian3.AbstractInputSuggest {
-  constructor(app, input, getCountry, onPick) {
+  constructor(app, input, getCountry, onPick, preferredCountry) {
     super(app, input);
     this.getCountry = getCountry;
     this.onPick = onPick;
+    this.preferredCountry = preferredCountry;
   }
   getSuggestions(query) {
     const country = this.getCountry();
-    const pool = country ? CITIES[country] ?? [] : Object.values(CITIES).flat();
-    return rankMatches(pool, query, country ? 50 : 30);
+    if (country) return rankMatches(CITIES[country] ?? [], query, 50);
+    const preferred = this.preferredCountry?.() ?? "";
+    const local = preferred ? rankMatches(CITIES[preferred] ?? [], query, 12) : [];
+    const seen = new Set(local);
+    const global = rankMatches(globalCities(), query, 40).filter((c) => !seen.has(c));
+    return [...local, ...global].slice(0, 40);
   }
   renderSuggestion(value, el) {
     el.setText(value);
     if (!this.getCountry()) {
-      const owner = Object.keys(CITIES).find((c) => CITIES[c].includes(value));
+      const owner = countryForCity(value);
       if (owner) el.createSpan({ cls: "tp-suggest-hint", text: owner });
     }
   }
@@ -3342,7 +3360,8 @@ var BookingWizard = class extends import_obsidian17.Modal {
       seat: "",
       notes: "",
       attachments: [],
-      legs: kind === "flight" ? [emptyLeg(start)] : []
+      // The trip already knows where you are leaving from; no reason to ask twice.
+      legs: kind === "flight" ? [{ ...emptyLeg(start), from: trip.originAirport }] : []
     };
   }
   onOpen() {
@@ -6014,7 +6033,8 @@ var TripModal = class _TripModal extends import_obsidian29.Modal {
         this.app,
         t.inputEl,
         () => "",
-        (value) => this.draft.originCity = value
+        (value) => this.draft.originCity = value,
+        () => this.settings.defaultCountry
       );
     }).addText((t) => {
       t.setPlaceholder("Airport");
@@ -6024,7 +6044,9 @@ var TripModal = class _TripModal extends import_obsidian29.Modal {
         this.app,
         t.inputEl,
         () => false,
-        (value) => this.draft.originAirport = value
+        (value) => this.draft.originAirport = value,
+        // Where you are leaving from, not where you are going.
+        () => ({ country: this.settings.defaultCountry, city: this.draft.originCity })
       );
     });
     new import_obsidian29.Setting(parent).setName("Who's going").setDesc("Separate names with commas. Drives packing quantities and the cost split.").addText((t) => {
@@ -6350,10 +6372,16 @@ var TravelPlannerSettingTab = class extends import_obsidian32.PluginSettingTab {
         this.plugin.settings.homeCity = v.trim();
         await this.plugin.saveSettings();
       });
-      new CitySuggest(this.app, t.inputEl, () => "", async (value) => {
-        this.plugin.settings.homeCity = value;
-        await this.plugin.saveSettings();
-      });
+      new CitySuggest(
+        this.app,
+        t.inputEl,
+        () => "",
+        async (value) => {
+          this.plugin.settings.homeCity = value;
+          await this.plugin.saveSettings();
+        },
+        () => this.plugin.settings.defaultCountry
+      );
     });
     new import_obsidian32.Setting(containerEl).setName("Home airport").setDesc("Where you usually fly out of.").addText((t) => {
       t.setPlaceholder("Amsterdam (AMS)");
@@ -6369,7 +6397,8 @@ var TravelPlannerSettingTab = class extends import_obsidian32.PluginSettingTab {
         async (value) => {
           this.plugin.settings.homeAirport = value;
           await this.plugin.saveSettings();
-        }
+        },
+        () => ({ country: this.plugin.settings.defaultCountry, city: this.plugin.settings.homeCity })
       );
     });
     new import_obsidian32.Setting(containerEl).setName("Who usually travels").setDesc("Comma-separated. A new trip starts with these names.").addText((t) => {
