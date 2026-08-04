@@ -1,5 +1,6 @@
 import type { FlightLeg } from "./legs";
 import {
+  groupJourneys,
   TIGHT_CONNECTION_MINUTES,
   formatLayover,
   layoverMinutes,
@@ -38,8 +39,14 @@ export function readLegs(value: unknown): FlightLeg[] {
       depTime: leg?.departs ?? "",
       arrDate: leg?.arrives_on ?? leg?.date ?? "",
       arrTime: leg?.arrives ?? "",
+      separate: String(leg?.separate ?? "") === "true",
     };
   });
+}
+
+/** One summary per flight on the booking, connections kept together. */
+export function summariseJourneys(legs: FlightLeg[]): FlightSummary[] {
+  return groupJourneys(legs).map((group) => summariseFlight(group));
 }
 
 export function summariseFlight(legs: FlightLeg[]): FlightSummary {

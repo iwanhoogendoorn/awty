@@ -48,23 +48,48 @@ export class LegsField {
     container.addClass("awty-legs");
 
     for (const [index, leg] of this.legs.entries()) {
-      if (index > 0) this.renderLayover(container, this.legs[index - 1], leg);
+      // A layover only exists between legs of the same flight. Between two
+      // separate flights there is a stay, and calling it a layover is how a
+      // four-day gap ended up read as four days in the air.
+      if (index > 0 && !leg.separate) this.renderLayover(container, this.legs[index - 1], leg);
+      if (leg.separate) {
+        container.createDiv({
+          cls: "awty-leg-break",
+          text: "Separate flight — not a connection",
+        });
+      }
       this.renderLeg(container, leg, index);
     }
 
-    const add = container.createEl("button", { cls: "awty-leg-add" });
-    add.type = "button";
-    setIcon(add.createSpan(), "plus");
-    add.createSpan({ text: this.legs.length === 1 ? "Add a connecting flight" : "Add another leg" });
-    add.addEventListener("click", () => {
-      const previous = this.legs[this.legs.length - 1];
-      const next = emptyLeg(previous.arrDate || previous.date);
-      // A connection starts where the last leg landed.
-      next.from = previous.to;
-      this.legs.push(next);
-      this.render();
-      this.opts.onChange();
-    });
+    const row = container.createDiv({ cls: "awty-leg-adds" });
+
+    const connect = row.createEl("button", { cls: "awty-leg-add" });
+    connect.type = "button";
+    setIcon(connect.createSpan(), "plus");
+    connect.createSpan({ text: "Add a connecting flight" });
+    connect.addEventListener("click", () => this.add(false));
+
+    const separate = row.createEl("button", { cls: "awty-leg-add" });
+    separate.type = "button";
+    setIcon(separate.createSpan(), "plane");
+    separate.createSpan({ text: "Add a separate flight" });
+    separate.setAttribute(
+      "title",
+      "Another flight on this booking, days apart — timed on its own rather than as one long journey",
+    );
+    separate.addEventListener("click", () => this.add(true));
+  }
+
+  private add(separate: boolean): void {
+    const previous = this.legs[this.legs.length - 1];
+    const next = emptyLeg(previous.arrDate || previous.date);
+    // A connection starts where the last leg landed; a separate flight often
+    // does too, so it is a fair default either way.
+    next.from = previous.to;
+    next.separate = separate;
+    this.legs.push(next);
+    this.render();
+    this.opts.onChange();
   }
 
   private renderLayover(parent: HTMLElement, previous: FlightLeg, next: FlightLeg): void {
@@ -90,7 +115,24 @@ export class LegsField {
     const box = parent.createDiv({ cls: "awty-leg-box" });
 
     const head = box.createDiv({ cls: "awty-leg-head" });
-    head.createSpan({ cls: "awty-leg-num", text: `Leg ${index + 1}` });
+    // Numbered within its own flight: a separate flight starts at Leg 1 again,
+    // because that is what it is.
+    let within = 1;
+    let flight = 1;
+    for (let i = 0; i <= index; i += 1) {
+      if (i === 0) continue;
+      if (this.legs[i].separate) {
+        within = 1;
+        flight += 1;
+      } else {
+        within += 1;
+      }
+    }
+    const hasBreaks = this.legs.some((l) => l.separate);
+    head.createSpan({
+      cls: "awty-leg-num",
+      text: hasBreaks ? `Flight ${flight} · leg ${within}` : `Leg ${index + 1}`,
+    });
     if (this.legs.length > 1) {
       const remove = head.createEl("button", { cls: "awty-icon-btn", attr: { "aria-label": "Remove leg" } });
       remove.type = "button";

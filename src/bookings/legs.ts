@@ -15,6 +15,13 @@ export interface FlightLeg {
   /** ISO date of arrival — a red-eye lands on the following day. */
   arrDate: string;
   arrTime: string;
+  /**
+   * True when this leg begins a new flight rather than continuing one.
+   *
+   * Two flights days apart on one ticket are not a connection, and treating
+   * them as one made the journey read as four days in the air.
+   */
+  separate?: boolean;
 }
 
 export function emptyLeg(date: string): FlightLeg {
@@ -96,6 +103,7 @@ export function legsToFrontmatter(legs: FlightLeg[]): Record<string, string>[] {
     if (leg.depTime) out.departs = leg.depTime;
     if (leg.arrDate && leg.arrDate !== leg.date) out.arrives_on = leg.arrDate;
     if (leg.arrTime) out.arrives = leg.arrTime;
+    if (leg.separate) out.separate = "true";
     return out;
   });
 }
@@ -184,4 +192,21 @@ function hasInternalBreak(legs: FlightLeg[]): boolean {
 export function looksLikeMoreJourneys(legs: FlightLeg[]): boolean {
   const { outbound, back } = splitJourney(legs);
   return hasInternalBreak(outbound) || hasInternalBreak(back);
+}
+
+/**
+ * Splits a leg list into the separate flights it holds.
+ *
+ * Legs that connect stay together; a leg marked separate starts a new group.
+ * Everything that reasons about time — the journey total, the layovers, what
+ * shows on which day — has to work per group, or a stopover of several days
+ * is measured as though you never left the aircraft.
+ */
+export function groupJourneys(legs: FlightLeg[]): FlightLeg[][] {
+  const groups: FlightLeg[][] = [];
+  for (const leg of legs) {
+    if (groups.length === 0 || leg.separate) groups.push([leg]);
+    else groups[groups.length - 1].push(leg);
+  }
+  return groups;
 }

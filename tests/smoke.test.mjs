@@ -16,7 +16,7 @@ export * from "./src/util/paths.ts";
 export { foodSpotBlock } from "./src/store/templates.ts";
 export { analyseNote } from "./src/store/noteProgress.ts";
 export { emptyDayDates, readDaySections } from "./src/store/itinerary.ts";
-export { routeTitle, layoverMinutes, formatLayover, totalJourneyMinutes, splitJourney } from "./src/bookings/legs.ts";
+export { routeTitle, layoverMinutes, formatLayover, totalJourneyMinutes, splitJourney, groupJourneys } from "./src/bookings/legs.ts";
 export { parseConfirmation, parseIcs, parseConfirmationText, parseLooseDate } from "./src/flights/parseConfirmation.ts";
 export { splitFlightNumber } from "./src/flights/flightNumber.ts";
 export { parseLegTable } from "./src/bookings/legTable.ts";
@@ -44,7 +44,7 @@ export { COUNTRIES, FOODSPOT_COUNTRIES } from "./src/data/countries.ts";
 export { CITIES } from "./src/data/cities.ts";
 export { dayEvents, ongoingOn, BAND } from "./src/store/dayPlan.ts";
 export { itineraryPairs, groupByOrigin } from "./src/travel/routePlan.ts";
-export { readLegs, summariseFlight } from "./src/bookings/flightSummary.ts";
+export { readLegs, summariseFlight, summariseJourneys } from "./src/bookings/flightSummary.ts";
 export { renderMarkdown, stripFrontmatter } from "./src/export/markdown.ts";
 export { customSections, customParts, weaveKept, sectionText } from "./src/bookings/noteSections.ts";
 export { bookingBody, expenseBody } from "./src/bookings/noteBody.ts";
@@ -1805,6 +1805,37 @@ test("an island people book by name resolves to a city that exists", () => {
   // And the airport lookup follows the alias, so the flight is to DPS.
   assert.equal(m.airportForCity("Bali"), m.airportForCity("Denpasar"));
   assert.equal(m.airportForCity("Bali"), "DPS");
+});
+
+test("two flights on one ticket are timed apart, not as one long journey", () => {
+  // Bangkok on the 6th, Balikpapan on the 10th: one booking, two flights. Read
+  // as connections, that is a four-day flight in the timeline.
+  const leg = (from, to, date, dep, arr, separate) => ({
+    operator: "TG", number: "TG1", from, to, date, depTime: dep,
+    arrDate: date, arrTime: arr, separate,
+  });
+  const legs = [
+    leg("AMS", "BKK", "2026-08-06", "10:00", "22:00"),
+    leg("BKK", "BPN", "2026-08-10", "09:00", "13:00", true),
+  ];
+
+  const groups = m.groupJourneys(legs);
+  assert.equal(groups.length, 2, "a separate leg starts its own flight");
+  assert.deepEqual(groups.map((g) => g.length), [1, 1]);
+
+  const summaries = m.summariseJourneys(legs);
+  assert.equal(summaries[0].label, "12 h · direct");
+  assert.equal(summaries[1].label, "4 h · direct");
+  // Nothing measures across the gap.
+  assert.ok(summaries.every((s) => s.totalMinutes < 24 * 60));
+
+  // A genuine connection still groups as one flight with its layover.
+  const connecting = m.groupJourneys([
+    leg("AMS", "DXB", "2026-08-06", "10:00", "19:00"),
+    leg("DXB", "BKK", "2026-08-06", "21:00", "06:00"),
+  ]);
+  assert.equal(connecting.length, 1);
+  assert.equal(m.summariseFlight(connecting[0]).stops, 1);
 });
 
 test("a multi-country route implies its flights", () => {

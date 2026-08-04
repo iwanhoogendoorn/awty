@@ -6,8 +6,9 @@ import type { Place, TravelLeg, TravelMode } from "../../travel/types";
 import { TRAVEL_MODES, formatDistance, formatDuration } from "../../travel/types";
 import type { TripPlaces } from "../../travel/travelService";
 import type { FlightLeg } from "../../bookings/legs";
-import { formatLayover, routeTitle } from "../../bookings/legs";
-import { readLegs, summariseFlight } from "../../bookings/flightSummary";
+import type { Booking } from "../../bookings/types";
+import { formatLayover, groupJourneys, routeTitle } from "../../bookings/legs";
+import { readLegs, summariseFlight, summariseJourneys } from "../../bookings/flightSummary";
 import { RouteModal } from "../modals/routeModal";
 
 const MODE_ICON = new Map(TRAVEL_MODES.map((m) => [m.id, m.icon]));
@@ -282,11 +283,34 @@ function renderFlights(parent: HTMLElement, ctx: DashboardContext): void {
             : [];
       if (legs.length === 0) continue;
 
+      for (const [index, group] of groupJourneys(legs).entries()) {
+        renderJourney(
+          list,
+          index === 0 ? direction.label : `${direction.label} · flight ${index + 1}`,
+          group,
+          flight,
+          ctx,
+        );
+      }
+    }
+  }
+}
+
+/** One flight, with its own timings — never measured across a stay. */
+function renderJourney(
+  list: HTMLElement,
+  label: string,
+  legs: FlightLeg[],
+  flight: Booking,
+  ctx: DashboardContext,
+): void {
+  {
+    {
       const row = list.createDiv({ cls: "awty-around-row is-clickable" });
       const text = row.createDiv({ cls: "awty-around-text" });
       text.createDiv({
         cls: "awty-around-name",
-        text: `${direction.label} · ${routeTitle(legs) || flight.title}`,
+        text: `${label} · ${routeTitle(legs) || flight.title}`,
       });
 
       const summary = summariseFlight(legs);

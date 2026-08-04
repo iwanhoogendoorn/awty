@@ -120,6 +120,29 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
   }
 
   if (booking.kind === "flight") {
+    // A ticket can hold flights days apart. Each shows on its own day; the
+    // first is how you arrive and the last is how you leave.
+    // Older bookings, and anything built without the store, have none.
+    const journeys = booking.journeys ?? [];
+    if (journeys.length > 0) {
+      journeys.forEach((journey, index) => {
+        if (journey.date !== date) return;
+        const last = index === journeys.length - 1;
+        out.push({
+          ...base,
+          time: journey.time,
+          title: booking.title,
+          detail: [journey.label, [journey.from, journey.to].filter(Boolean).join(" → ")]
+            .filter(Boolean)
+            .join(" · "),
+          // Only the first costs anything here; the price is for the ticket.
+          cost: index === 0 ? cost : "",
+          band: index === 0 ? BAND.Arrive : last ? BAND.Depart : BAND.During,
+        });
+      });
+      return out;
+    }
+
     if (date === booking.date) {
       out.push({
         ...base,

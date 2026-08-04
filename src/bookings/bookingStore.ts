@@ -6,13 +6,54 @@ import type {
   CostCategory,
   CostLine,
   Expense,
+  FlightJourney,
   Money,
 } from "./types";
 import { BOOKING_KINDS } from "./types";
 import type { AwtySettings, Trip } from "../types";
 import { linkTarget } from "./linkTarget";
+import { groupJourneys } from "./legs";
+import { readLegs } from "./flightSummary";
 import { isValidISODate } from "../util/dates";
 import { parseAmount } from "../util/money";
+
+/**
+ * Every flight a booking holds, in order.
+ *
+ * Legs that connect are one flight; a leg marked separate starts another. The
+ * return leg group is always its own flight. Bookings with no legs recorded
+ * fall back to the dates on the booking itself.
+ */
+function readJourneys(fm: Record<string, unknown>): FlightJourney[] {
+  const out: FlightJourney[] = [];
+  const outbound = groupJourneys(readLegs(fm.legs));
+  const back = groupJourneys(readLegs(fm.return_legs));
+
+  outbound.forEach((group, index) => {
+    const first = group[0];
+    const last = group[group.length - 1];
+    out.push({
+      date: first.date,
+      time: first.depTime,
+      from: first.from,
+      to: last.to,
+      label: index === 0 ? "Outbound" : `Flight ${index + 1}`,
+    });
+  });
+
+  for (const group of back) {
+    const first = group[0];
+    const last = group[group.length - 1];
+    out.push({
+      date: first.date,
+      time: first.depTime,
+      from: first.from,
+      to: last.to,
+      label: "Return",
+    });
+  }
+  return out;
+}
 
 function str(value: unknown): string {
   if (typeof value === "string") return value.trim();
@@ -230,6 +271,7 @@ export class BookingStore {
           operator: str(fm.operator),
           seat: str(fm.seat),
           notes: str(fm.notes),
+          journeys: readJourneys(fm),
           attachments: list(fm.attachments),
         });
         continue;

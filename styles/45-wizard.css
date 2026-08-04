@@ -794,3 +794,35 @@
   color: var(--text-faint);
   text-align: right;
 }
+
+/* The line between two flights on one ticket. Not a layover: there is a stay
+   in between, which is why the journey is not timed across it. */
+.awty-leg-break {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin: 0.6em 0 0.2em;
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-medium);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.awty-leg-break::before,
+.awty-leg-break::after {
+  content: "";
+  flex: 1;
+  border-top: 1px dashed var(--background-modifier-border);
+}
+
+.awty-leg-adds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
+
+.awty-leg-adds .awty-leg-add {
+  flex: 1;
+  min-width: 12em;
+}

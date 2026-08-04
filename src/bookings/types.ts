@@ -117,6 +117,22 @@ export interface Booking {
   seat: string;
   notes: string;
   attachments: string[];
+  /**
+   * Each flight on this booking, connections folded in.
+   *
+   * A ticket can hold flights days apart. The timeline needs one entry per
+   * flight, on its own day — not one entry spanning the gap between them.
+   */
+  journeys: FlightJourney[];
+}
+
+export interface FlightJourney {
+  date: string;
+  time: string;
+  from: string;
+  to: string;
+  /** "Outbound", "Return", or "Flight 2" for anything in between. */
+  label: string;
 }
 
 export interface Expense {
