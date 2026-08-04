@@ -1,6 +1,7 @@
 import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
 import { bar, emptyState, readiness, renderToolbar } from "../common";
+import { showTripMenu } from "../tripMenu";
 import type { Trip } from "../../../types";
 import { kindDef } from "../../../types";
 import { formatTotals, sumMoney } from "../../../util/money";
@@ -77,6 +78,20 @@ export function renderTrips(
       bar(progress, ready.ratio, ready.ratio >= 1 ? "good" : ready.ratio < 0.34 ? "warn" : "good");
     }
 
+    const menuBtn = card.createEl("button", {
+      cls: "tp-icon-btn tp-card-menu",
+      attr: { "aria-label": "Trip actions" },
+    });
+    setIcon(menuBtn, "more-vertical");
+    menuBtn.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      showTripMenu(evt, trip, ctx);
+    });
+
     card.addEventListener("click", () => onSelect(trip));
+    card.addEventListener("contextmenu", (evt) => {
+      evt.preventDefault();
+      showTripMenu(evt, trip, ctx);
+    });
   }
 }

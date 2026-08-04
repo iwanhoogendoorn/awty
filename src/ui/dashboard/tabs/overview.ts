@@ -12,6 +12,47 @@ import {
   todayISO,
 } from "../../../util/dates";
 
+/**
+ * The trip's own notes, openable from the dashboard.
+ *
+ * Without this the dashboard was a dead end: you could see that the Packing
+ * List was empty but had no way to get to it without going back to the sidebar.
+ */
+function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
+  const { trip, plugin } = ctx;
+  if (!trip) return;
+
+  const subNotes = plugin.store.getSubNotes(trip);
+  sectionTitle(parent, "Trip notes", {
+    label: "Open trip note",
+    icon: "file-text",
+    onClick: () => ctx.openFile(trip.file),
+  });
+
+  if (subNotes.length === 0) {
+    parent.createDiv({ cls: "tp-dash-hint", text: "This trip has no sub-notes." });
+    return;
+  }
+
+  const grid = parent.createDiv({ cls: "tp-note-grid" });
+  for (const sub of subNotes) {
+    const progress = plugin.progress.peek(sub.file);
+    const state = progress?.state ?? "empty";
+    const cell = grid.createDiv({ cls: `tp-note-cell is-${state}` });
+
+    const head = cell.createDiv({ cls: "tp-note-head" });
+    head.createDiv({ cls: "tp-dot" });
+    head.createDiv({ cls: "tp-note-name", text: sub.label });
+
+    cell.createDiv({ cls: "tp-note-detail", text: progress?.detail ?? "Reading…" });
+    if (progress?.ratio !== null && progress?.ratio !== undefined) {
+      bar(cell, progress.ratio, progress.ratio >= 1 ? "good" : "warn");
+    }
+
+    cell.addEventListener("click", () => ctx.openFile(sub.file));
+  }
+}
+
 /** Everything about one trip that should be true at a glance. */
 export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void {
   const { trip, plugin } = ctx;
@@ -111,6 +152,7 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
     }
   }
 
+  renderTripNotes(parent, ctx);
   renderGettingAround(parent, ctx);
 
   // ------------------------------------------------- needs attention

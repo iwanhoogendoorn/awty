@@ -9,6 +9,7 @@ import { renderItinerary } from "./tabs/itinerary";
 import { renderBookings } from "./tabs/bookings";
 import { renderCosts } from "./tabs/costs";
 import { renderGallery } from "./tabs/gallery";
+import { showTripMenu } from "./tripMenu";
 
 type TabId = "overview" | "trips" | "itinerary" | "bookings" | "costs" | "gallery";
 
@@ -63,6 +64,21 @@ export class TravelDashboardView extends ItemView {
     this.render();
   }
 
+  private context(trip: Trip | null = this.currentTrip()): DashboardContext {
+    return {
+      app: this.app,
+      plugin: this.plugin,
+      trip,
+      refresh: () => {
+        this.plugin.bookings.invalidate();
+        this.render();
+      },
+      openFile: (file: TFile, newTab = false) => {
+        void this.app.workspace.getLeaf(newTab).openFile(file);
+      },
+    };
+  }
+
   private currentTrip(): Trip | null {
     const trips = this.plugin.store.getTrips();
     if (trips.length === 0) return null;
@@ -83,18 +99,7 @@ export class TravelDashboardView extends ItemView {
     this.renderHeader(root, trip);
 
     const content = root.createDiv({ cls: "tp-dash-content" });
-    const ctx: DashboardContext = {
-      app: this.app,
-      plugin: this.plugin,
-      trip,
-      refresh: () => {
-        this.plugin.bookings.invalidate();
-        this.render();
-      },
-      openFile: (file: TFile, newTab = false) => {
-        void this.app.workspace.getLeaf(newTab).openFile(file);
-      },
-    };
+    const ctx = this.context(trip);
 
     switch (this.tab) {
       case "trips":
@@ -157,6 +162,17 @@ export class TravelDashboardView extends ItemView {
         this.tripPath = select.value;
         this.render();
       });
+    }
+
+    // Trip-level actions — edit, delete, open the notes — live next to the
+    // selector so they are reachable from every tab.
+    if (trip) {
+      const menuBtn = top.createEl("button", {
+        cls: "tp-icon-btn tp-dash-tripmenu",
+        attr: { "aria-label": "Trip actions" },
+      });
+      setIcon(menuBtn, "more-vertical");
+      menuBtn.addEventListener("click", (evt) => showTripMenu(evt, trip, this.context()));
     }
 
     const actions = top.createDiv({ cls: "tp-dash-quick" });

@@ -66,6 +66,78 @@
   height: 0.95em;
 }
 
+.tp-dash-tripmenu {
+  flex: none;
+  padding: 0.35em;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.tp-card-menu {
+  position: absolute;
+  bottom: 0.6em;
+  right: 0.6em;
+  opacity: 0;
+}
+
+.tp-card:hover .tp-card-menu,
+.tp-card:focus-within .tp-card-menu {
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------- trip notes */
+
+.tp-note-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.5em;
+}
+
+.tp-note-cell {
+  padding: 0.6em 0.75em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  cursor: pointer;
+}
+
+.tp-note-cell:hover {
+  background: var(--background-modifier-hover);
+}
+
+.tp-note-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+}
+
+.tp-note-cell.is-started .tp-dot {
+  border-color: var(--color-orange);
+  background: var(--color-orange);
+}
+
+.tp-note-cell.is-complete .tp-dot {
+  border-color: var(--color-green);
+  background: var(--color-green);
+}
+
+.tp-note-name {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tp-note-cell.is-empty .tp-note-name {
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+.tp-note-detail {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  margin: 0.15em 0 0.35em;
+}
+
 .tp-dash-tabs {
   display: flex;
   gap: 0.15em;
