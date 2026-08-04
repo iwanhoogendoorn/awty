@@ -1413,6 +1413,34 @@ test("a return ticket is split into out and back, not one long outbound", () => 
   ]);
   assert.equal(stopover.back.length, 0, "it never returns to AMS");
 
+  // A day trip is a return trip: it goes out and comes back the same day.
+  const sameDay = m.splitJourney([
+    leg("AMS", "LHR", "2026-08-17", "08:00", "09:00"),
+    leg("LHR", "AMS", "2026-08-17", "17:00", "19:00"),
+  ]);
+  assert.equal(sameDay.back.length, 1, "an eight-hour stay is still a stay");
+
+  // Legs typed without times still say which day they are on.
+  const untimed = m.splitJourney([
+    leg("AMS", "DBV", "2026-08-17", "", ""),
+    leg("DBV", "AMS", "2026-08-24", "", ""),
+  ]);
+  assert.equal(untimed.back.length, 1, "a week apart, times or no times");
+
+  // An open jaw does not come back to where it left from.
+  const openJaw = m.splitJourney([
+    leg("AMS", "JFK", "2026-08-17", "10:00", "13:00"),
+    leg("BOS", "RTM", "2026-08-24", "18:00", "06:00"),
+  ]);
+  assert.equal(openJaw.back.length, 1, "a week between legs is a stay");
+
+  // But an overnight connection on the way out is not a stay.
+  const overnight = m.splitJourney([
+    leg("AMS", "JFK", "2026-08-17", "18:00", "21:00"),
+    leg("JFK", "LAX", "2026-08-18", "08:00", "11:00"),
+  ]);
+  assert.equal(overnight.back.length, 0, "eleven hours is a connection");
+
   // A connecting return splits at the stay, not at either layover.
   const both = m.splitJourney([
     leg("AMS", "VIE", "2026-08-17", "10:15", "11:55"),
@@ -1506,6 +1534,41 @@ test("saving the packing list does not delete the prose around it", () => {
   assert.deepEqual(extras.bySection.get("Clothing"), []);
   // The generated callout is rewritten every save and must not pile up.
   assert.ok(!extras.preamble.join(" ").includes("Quantities calculated"));
+});
+
+test("a real note's frontmatter never reaches the body", () => {
+  // The preservation tests all used notes without frontmatter, so they passed
+  // while every actual edit copied the YAML into the body — and again on the
+  // next save, and the one after that.
+  const note = [
+    "---", "type: booking", "status: booked", "---", "",
+    "# Rausion Luxury Apartments", "",
+    "| | |", "|---|---|", "| **Status** | booked |", "",
+    "Call the hotel the day before.", "",
+    "## Notes", "", "Ask for the top-floor flat.",
+  ].join("\n");
+  const kept = m.customSections(note);
+  assert.ok(!kept.includes("type: booking"), kept);
+  assert.ok(!kept.includes("---"), kept);
+  assert.match(kept, /Call the hotel the day before\./);
+
+  // And it is stable: feeding the result back in changes nothing.
+  assert.equal(m.customSections(`# X\n\n${kept}`), kept);
+
+  const packing = ["---", "type: packing-list", "---", "", "# Packing List", "",
+    "Use the blue case.", "", "## Documents", "- [x] Passport"].join("\n");
+  assert.deepEqual(m.readPackingExtras(packing).preamble, ["Use the blue case."]);
+});
+
+test("a table you wrote below the generated one is not the generated one", () => {
+  const note = [
+    "# Stay", "",
+    "| | |", "|---|---|", "| **Status** | booked |", "",
+    "| Room | Price |", "|---|---|", "| Sea view | 210 |",
+  ].join("\n");
+  const kept = m.customSections(note);
+  assert.match(kept, /Sea view/, "the second table is not part of the first");
+  assert.ok(!kept.includes("**Status**"), "the generated one is still dropped");
 });
 
 test("prose typed above the first heading survives an edit", () => {

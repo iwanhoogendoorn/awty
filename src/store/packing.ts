@@ -1,4 +1,5 @@
 import type { TripKind } from "../types";
+import { stripFrontmatter } from "../util/frontmatter";
 
 /**
  * Works out how much to pack from the length of the trip.
@@ -188,7 +189,9 @@ export function readPackingExtras(content: string): PackingExtras {
   let section: string | null = null;
   let fenced = false;
 
-  for (const raw of content.split("\n")) {
+  // The frontmatter is preserved separately by the writer. Reading it as
+  // preamble wrote a second copy into the body, and a third on the next save.
+  for (const raw of stripFrontmatter(content).split("\n")) {
     const line = raw.trim();
 
     if (/^(```|~~~)/.test(line)) {

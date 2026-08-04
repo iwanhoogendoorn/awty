@@ -19,6 +19,15 @@ export interface TravelCache {
   geocode: Record<string, string>;
 }
 
+/**
+ * How long a "no route" answer is trusted.
+ *
+ * Element-level failures are indistinguishable from a genuine absence of a
+ * route, so a transient one used to become permanent: nothing consulted the
+ * timestamp, and the mode stayed dead until the whole cache was cleared.
+ */
+const NO_ROUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** The departure date a lookup was asked about, as YYYY-MM-DD. */
 function isoOf(when?: Date): string | undefined {
   if (!when) return undefined;
@@ -217,7 +226,10 @@ export class TravelService {
     // Transit depends on the day it is asked about — a Sunday timetable is not
     // a Tuesday one — so an answer for another date is not an answer for this.
     if (on && mode === "transit" && hit.on && hit.on !== on) return { known: false, leg: hit.d < 0 ? null : { mode, distanceMeters: hit.d, durationSeconds: hit.t } };
-    if (hit.d < 0) return { known: true, leg: null };
+    if (hit.d < 0) {
+      const stale = Date.now() - hit.at > NO_ROUTE_TTL_MS;
+      return { known: !stale, leg: null };
+    }
     return { known: true, leg: { mode, distanceMeters: hit.d, durationSeconds: hit.t } };
   }
 
@@ -258,17 +270,21 @@ export class TravelService {
     destinations: Place[],
     modes: TravelMode[],
     when?: Date,
+    /** Ask again for pairs already recorded as having no route. */
+    retryDeadEnds = false,
   ): Promise<Map<string, TravelLeg[]>> {
     const key = this.requireKey();
     const on = isoOf(when);
     let dirty = false;
 
     for (const mode of modes) {
-      const missing = destinations.filter(
-        (d) =>
-          !this.readCache(origin.coord, d.coord, mode, on).known &&
-          coordKey(d.coord) !== coordKey(origin.coord),
-      );
+      const missing = destinations.filter((d) => {
+        if (coordKey(d.coord) === coordKey(origin.coord)) return false;
+        const cached = this.readCache(origin.coord, d.coord, mode, on);
+        // A button offering to look something up has to actually look it up.
+        if (retryDeadEnds && cached.known && cached.leg === null) return true;
+        return !cached.known;
+      });
 
       for (let i = 0; i < missing.length; i += MAX_DESTINATIONS) {
         const batch = missing.slice(i, i + MAX_DESTINATIONS);

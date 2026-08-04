@@ -1,3 +1,5 @@
+import { stripFrontmatter } from "../util/frontmatter";
+
 /**
  * Reading and preserving the parts of a booking note.
  *
@@ -23,7 +25,9 @@ const FENCE = /^\s*(```|~~~)/;
  */
 function* scanLines(content: string): Generator<{ line: string; fenced: boolean }> {
   let fenced = false;
-  for (const line of content.split("\n")) {
+  // Without this the YAML block is read as prose above the first heading, and
+  // whatever is kept gets written back into the body — growing on every save.
+  for (const line of stripFrontmatter(content).split("\n")) {
     if (FENCE.test(line)) {
       // The fence markers are content in their own right.
       yield { line, fenced: true };
@@ -70,6 +74,7 @@ export function customSections(content: string): string {
   let keeping = false;
   let seenHeading = false;
   let inPreambleTable = false;
+  let preambleTableStarted = false;
   let preambleTableDone = false;
 
   for (const { line, fenced } of scanLines(content)) {
@@ -88,16 +93,20 @@ export function customSections(content: string): string {
         continue;
       }
 
-      // Before the first heading, drop the first run of table rows: that is the
-      // generated details table, rewritten from the form every time.
+      // The generated details table is the first run of table rows, and it
+      // ends at the blank line after it. Skipping blank lines without ending
+      // it swallowed a second, hand-written table further down as well.
       if (!seenHeading && !preambleTableDone) {
         if (line.trimStart().startsWith("|")) {
-          inPreambleTable = true;
-          continue;
-        }
-        if (inPreambleTable) {
-          if (line.trim() === "") continue;
+          if (!inPreambleTable && !preambleTableStarted) {
+            inPreambleTable = true;
+            preambleTableStarted = true;
+          }
+          if (inPreambleTable) continue;
+        } else if (inPreambleTable) {
+          inPreambleTable = false;
           preambleTableDone = true;
+          if (line.trim() === "") continue;
         }
       }
     }

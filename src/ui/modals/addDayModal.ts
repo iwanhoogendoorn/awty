@@ -163,9 +163,14 @@ export class AddDayModal extends Modal {
     if (file) {
       const content = await this.app.vault.cachedRead(file);
       const empty = emptyDayDates(content);
-      // Only links naming one of this trip's activities were written by the
-      // plugin; anything else linked under a day was typed by hand.
-      const generated = new Set(this.activities().map((a) => a.file.basename));
+      // Every booking in the trip, not just the activities still on offer: a
+      // cancelled one is no longer listed, and its generated link would then
+      // read as something typed by hand and be kept forever.
+      const generated = new Set(
+        (this.trip ? this.plugin.bookings.getBookings(this.trip) : []).map(
+          (b) => b.file.basename,
+        ),
+      );
       for (const date of this.days()) {
         if (!empty.has(date)) this.planned.add(date);
         this.notesByDate.set(date, readDaySections(content, date, generated));

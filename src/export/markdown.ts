@@ -1,4 +1,5 @@
 import { escapeHtml } from "./tripDocument";
+export { stripFrontmatter } from "../util/frontmatter";
 
 /**
  * Just enough Markdown for an exported trip.
@@ -191,16 +192,4 @@ export function renderMarkdown(source: string): string {
 
   closeAll();
   return out.join("\n");
-}
-
-/** Strips frontmatter so the note body can be rendered on its own. */
-export function stripFrontmatter(source: string): string {
-  if (!source.startsWith("---")) return source;
-  const end = source.indexOf("\n---", 3);
-  if (end === -1) return source;
-  // A note whose closing "---" is the last line has no newline after it, and
-  // indexOf returned -1 there: slice(0) handed back the whole note, YAML and
-  // all, straight into the export.
-  const newline = source.indexOf("\n", end + 1);
-  return newline === -1 ? "" : source.slice(newline + 1);
 }

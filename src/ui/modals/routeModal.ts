@@ -168,6 +168,9 @@ export class RouteModal extends Modal {
               [this.to],
               this.plugin.settings.travelModes,
               this.plugin.travel.departureTimeFor(this.trip),
+              // This button exists because a mode is missing, and a mode
+              // recorded as unroutable is exactly what it is being asked about.
+              true,
             );
             this.renderResult();
             this.plugin.refreshViews();
