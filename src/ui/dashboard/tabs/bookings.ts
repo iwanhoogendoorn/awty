@@ -106,12 +106,6 @@ function renderRow(parent: HTMLElement, booking: Booking, ctx: DashboardContext)
     menu.addItem((i) =>
       i.setTitle("Open note").setIcon("file-text").onClick(() => ctx.openFile(booking.file)),
     );
-    menu.addItem((i) =>
-      i
-        .setTitle("Open in new tab")
-        .setIcon("plus-square")
-        .onClick(() => ctx.openFile(booking.file, true)),
-    );
     menu.addSeparator();
     menu.addItem((i) =>
       i

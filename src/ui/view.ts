@@ -313,8 +313,9 @@ export class AwtySidebarView extends ItemView {
     return "Still needs updating";
   }
 
-  private async openFile(file: TFile, newTab: boolean): Promise<void> {
-    await this.app.workspace.getLeaf(newTab).openFile(file);
+  private async openFile(file: TFile, _newTab: boolean): Promise<void> {
+    // Same rule as the dashboard: reveal it if open, else a new tab at the end.
+    await this.plugin.openInWorkspace(file);
   }
 
   private countdown(trip: Trip): string | null {

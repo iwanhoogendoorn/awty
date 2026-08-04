@@ -368,24 +368,27 @@ export default class AwtyPlugin extends Plugin {
    * dashboard is the dashboard — so clicking Open replaced the thing you were
    * working in and there was no way back but to reopen it.
    */
-  async openInWorkspace(file: TFile, newTab = false): Promise<void> {
+  async openInWorkspace(file: TFile, _newTab = false): Promise<void> {
     const { workspace } = this.app;
-    if (newTab) {
-      await this.newTabAtEnd().openFile(file);
-      return;
-    }
 
-    const active = workspace.getMostRecentLeaf();
-    if (active && active.view.getViewType() !== AWTY_DASHBOARD_TYPE) {
-      await active.openFile(file);
-      return;
-    }
-
-    const others: WorkspaceLeaf[] = [];
+    // Already open somewhere: go to it. Opening a second tab onto the same
+    // note is how you end up with four tabs of the same packing list.
+    let existing: WorkspaceLeaf | null = null;
     workspace.iterateRootLeaves((leaf) => {
-      if (leaf.view.getViewType() !== AWTY_DASHBOARD_TYPE) others.push(leaf);
+      if (existing) return;
+      const view = leaf.view;
+      if (view.getViewType() === AWTY_DASHBOARD_TYPE) return;
+      if ((view as { file?: TFile }).file?.path === file.path) existing = leaf;
     });
-    await (others[others.length - 1] ?? this.newTabAtEnd()).openFile(file);
+    if (existing) {
+      await workspace.revealLeaf(existing);
+      return;
+    }
+
+    // Otherwise a new tab at the end. Reusing the last tab meant every note
+    // opened from the dashboard replaced the one opened before it, so you
+    // could never have the itinerary and the packing list side by side.
+    await this.newTabAtEnd().openFile(file);
   }
 
   async activateDashboard(trip?: Trip): Promise<void> {
