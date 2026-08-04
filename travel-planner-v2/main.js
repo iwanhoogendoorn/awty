@@ -3293,6 +3293,13 @@ function appendLink(row2, url) {
 }
 
 // src/ui/dashboard/tabs/overview.ts
+function primaryLabel(id, empty) {
+  if (!id) return "";
+  if (id === "itinerary") return "Plan a day";
+  if (id === "budget") return "Set targets";
+  if (id === "accommodation" || id === "transport") return "Add";
+  return empty ? "Fill in" : "Edit";
+}
 function itemsFor(id, ctx) {
   const { trip, plugin } = ctx;
   if (!trip || !id) return [];
@@ -3304,10 +3311,19 @@ function itemsFor(id, ctx) {
   if (id === "accommodation") return bookingsOfKind(["stay"]);
   if (id === "transport") return bookingsOfKind(["flight", "transport"]);
   if (id === "budget") {
-    return plugin.bookings.getExpenses(trip).map((expense) => ({
-      label: [expense.date, expense.description].filter(Boolean).join(" \xB7 "),
-      icon: "receipt",
-      open: () => plugin.openExpenseModal(trip, expense)
+    return plugin.bookings.getCostLines(trip).map((line) => ({
+      label: [line.date, line.description].filter(Boolean).join(" \xB7 "),
+      icon: line.source === "expense" ? "receipt" : "ticket",
+      open: () => {
+        if (!editItem(ctx, line.file)) ctx.openFile(line.file);
+      }
+    }));
+  }
+  if (id === "itinerary") {
+    return datesInRange(trip.startDate, trip.endDate, 90).map((date, index) => ({
+      label: `Day ${index + 1} \xB7 ${formatDayLabel(date)}`,
+      icon: "calendar-days",
+      open: () => plugin.openAddDayModal(trip, date)
     }));
   }
   return [];
@@ -3345,7 +3361,7 @@ function renderTripNotes(parent, ctx) {
     if (sub.id) {
       const fill = actions.createEl("button", { cls: "tp-note-btn is-cta" });
       (0, import_obsidian12.setIcon)(fill.createSpan(), "wand-2");
-      fill.createSpan({ text: state === "empty" ? "Fill in" : "Add" });
+      fill.createSpan({ text: primaryLabel(sub.id, state === "empty") });
       fill.addEventListener("click", (evt) => {
         evt.stopPropagation();
         plugin.openNoteWizard(trip, sub.id);
@@ -9209,10 +9225,11 @@ var ConfirmDeleteModal = class extends import_obsidian35.Modal {
 // src/ui/modals/addDayModal.ts
 var import_obsidian36 = require("obsidian");
 var AddDayModal = class extends import_obsidian36.Modal {
-  constructor(app, plugin, preselected, onDone) {
+  constructor(app, plugin, preselected, onDone, preselectedDate) {
     super(app);
     this.plugin = plugin;
     this.onDone = onDone;
+    this.preselectedDate = preselectedDate;
     this.date = "";
     /** Activity note path -> where it sits. The authority while this is open. */
     this.placements = /* @__PURE__ */ new Map();
@@ -9310,7 +9327,7 @@ var AddDayModal = class extends import_obsidian36.Modal {
     }
     const today = todayISO();
     const days = this.days();
-    this.date = days.find((d) => !this.planned.has(d)) ?? days.find((d) => d >= today) ?? days[0] ?? today;
+    this.date = (this.preselectedDate && days.includes(this.preselectedDate) ? this.preselectedDate : "") || days.find((d) => !this.planned.has(d)) || days.find((d) => d >= today) || days[0] || today;
   }
   itineraryFile() {
     if (!this.trip) return null;
@@ -10568,11 +10585,17 @@ var TravelPlannerPlugin = class extends import_obsidian38.Plugin {
       this.store.invalidate();
     }).open();
   }
-  openAddDayModal(trip) {
-    new AddDayModal(this.app, this, trip ?? null, () => {
-      this.store.invalidate();
-      this.refreshViews();
-    }).open();
+  openAddDayModal(trip, date) {
+    new AddDayModal(
+      this.app,
+      this,
+      trip ?? null,
+      () => {
+        this.store.invalidate();
+        this.refreshViews();
+      },
+      date
+    ).open();
   }
   /** Points any open dashboard at a trip, without opening its note. */
   selectTripInDashboard(path) {

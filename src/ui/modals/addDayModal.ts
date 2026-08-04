@@ -55,6 +55,8 @@ export class AddDayModal extends Modal {
     private plugin: TravelPlannerPlugin,
     preselected: Trip | null,
     private onDone: () => void,
+    /** Open straight onto one day, for editing a day already planned. */
+    private preselectedDate?: string,
   ) {
     super(app);
     this.trip = preselected ?? this.inferTrip();
@@ -167,11 +169,15 @@ export class AddDayModal extends Modal {
       }
     }
 
-    // Start on the first day that still needs something.
+    // Start on the day asked for, else the first that still needs something.
     const today = todayISO();
     const days = this.days();
     this.date =
-      days.find((d) => !this.planned.has(d)) ?? days.find((d) => d >= today) ?? days[0] ?? today;
+      (this.preselectedDate && days.includes(this.preselectedDate) ? this.preselectedDate : "") ||
+      days.find((d) => !this.planned.has(d)) ||
+      days.find((d) => d >= today) ||
+      days[0] ||
+      today;
   }
 
   private itineraryFile(): TFile | null {

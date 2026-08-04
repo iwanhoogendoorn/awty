@@ -1,15 +1,18 @@
 import { Menu, Notice, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { bar, emptyState, readiness, sectionTitle, stateMark, statTiles, noTripState } from "../common";
+import { bar, editItem, emptyState, readiness, sectionTitle, stateMark, statTiles, noTripState } from "../common";
 import { renderGettingAround } from "../gettingAround";
 import { renderDocuments } from "../documents";
 import { BOOKING_KINDS, type BookingKind } from "../../../bookings/types";
 import type { SubNoteId } from "../../../types";
+
 import { totalsByCategory } from "../../../bookings/bookingStore";
 import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/money";
 import {
+  datesInRange,
   daysUntil,
   formatDateRange,
+  formatDayLabel,
   formatDuration,
   todayISO,
 } from "../../../util/dates";
@@ -18,6 +21,21 @@ interface NoteItem {
   label: string;
   icon: string;
   open: () => void;
+}
+
+/**
+ * What the primary button on a note card does.
+ *
+ * Half of these wizards edit the whole note rather than adding to it — a
+ * packing list has one list, and "Add" was simply the wrong word for the button
+ * that opens it.
+ */
+function primaryLabel(id: SubNoteId | null, empty: boolean): string {
+  if (!id) return "";
+  if (id === "itinerary") return "Plan a day";
+  if (id === "budget") return "Set targets";
+  if (id === "accommodation" || id === "transport") return "Add";
+  return empty ? "Fill in" : "Edit";
 }
 
 /**
@@ -41,11 +59,28 @@ function itemsFor(id: SubNoteId | null, ctx: DashboardContext): NoteItem[] {
 
   if (id === "accommodation") return bookingsOfKind(["stay"]);
   if (id === "transport") return bookingsOfKind(["flight", "transport"]);
+
+  // Every line in the Budget note, whichever kind of note it came from. Most of
+  // them are booking prices, so listing only expenses left the button hidden on
+  // a note that plainly said "6 lines".
   if (id === "budget") {
-    return plugin.bookings.getExpenses(trip).map((expense) => ({
-      label: [expense.date, expense.description].filter(Boolean).join(" · "),
-      icon: "receipt",
-      open: () => plugin.openExpenseModal(trip, expense),
+    return plugin.bookings.getCostLines(trip).map((line) => ({
+      label: [line.date, line.description].filter(Boolean).join(" · "),
+      icon: line.source === "expense" ? "receipt" : "ticket",
+      open: () => {
+        if (!editItem(ctx, line.file)) ctx.openFile(line.file);
+      },
+    }));
+  }
+
+  // Every day of the trip, so a day already planned can be reopened rather than
+  // only added to. Which of them have content is a read of the itinerary note,
+  // and the planner shows that anyway once it opens.
+  if (id === "itinerary") {
+    return datesInRange(trip.startDate, trip.endDate, 90).map((date, index) => ({
+      label: `Day ${index + 1} · ${formatDayLabel(date)}`,
+      icon: "calendar-days",
+      open: () => plugin.openAddDayModal(trip, date),
     }));
   }
   return [];
@@ -98,7 +133,7 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
     if (sub.id) {
       const fill = actions.createEl("button", { cls: "tp-note-btn is-cta" });
       setIcon(fill.createSpan(), "wand-2");
-      fill.createSpan({ text: state === "empty" ? "Fill in" : "Add" });
+      fill.createSpan({ text: primaryLabel(sub.id, state === "empty") });
       fill.addEventListener("click", (evt) => {
         evt.stopPropagation();
         plugin.openNoteWizard(trip, sub.id!);
