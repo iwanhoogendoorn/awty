@@ -3207,31 +3207,41 @@
 
 .tp-matrix {
   display: grid;
-  grid-template-columns: minmax(6em, auto) repeat(var(--tp-matrix-cols), minmax(0, 1fr)) auto;
+  /* Each column is at least as wide as its heading, so "Transport" is not
+     clipped and neighbouring headings cannot run into each other. */
+  grid-template-columns: minmax(7em, auto) repeat(var(--tp-matrix-cols), minmax(5em, 1fr)) 2.2em;
   align-items: center;
-  gap: 2px 4px;
+  /* No column gap: the header rule is drawn per cell, and a gap breaks it into
+     dashes. Spacing comes from padding inside the cells. */
+  column-gap: 0;
+  row-gap: 0;
   margin-top: 4px;
   overflow-x: auto;
 }
 
+.tp-matrix-col,
+.tp-matrix-corner {
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
 .tp-matrix-col {
-  padding: 0 2px 6px;
+  padding: 0 4px 6px;
   font-size: 11px;
   line-height: 1.2;
   color: var(--text-muted);
   text-align: center;
-  border-bottom: 1px solid var(--background-modifier-border);
+  white-space: nowrap;
 }
 
 .tp-matrix-corner {
-  border-bottom: 1px solid var(--background-modifier-border);
+  height: 100%;
 }
 
 .tp-matrix-row-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px 6px 0;
+  padding: 7px 10px 7px 0;
   font-size: 13px;
   white-space: nowrap;
 }
@@ -3250,8 +3260,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 0;
-  border-radius: 4px;
+  padding: 7px 0;
 }
 
 .tp-matrix-cell:hover {
