@@ -6,31 +6,49 @@ import { SUB_NOTE_LABELS } from "../../types";
 import type { Booking, DaySlot } from "../../bookings/types";
 import { DAY_SLOTS } from "../../bookings/types";
 import { assignBookingToDay } from "../../bookings/bookingWriter";
-import { emptyDayDates, insertItineraryDay } from "../../store/noteWriter";
-import { readDaySections } from "../../store/itinerary";
+import { insertItineraryDay } from "../../store/noteWriter";
+import { emptyDayDates, readDaySections } from "../../store/itinerary";
 import { formatMoney } from "../../util/money";
 import { datesInRange, isValidISODate, monthName, parseISO, todayISO } from "../../util/dates";
+
+interface Placement {
+  date: string;
+  slot: DaySlot;
+}
+
+type Notes = Record<DaySlot, string>;
 
 /**
  * Plans a day out of the activities you have already added.
  *
- * "What to do" and "Day by day" used to be two unconnected records of the same
- * plan — you added a museum, then retyped "museum" into a day. Activities are
- * picked here instead, and the choice is written back onto the activity itself,
- * so the booking, the timeline and the itinerary note all agree on when it
- * happens.
+ * Holds its own state for the whole session rather than re-reading the vault on
+ * every day change. Obsidian's metadata cache updates asynchronously after a
+ * write, so reading frontmatter back immediately returned the previous values —
+ * which is why a tick vanished the moment you changed day, even once the write
+ * itself was correct.
+ *
+ * Everything saves as it is changed; there is no button to forget to press.
  */
 export class AddDayModal extends Modal {
   private trip: Trip | null;
-  private date: string;
-  private notes: Record<DaySlot, string> = { morning: "", afternoon: "", evening: "" };
-  /** Activity note path -> the slot it has been put in for this day. */
-  private placement = new Map<string, DaySlot>();
+  private date = "";
+
+  /** Activity note path -> where it sits. The authority while this is open. */
+  private placements = new Map<string, Placement>();
+  /** Per-day prose, read from the note when the trip loads. */
+  private notesByDate = new Map<string, Notes>();
+  /** Days that already have something written under them. */
+  private planned = new Set<string>();
+
   private dateInput!: HTMLInputElement;
   private daySelect!: HTMLSelectElement;
   private bodyEl!: HTMLElement;
-  /** Days already carrying content, so the dropdown can mark them. */
-  private planned = new Set<string>();
+  private statusEl!: HTMLElement;
+
+  private saveTimer = 0;
+  private saving = false;
+  /** Days edited since the last write, so a flush knows what to persist. */
+  private pending = new Set<string>();
 
   constructor(
     app: App,
@@ -40,7 +58,6 @@ export class AddDayModal extends Modal {
   ) {
     super(app);
     this.trip = preselected ?? this.inferTrip();
-    this.date = this.defaultDate();
   }
 
   private inferTrip(): Trip | null {
@@ -55,13 +72,6 @@ export class AddDayModal extends Modal {
     );
   }
 
-  private defaultDate(): string {
-    const today = todayISO();
-    if (!this.trip) return today;
-    if (today >= this.trip.startDate && today <= this.trip.endDate) return today;
-    return isValidISODate(this.trip.startDate) ? this.trip.startDate : today;
-  }
-
   private activities(): Booking[] {
     if (!this.trip) return [];
     return this.plugin.bookings
@@ -69,11 +79,10 @@ export class AddDayModal extends Modal {
       .filter((b) => b.kind === "activity" && b.status !== "cancelled");
   }
 
+  // ------------------------------------------------------------- lifecycle
+
   async onOpen(): Promise<void> {
     keepOpenOnBackgroundClick(this);
-    await this.useFirstUnplannedDay();
-    await this.loadNotes();
-
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
@@ -86,155 +95,276 @@ export class AddDayModal extends Modal {
       new Setting(contentEl).addButton((b) => b.setButtonText("Close").onClick(() => this.close()));
       return;
     }
+    if (!this.trip) this.trip = trips[0];
+
+    await this.loadTrip();
 
     new Setting(contentEl).setName("Trip").addDropdown((dd) => {
       for (const trip of trips) dd.addOption(trip.file.path, trip.title);
-      dd.setValue(this.trip?.file.path ?? trips[0].file.path);
-      if (!this.trip) this.trip = trips[0];
+      dd.setValue(this.trip!.file.path);
       dd.onChange(async (path) => {
-        this.trip = trips.find((t) => t.file.path === path) ?? null;
-        this.date = this.defaultDate();
-        await this.useFirstUnplannedDay();
-        this.dateInput.value = this.date;
+        await this.flush();
+        this.trip = trips.find((t) => t.file.path === path) ?? this.trip;
+        await this.loadTrip();
         this.applyDateBounds();
-        this.syncPlacement();
+        this.renderDayOptions();
         this.renderSlots();
       });
     });
 
-    // Every day of the trip in one dropdown, so planning eight days does not
-    // mean opening this eight times.
     const daySetting = new Setting(contentEl).setName("Day");
     this.daySelect = daySetting.controlEl.createEl("select", { cls: "dropdown" });
-    this.renderDayOptions();
-    this.daySelect.addEventListener("change", () => {
-      void this.switchTo(this.daySelect.value);
-    });
+    this.daySelect.addEventListener("change", () => this.showDay(this.daySelect.value));
 
     this.dateInput = daySetting.controlEl.createEl("input", { cls: "tp-date-input" });
     this.dateInput.type = "date";
-    this.dateInput.value = this.date;
     this.dateInput.addEventListener("change", () => {
-      if (!isValidISODate(this.dateInput.value)) return;
-      void this.switchTo(this.dateInput.value);
+      if (isValidISODate(this.dateInput.value)) this.showDay(this.dateInput.value);
     });
-    this.applyDateBounds();
 
     this.bodyEl = contentEl.createDiv();
-    this.syncPlacement();
+    this.applyDateBounds();
+    this.renderDayOptions();
     this.renderSlots();
 
+    this.statusEl = contentEl.createDiv({ cls: "tp-autosave" });
+    this.setStatus("Changes save as you make them.");
+
     new Setting(contentEl)
-      .addButton((btn) => btn.setButtonText("Close").onClick(() => this.close()))
-      .addButton((btn) =>
-        btn.setButtonText("Save day").onClick(() => void this.addDay(false)),
-      )
+      .addButton((btn) => btn.setButtonText("Previous day").onClick(() => this.step(-1)))
+      .addButton((btn) => btn.setButtonText("Next day").onClick(() => this.step(1)))
       .addButton((btn) =>
         btn
-          .setButtonText("Save & next day")
+          .setButtonText("Done")
           .setCta()
-          .onClick(() => void this.addDay(true)),
+          .onClick(async () => {
+            await this.flush();
+            this.close();
+          }),
       );
   }
 
-  /** Day 1 … Day N, each marked with whether it has anything in it yet. */
+  /** Seeds this session's state from the trip, once. */
+  private async loadTrip(): Promise<void> {
+    this.placements.clear();
+    this.notesByDate.clear();
+    this.planned.clear();
+    if (!this.trip) return;
+
+    for (const activity of this.activities()) {
+      if (isValidISODate(activity.date) && activity.slot) {
+        this.placements.set(activity.file.path, { date: activity.date, slot: activity.slot });
+      }
+    }
+
+    const file = this.itineraryFile();
+    if (file) {
+      const content = await this.app.vault.cachedRead(file);
+      const empty = emptyDayDates(content);
+      for (const date of this.days()) {
+        if (!empty.has(date)) this.planned.add(date);
+        this.notesByDate.set(date, readDaySections(content, date));
+      }
+    }
+
+    // Start on the first day that still needs something.
+    const today = todayISO();
+    const days = this.days();
+    this.date =
+      days.find((d) => !this.planned.has(d)) ?? days.find((d) => d >= today) ?? days[0] ?? today;
+  }
+
+  private itineraryFile(): TFile | null {
+    if (!this.trip) return null;
+    const file = this.app.vault.getAbstractFileByPath(
+      `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`,
+    );
+    return file instanceof TFile ? file : null;
+  }
+
+  private days(): string[] {
+    return this.trip ? datesInRange(this.trip.startDate, this.trip.endDate, 90) : [];
+  }
+
+  private notes(): Notes {
+    let notes = this.notesByDate.get(this.date);
+    if (!notes) {
+      notes = { morning: "", afternoon: "", evening: "" };
+      this.notesByDate.set(this.date, notes);
+    }
+    return notes;
+  }
+
+  // ---------------------------------------------------------------- saving
+
+  private setStatus(text: string): void {
+    this.statusEl?.setText(text);
+  }
+
+  /** Marks a day dirty and writes it shortly after; typing does not thrash. */
+  private scheduleSave(date: string, delay = 500): void {
+    this.pending.add(date);
+    this.setStatus("Saving…");
+    window.clearTimeout(this.saveTimer);
+    this.saveTimer = window.setTimeout(() => void this.flush(), delay);
+  }
+
+  private async flush(): Promise<void> {
+    window.clearTimeout(this.saveTimer);
+    if (this.saving || this.pending.size === 0) return;
+
+    this.saving = true;
+    const dates = [...this.pending];
+    this.pending.clear();
+
+    try {
+      for (const date of dates) await this.writeDay(date);
+      this.plugin.bookings.invalidate();
+      this.onDone();
+      this.setStatus("Saved.");
+      this.renderDayOptions();
+    } catch (err) {
+      // Put them back so a later flush retries rather than losing the edit.
+      for (const date of dates) this.pending.add(date);
+      this.setStatus("Could not save — trying again shortly.");
+      new Notice(err instanceof Error ? err.message : "Could not save the day.", 8000);
+      console.error("[travel-planner]", err);
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  private async writeDay(date: string): Promise<void> {
+    if (!this.trip || !isValidISODate(date)) return;
+
+    const byPath = new Map(this.activities().map((a) => [a.file.path, a]));
+    const notes = this.notesByDate.get(date) ?? { morning: "", afternoon: "", evening: "" };
+
+    const sectionFor = (slot: DaySlot): string => {
+      const lines: string[] = [];
+      for (const [path, placed] of this.placements) {
+        if (placed.date !== date || placed.slot !== slot) continue;
+        const activity = byPath.get(path);
+        if (activity) lines.push(`- [[${activity.file.basename}]]`);
+      }
+      const note = notes[slot].trim();
+      if (note) lines.push(note);
+      return lines.join("\n");
+    };
+
+    let file = this.itineraryFile();
+    if (!file) {
+      file = await this.app.vault.create(
+        `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`,
+        `---\ntype: itinerary\n---\n\n# Itinerary — ${this.trip.title}\n`,
+      );
+    }
+
+    // Always replaces: the prose under this day was loaded into the editor, so
+    // nothing typed straight into the note is lost.
+    await insertItineraryDay(
+      this.app,
+      file,
+      date,
+      {
+        morning: sectionFor("morning"),
+        afternoon: sectionFor("afternoon"),
+        evening: sectionFor("evening"),
+      },
+      true,
+    );
+
+    // Push placements onto the activities themselves.
+    for (const activity of byPath.values()) {
+      const placed = this.placements.get(activity.file.path);
+      if (placed?.date === date) {
+        await assignBookingToDay(this.app, activity.file, date, placed.slot);
+      } else if (!placed && activity.date === date && activity.slot) {
+        await assignBookingToDay(this.app, activity.file, activity.date, null);
+      }
+    }
+
+    const hasContent =
+      [...this.placements.values()].some((p) => p.date === date) ||
+      Object.values(notes).some((n) => n.trim().length > 0);
+    if (hasContent) this.planned.add(date);
+    else this.planned.delete(date);
+  }
+
+  // ------------------------------------------------------------- rendering
+
+  private step(delta: number): void {
+    const days = this.days();
+    const next = days[days.indexOf(this.date) + delta];
+    if (next) this.showDay(next);
+  }
+
+  /** No reload: the state held here is the authority. */
+  private showDay(date: string): void {
+    if (!isValidISODate(date) || date === this.date) return;
+    this.date = date;
+    this.renderDayOptions();
+    this.renderSlots();
+  }
+
   private renderDayOptions(): void {
-    if (!this.trip || !this.daySelect) return;
+    if (!this.daySelect) return;
     this.daySelect.empty();
 
-    const days = datesInRange(this.trip.startDate, this.trip.endDate, 90);
-    for (const [index, date] of days.entries()) {
+    for (const [index, date] of this.days().entries()) {
       const parsed = parseISO(date);
       const label = parsed
         ? `Day ${index + 1} · ${parsed.getUTCDate()} ${monthName(date)}`
         : `Day ${index + 1}`;
-      const done = this.planned.has(date) ? "" : " — empty";
-      const option = this.daySelect.createEl("option", { text: label + done, value: date });
+      const count = [...this.placements.values()].filter((p) => p.date === date).length;
+      const suffix = count > 0 ? ` — ${count}` : this.planned.has(date) ? "" : " — empty";
+      const option = this.daySelect.createEl("option", { text: label + suffix, value: date });
       if (date === this.date) option.selected = true;
     }
     if (this.dateInput) this.dateInput.value = this.date;
   }
 
-  /**
-   * Moves to another day, saving the one being left.
-   *
-   * Ticking an activity and switching days used to discard the tick: the
-   * placement was rebuilt from what was on disk, and nothing had been written
-   * yet. Committing on the way out means the choice is real by the time the
-   * dropdown moves, and coming back re-reads it.
-   */
-  private async switchTo(date: string): Promise<void> {
-    if (!isValidISODate(date) || date === this.date) return;
-    if (this.hasUnsaved()) await this.persistDay(true);
-
-    this.date = date;
-    await this.loadNotes();
-    this.syncPlacement();
-    this.renderDayOptions();
-    this.renderSlots();
-  }
-
-  /** Anything ticked or typed that is not yet on disk. */
-  private hasUnsaved(): boolean {
-    if (Object.values(this.notes).some((note) => note.trim().length > 0)) return true;
-
-    const saved = new Map<string, string>();
-    for (const activity of this.activities()) {
-      if (activity.date === this.date && activity.slot) saved.set(activity.file.path, activity.slot);
-    }
-    if (saved.size !== this.placement.size) return true;
-    for (const [path, slot] of this.placement) {
-      if (saved.get(path) !== slot) return true;
-    }
-    return false;
-  }
-
-  /** Reads back whatever prose is already under this day. */
-  private async loadNotes(): Promise<void> {
-    this.notes = { morning: "", afternoon: "", evening: "" };
-    if (!this.trip) return;
-    const file = this.app.vault.getAbstractFileByPath(
-      `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`,
-    );
-    if (!(file instanceof TFile)) return;
-    this.notes = readDaySections(await this.app.vault.cachedRead(file), this.date);
-  }
-
-  /** Reflect what the activities already say about this date. */
-  private syncPlacement(): void {
-    this.placement.clear();
-    for (const activity of this.activities()) {
-      if (activity.date === this.date && activity.slot) {
-        this.placement.set(activity.file.path, activity.slot);
-      }
-    }
+  private applyDateBounds(): void {
+    if (!this.trip || !this.dateInput) return;
+    if (isValidISODate(this.trip.startDate)) this.dateInput.min = this.trip.startDate;
+    if (isValidISODate(this.trip.endDate)) this.dateInput.max = this.trip.endDate;
   }
 
   private renderSlots(): void {
     this.bodyEl.empty();
     const activities = this.activities();
+    const notes = this.notes();
 
     for (const slot of DAY_SLOTS) {
       const section = this.bodyEl.createDiv({ cls: "tp-slot" });
       section.createDiv({ cls: "tp-section-label", text: slot.label });
 
       for (const activity of activities) {
-        const placedIn = this.placement.get(activity.file.path);
-        // Already on another day, so it is offered but visibly spoken for.
-        const elsewhere =
-          activity.date && activity.date !== this.date && activity.slot ? activity.date : null;
+        const placed = this.placements.get(activity.file.path);
+        const here = placed?.date === this.date && placed.slot === slot.id;
+        const elsewhere = placed && placed.date !== this.date ? placed.date : null;
 
         const row = section.createEl("label", {
           cls: `tp-slot-activity${elsewhere ? " is-elsewhere" : ""}`,
         });
         const box = row.createEl("input");
         box.type = "checkbox";
-        box.checked = placedIn === slot.id;
+        box.checked = here;
         box.addEventListener("change", () => {
-          // One activity, one slot: ticking it here takes it out of any other.
-          if (box.checked) this.placement.set(activity.file.path, slot.id);
-          else this.placement.delete(activity.file.path);
+          // One activity, one slot: ticking it here takes it out of anywhere else.
+          const previous = this.placements.get(activity.file.path);
+          if (box.checked) {
+            this.placements.set(activity.file.path, { date: this.date, slot: slot.id });
+          } else {
+            this.placements.delete(activity.file.path);
+          }
+
+          this.scheduleSave(this.date, 0);
+          // A day it was moved off also needs rewriting.
+          if (previous && previous.date !== this.date) this.scheduleSave(previous.date, 0);
+
           this.renderSlots();
+          this.renderDayOptions();
         });
 
         row.createSpan({ cls: "tp-slot-activity-name", text: activity.title });
@@ -252,140 +382,19 @@ export class AddDayModal extends Modal {
         if (this.trip) this.plugin.openBookingWizard(this.trip, "activity");
       });
 
-      const notes = section.createEl("textarea", { cls: "tp-slot-notes" });
-      notes.rows = 2;
-      notes.placeholder = "Anything else — breakfast, a walk, nothing booked…";
-      notes.value = this.notes[slot.id];
-      notes.addEventListener("input", () => (this.notes[slot.id] = notes.value));
+      const area = section.createEl("textarea", { cls: "tp-slot-notes" });
+      area.rows = 2;
+      area.placeholder = "Anything else — breakfast, a walk, nothing booked…";
+      area.value = notes[slot.id];
+      area.addEventListener("input", () => {
+        notes[slot.id] = area.value;
+        this.scheduleSave(this.date);
+      });
     }
-  }
-
-  /**
-   * Trips are created with every day already headed, so "the first day" is
-   * almost never the one you still need to plan.
-   */
-  private async useFirstUnplannedDay(): Promise<void> {
-    if (!this.trip) return;
-    const file = this.app.vault.getAbstractFileByPath(
-      `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`,
-    );
-    if (!(file instanceof TFile)) return;
-    const empty = emptyDayDates(await this.app.vault.cachedRead(file));
-    const all = datesInRange(this.trip.startDate, this.trip.endDate, 90);
-    this.planned = new Set(all.filter((d) => !empty.has(d)));
-    const next = [...empty].sort().find((d) => d >= this.trip!.startDate);
-    if (next) this.date = next;
-  }
-
-  private applyDateBounds(): void {
-    if (!this.trip) return;
-    if (isValidISODate(this.trip.startDate)) this.dateInput.min = this.trip.startDate;
-    if (isValidISODate(this.trip.endDate)) this.dateInput.max = this.trip.endDate;
-  }
-
-  private async addDay(advance: boolean): Promise<void> {
-    if (!this.trip) {
-      new Notice("Pick a trip first.");
-      return;
-    }
-    if (!isValidISODate(this.date)) {
-      new Notice("Pick a valid date.");
-      return;
-    }
-
-    const saved = await this.persistDay(false);
-    if (!saved) return;
-
-    if (!advance) {
-      this.close();
-      return;
-    }
-
-    // Stay open and step to the next day, so a week is planned in one sitting.
-    const days = datesInRange(this.trip.startDate, this.trip.endDate, 90);
-    const next = days.find((d) => d > this.date);
-    if (!next) {
-      new Notice("That was the last day.");
-      this.close();
-      return;
-    }
-    await this.switchTo(next);
-  }
-
-  /**
-   * Writes the current day out and pushes the placement onto the activities.
-   *
-   * `quiet` is the day-switch path, which should not announce itself.
-   */
-  private async persistDay(quiet: boolean): Promise<boolean> {
-    if (!this.trip || !isValidISODate(this.date)) return false;
-
-    const byPath = new Map(this.activities().map((a) => [a.file.path, a]));
-
-    // Each activity goes in as a link to its own note, so the itinerary and the
-    // booking stay one record rather than two copies of the same plan.
-    const sectionFor = (slot: DaySlot): string => {
-      const lines: string[] = [];
-      for (const [path, placed] of this.placement) {
-        if (placed !== slot) continue;
-        const activity = byPath.get(path);
-        if (activity) lines.push(`- [[${activity.file.basename}]]`);
-      }
-      const note = this.notes[slot].trim();
-      if (note) lines.push(note);
-      return lines.join("\n");
-    };
-
-    const path = `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`;
-    let file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) {
-      file = await this.app.vault.create(
-        path,
-        `---\ntype: itinerary\n---\n\n# Itinerary — ${this.trip.title}\n`,
-      );
-    }
-
-    // Always replaces: the editor loaded whatever was already under this day,
-    // so nothing typed into the note by hand is lost.
-    await insertItineraryDay(
-      this.app,
-      file as TFile,
-      this.date,
-      {
-        morning: sectionFor("morning"),
-        afternoon: sectionFor("afternoon"),
-        evening: sectionFor("evening"),
-      },
-      true,
-    );
-
-    // Push the placement back onto the activities themselves.
-    for (const activity of this.activities()) {
-      const placed = this.placement.get(activity.file.path);
-      if (placed) {
-        await assignBookingToDay(this.app, activity.file, this.date, placed);
-      } else if (activity.date === this.date && activity.slot) {
-        // Unticked here, so it is no longer part of this day.
-        await assignBookingToDay(this.app, activity.file, activity.date, null);
-      }
-    }
-
-    this.planned.add(this.date);
-    this.plugin.bookings.invalidate();
-    this.onDone();
-
-    if (!quiet) {
-      const placed = this.placement.size;
-      new Notice(
-        placed > 0
-          ? `Planned ${this.date} with ${placed} activit${placed === 1 ? "y" : "ies"}.`
-          : `Planned ${this.date}.`,
-      );
-    }
-    return true;
   }
 
   onClose(): void {
+    void this.flush();
     this.contentEl.empty();
   }
 }

@@ -8161,13 +8161,18 @@ var AddDayModal = class extends import_obsidian35.Modal {
     super(app);
     this.plugin = plugin;
     this.onDone = onDone;
-    this.notes = { morning: "", afternoon: "", evening: "" };
-    /** Activity note path -> the slot it has been put in for this day. */
-    this.placement = /* @__PURE__ */ new Map();
-    /** Days already carrying content, so the dropdown can mark them. */
+    this.date = "";
+    /** Activity note path -> where it sits. The authority while this is open. */
+    this.placements = /* @__PURE__ */ new Map();
+    /** Per-day prose, read from the note when the trip loads. */
+    this.notesByDate = /* @__PURE__ */ new Map();
+    /** Days that already have something written under them. */
     this.planned = /* @__PURE__ */ new Set();
+    this.saveTimer = 0;
+    this.saving = false;
+    /** Days edited since the last write, so a flush knows what to persist. */
+    this.pending = /* @__PURE__ */ new Set();
     this.trip = preselected ?? this.inferTrip();
-    this.date = this.defaultDate();
   }
   inferTrip() {
     const active = this.app.workspace.getActiveFile();
@@ -8178,20 +8183,13 @@ var AddDayModal = class extends import_obsidian35.Modal {
     const trips = this.plugin.store.getTrips();
     return trips.find((t) => t.status === "current") ?? trips.find((t) => t.status === "upcoming") ?? null;
   }
-  defaultDate() {
-    const today = todayISO();
-    if (!this.trip) return today;
-    if (today >= this.trip.startDate && today <= this.trip.endDate) return today;
-    return isValidISODate(this.trip.startDate) ? this.trip.startDate : today;
-  }
   activities() {
     if (!this.trip) return [];
     return this.plugin.bookings.getBookings(this.trip).filter((b) => b.kind === "activity" && b.status !== "cancelled");
   }
+  // ------------------------------------------------------------- lifecycle
   async onOpen() {
     keepOpenOnBackgroundClick(this);
-    await this.useFirstUnplannedDay();
-    await this.loadNotes();
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
@@ -8203,125 +8201,224 @@ var AddDayModal = class extends import_obsidian35.Modal {
       new import_obsidian35.Setting(contentEl).addButton((b) => b.setButtonText("Close").onClick(() => this.close()));
       return;
     }
+    if (!this.trip) this.trip = trips[0];
+    await this.loadTrip();
     new import_obsidian35.Setting(contentEl).setName("Trip").addDropdown((dd) => {
       for (const trip of trips) dd.addOption(trip.file.path, trip.title);
-      dd.setValue(this.trip?.file.path ?? trips[0].file.path);
-      if (!this.trip) this.trip = trips[0];
+      dd.setValue(this.trip.file.path);
       dd.onChange(async (path) => {
-        this.trip = trips.find((t) => t.file.path === path) ?? null;
-        this.date = this.defaultDate();
-        await this.useFirstUnplannedDay();
-        this.dateInput.value = this.date;
+        await this.flush();
+        this.trip = trips.find((t) => t.file.path === path) ?? this.trip;
+        await this.loadTrip();
         this.applyDateBounds();
-        this.syncPlacement();
+        this.renderDayOptions();
         this.renderSlots();
       });
     });
     const daySetting = new import_obsidian35.Setting(contentEl).setName("Day");
     this.daySelect = daySetting.controlEl.createEl("select", { cls: "dropdown" });
-    this.renderDayOptions();
-    this.daySelect.addEventListener("change", () => {
-      void this.switchTo(this.daySelect.value);
-    });
+    this.daySelect.addEventListener("change", () => this.showDay(this.daySelect.value));
     this.dateInput = daySetting.controlEl.createEl("input", { cls: "tp-date-input" });
     this.dateInput.type = "date";
-    this.dateInput.value = this.date;
     this.dateInput.addEventListener("change", () => {
-      if (!isValidISODate(this.dateInput.value)) return;
-      void this.switchTo(this.dateInput.value);
+      if (isValidISODate(this.dateInput.value)) this.showDay(this.dateInput.value);
     });
-    this.applyDateBounds();
     this.bodyEl = contentEl.createDiv();
-    this.syncPlacement();
+    this.applyDateBounds();
+    this.renderDayOptions();
     this.renderSlots();
-    new import_obsidian35.Setting(contentEl).addButton((btn) => btn.setButtonText("Close").onClick(() => this.close())).addButton(
-      (btn) => btn.setButtonText("Save day").onClick(() => void this.addDay(false))
-    ).addButton(
-      (btn) => btn.setButtonText("Save & next day").setCta().onClick(() => void this.addDay(true))
+    this.statusEl = contentEl.createDiv({ cls: "tp-autosave" });
+    this.setStatus("Changes save as you make them.");
+    new import_obsidian35.Setting(contentEl).addButton((btn) => btn.setButtonText("Previous day").onClick(() => this.step(-1))).addButton((btn) => btn.setButtonText("Next day").onClick(() => this.step(1))).addButton(
+      (btn) => btn.setButtonText("Done").setCta().onClick(async () => {
+        await this.flush();
+        this.close();
+      })
     );
   }
-  /** Day 1 … Day N, each marked with whether it has anything in it yet. */
+  /** Seeds this session's state from the trip, once. */
+  async loadTrip() {
+    this.placements.clear();
+    this.notesByDate.clear();
+    this.planned.clear();
+    if (!this.trip) return;
+    for (const activity of this.activities()) {
+      if (isValidISODate(activity.date) && activity.slot) {
+        this.placements.set(activity.file.path, { date: activity.date, slot: activity.slot });
+      }
+    }
+    const file = this.itineraryFile();
+    if (file) {
+      const content = await this.app.vault.cachedRead(file);
+      const empty = emptyDayDates(content);
+      for (const date of this.days()) {
+        if (!empty.has(date)) this.planned.add(date);
+        this.notesByDate.set(date, readDaySections(content, date));
+      }
+    }
+    const today = todayISO();
+    const days = this.days();
+    this.date = days.find((d) => !this.planned.has(d)) ?? days.find((d) => d >= today) ?? days[0] ?? today;
+  }
+  itineraryFile() {
+    if (!this.trip) return null;
+    const file = this.app.vault.getAbstractFileByPath(
+      `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`
+    );
+    return file instanceof import_obsidian35.TFile ? file : null;
+  }
+  days() {
+    return this.trip ? datesInRange(this.trip.startDate, this.trip.endDate, 90) : [];
+  }
+  notes() {
+    let notes = this.notesByDate.get(this.date);
+    if (!notes) {
+      notes = { morning: "", afternoon: "", evening: "" };
+      this.notesByDate.set(this.date, notes);
+    }
+    return notes;
+  }
+  // ---------------------------------------------------------------- saving
+  setStatus(text) {
+    this.statusEl?.setText(text);
+  }
+  /** Marks a day dirty and writes it shortly after; typing does not thrash. */
+  scheduleSave(date, delay = 500) {
+    this.pending.add(date);
+    this.setStatus("Saving\u2026");
+    window.clearTimeout(this.saveTimer);
+    this.saveTimer = window.setTimeout(() => void this.flush(), delay);
+  }
+  async flush() {
+    window.clearTimeout(this.saveTimer);
+    if (this.saving || this.pending.size === 0) return;
+    this.saving = true;
+    const dates = [...this.pending];
+    this.pending.clear();
+    try {
+      for (const date of dates) await this.writeDay(date);
+      this.plugin.bookings.invalidate();
+      this.onDone();
+      this.setStatus("Saved.");
+      this.renderDayOptions();
+    } catch (err) {
+      for (const date of dates) this.pending.add(date);
+      this.setStatus("Could not save \u2014 trying again shortly.");
+      new import_obsidian35.Notice(err instanceof Error ? err.message : "Could not save the day.", 8e3);
+      console.error("[travel-planner]", err);
+    } finally {
+      this.saving = false;
+    }
+  }
+  async writeDay(date) {
+    if (!this.trip || !isValidISODate(date)) return;
+    const byPath = new Map(this.activities().map((a) => [a.file.path, a]));
+    const notes = this.notesByDate.get(date) ?? { morning: "", afternoon: "", evening: "" };
+    const sectionFor = (slot) => {
+      const lines2 = [];
+      for (const [path, placed] of this.placements) {
+        if (placed.date !== date || placed.slot !== slot) continue;
+        const activity = byPath.get(path);
+        if (activity) lines2.push(`- [[${activity.file.basename}]]`);
+      }
+      const note = notes[slot].trim();
+      if (note) lines2.push(note);
+      return lines2.join("\n");
+    };
+    let file = this.itineraryFile();
+    if (!file) {
+      file = await this.app.vault.create(
+        `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`,
+        `---
+type: itinerary
+---
+
+# Itinerary \u2014 ${this.trip.title}
+`
+      );
+    }
+    await insertItineraryDay(
+      this.app,
+      file,
+      date,
+      {
+        morning: sectionFor("morning"),
+        afternoon: sectionFor("afternoon"),
+        evening: sectionFor("evening")
+      },
+      true
+    );
+    for (const activity of byPath.values()) {
+      const placed = this.placements.get(activity.file.path);
+      if (placed?.date === date) {
+        await assignBookingToDay(this.app, activity.file, date, placed.slot);
+      } else if (!placed && activity.date === date && activity.slot) {
+        await assignBookingToDay(this.app, activity.file, activity.date, null);
+      }
+    }
+    const hasContent = [...this.placements.values()].some((p) => p.date === date) || Object.values(notes).some((n) => n.trim().length > 0);
+    if (hasContent) this.planned.add(date);
+    else this.planned.delete(date);
+  }
+  // ------------------------------------------------------------- rendering
+  step(delta) {
+    const days = this.days();
+    const next = days[days.indexOf(this.date) + delta];
+    if (next) this.showDay(next);
+  }
+  /** No reload: the state held here is the authority. */
+  showDay(date) {
+    if (!isValidISODate(date) || date === this.date) return;
+    this.date = date;
+    this.renderDayOptions();
+    this.renderSlots();
+  }
   renderDayOptions() {
-    if (!this.trip || !this.daySelect) return;
+    if (!this.daySelect) return;
     this.daySelect.empty();
-    const days = datesInRange(this.trip.startDate, this.trip.endDate, 90);
-    for (const [index, date] of days.entries()) {
+    for (const [index, date] of this.days().entries()) {
       const parsed = parseISO(date);
       const label = parsed ? `Day ${index + 1} \xB7 ${parsed.getUTCDate()} ${monthName(date)}` : `Day ${index + 1}`;
-      const done = this.planned.has(date) ? "" : " \u2014 empty";
-      const option = this.daySelect.createEl("option", { text: label + done, value: date });
+      const count = [...this.placements.values()].filter((p) => p.date === date).length;
+      const suffix = count > 0 ? ` \u2014 ${count}` : this.planned.has(date) ? "" : " \u2014 empty";
+      const option = this.daySelect.createEl("option", { text: label + suffix, value: date });
       if (date === this.date) option.selected = true;
     }
     if (this.dateInput) this.dateInput.value = this.date;
   }
-  /**
-   * Moves to another day, saving the one being left.
-   *
-   * Ticking an activity and switching days used to discard the tick: the
-   * placement was rebuilt from what was on disk, and nothing had been written
-   * yet. Committing on the way out means the choice is real by the time the
-   * dropdown moves, and coming back re-reads it.
-   */
-  async switchTo(date) {
-    if (!isValidISODate(date) || date === this.date) return;
-    if (this.hasUnsaved()) await this.persistDay(true);
-    this.date = date;
-    await this.loadNotes();
-    this.syncPlacement();
-    this.renderDayOptions();
-    this.renderSlots();
-  }
-  /** Anything ticked or typed that is not yet on disk. */
-  hasUnsaved() {
-    if (Object.values(this.notes).some((note) => note.trim().length > 0)) return true;
-    const saved = /* @__PURE__ */ new Map();
-    for (const activity of this.activities()) {
-      if (activity.date === this.date && activity.slot) saved.set(activity.file.path, activity.slot);
-    }
-    if (saved.size !== this.placement.size) return true;
-    for (const [path, slot] of this.placement) {
-      if (saved.get(path) !== slot) return true;
-    }
-    return false;
-  }
-  /** Reads back whatever prose is already under this day. */
-  async loadNotes() {
-    this.notes = { morning: "", afternoon: "", evening: "" };
-    if (!this.trip) return;
-    const file = this.app.vault.getAbstractFileByPath(
-      `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`
-    );
-    if (!(file instanceof import_obsidian35.TFile)) return;
-    this.notes = readDaySections(await this.app.vault.cachedRead(file), this.date);
-  }
-  /** Reflect what the activities already say about this date. */
-  syncPlacement() {
-    this.placement.clear();
-    for (const activity of this.activities()) {
-      if (activity.date === this.date && activity.slot) {
-        this.placement.set(activity.file.path, activity.slot);
-      }
-    }
+  applyDateBounds() {
+    if (!this.trip || !this.dateInput) return;
+    if (isValidISODate(this.trip.startDate)) this.dateInput.min = this.trip.startDate;
+    if (isValidISODate(this.trip.endDate)) this.dateInput.max = this.trip.endDate;
   }
   renderSlots() {
     this.bodyEl.empty();
     const activities = this.activities();
+    const notes = this.notes();
     for (const slot of DAY_SLOTS) {
       const section = this.bodyEl.createDiv({ cls: "tp-slot" });
       section.createDiv({ cls: "tp-section-label", text: slot.label });
       for (const activity of activities) {
-        const placedIn = this.placement.get(activity.file.path);
-        const elsewhere = activity.date && activity.date !== this.date && activity.slot ? activity.date : null;
+        const placed = this.placements.get(activity.file.path);
+        const here = placed?.date === this.date && placed.slot === slot.id;
+        const elsewhere = placed && placed.date !== this.date ? placed.date : null;
         const row2 = section.createEl("label", {
           cls: `tp-slot-activity${elsewhere ? " is-elsewhere" : ""}`
         });
         const box = row2.createEl("input");
         box.type = "checkbox";
-        box.checked = placedIn === slot.id;
+        box.checked = here;
         box.addEventListener("change", () => {
-          if (box.checked) this.placement.set(activity.file.path, slot.id);
-          else this.placement.delete(activity.file.path);
+          const previous = this.placements.get(activity.file.path);
+          if (box.checked) {
+            this.placements.set(activity.file.path, { date: this.date, slot: slot.id });
+          } else {
+            this.placements.delete(activity.file.path);
+          }
+          this.scheduleSave(this.date, 0);
+          if (previous && previous.date !== this.date) this.scheduleSave(previous.date, 0);
           this.renderSlots();
+          this.renderDayOptions();
         });
         row2.createSpan({ cls: "tp-slot-activity-name", text: activity.title });
         if (activity.time) row2.createSpan({ cls: "tp-slot-activity-meta", text: activity.time });
@@ -8336,121 +8433,18 @@ var AddDayModal = class extends import_obsidian35.Modal {
       addRow.addEventListener("click", () => {
         if (this.trip) this.plugin.openBookingWizard(this.trip, "activity");
       });
-      const notes = section.createEl("textarea", { cls: "tp-slot-notes" });
-      notes.rows = 2;
-      notes.placeholder = "Anything else \u2014 breakfast, a walk, nothing booked\u2026";
-      notes.value = this.notes[slot.id];
-      notes.addEventListener("input", () => this.notes[slot.id] = notes.value);
+      const area = section.createEl("textarea", { cls: "tp-slot-notes" });
+      area.rows = 2;
+      area.placeholder = "Anything else \u2014 breakfast, a walk, nothing booked\u2026";
+      area.value = notes[slot.id];
+      area.addEventListener("input", () => {
+        notes[slot.id] = area.value;
+        this.scheduleSave(this.date);
+      });
     }
-  }
-  /**
-   * Trips are created with every day already headed, so "the first day" is
-   * almost never the one you still need to plan.
-   */
-  async useFirstUnplannedDay() {
-    if (!this.trip) return;
-    const file = this.app.vault.getAbstractFileByPath(
-      `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`
-    );
-    if (!(file instanceof import_obsidian35.TFile)) return;
-    const empty = emptyDayDates(await this.app.vault.cachedRead(file));
-    const all = datesInRange(this.trip.startDate, this.trip.endDate, 90);
-    this.planned = new Set(all.filter((d) => !empty.has(d)));
-    const next = [...empty].sort().find((d) => d >= this.trip.startDate);
-    if (next) this.date = next;
-  }
-  applyDateBounds() {
-    if (!this.trip) return;
-    if (isValidISODate(this.trip.startDate)) this.dateInput.min = this.trip.startDate;
-    if (isValidISODate(this.trip.endDate)) this.dateInput.max = this.trip.endDate;
-  }
-  async addDay(advance) {
-    if (!this.trip) {
-      new import_obsidian35.Notice("Pick a trip first.");
-      return;
-    }
-    if (!isValidISODate(this.date)) {
-      new import_obsidian35.Notice("Pick a valid date.");
-      return;
-    }
-    const saved = await this.persistDay(false);
-    if (!saved) return;
-    if (!advance) {
-      this.close();
-      return;
-    }
-    const days = datesInRange(this.trip.startDate, this.trip.endDate, 90);
-    const next = days.find((d) => d > this.date);
-    if (!next) {
-      new import_obsidian35.Notice("That was the last day.");
-      this.close();
-      return;
-    }
-    await this.switchTo(next);
-  }
-  /**
-   * Writes the current day out and pushes the placement onto the activities.
-   *
-   * `quiet` is the day-switch path, which should not announce itself.
-   */
-  async persistDay(quiet) {
-    if (!this.trip || !isValidISODate(this.date)) return false;
-    const byPath = new Map(this.activities().map((a) => [a.file.path, a]));
-    const sectionFor = (slot) => {
-      const lines2 = [];
-      for (const [path2, placed] of this.placement) {
-        if (placed !== slot) continue;
-        const activity = byPath.get(path2);
-        if (activity) lines2.push(`- [[${activity.file.basename}]]`);
-      }
-      const note = this.notes[slot].trim();
-      if (note) lines2.push(note);
-      return lines2.join("\n");
-    };
-    const path = `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`;
-    let file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof import_obsidian35.TFile)) {
-      file = await this.app.vault.create(
-        path,
-        `---
-type: itinerary
----
-
-# Itinerary \u2014 ${this.trip.title}
-`
-      );
-    }
-    await insertItineraryDay(
-      this.app,
-      file,
-      this.date,
-      {
-        morning: sectionFor("morning"),
-        afternoon: sectionFor("afternoon"),
-        evening: sectionFor("evening")
-      },
-      true
-    );
-    for (const activity of this.activities()) {
-      const placed = this.placement.get(activity.file.path);
-      if (placed) {
-        await assignBookingToDay(this.app, activity.file, this.date, placed);
-      } else if (activity.date === this.date && activity.slot) {
-        await assignBookingToDay(this.app, activity.file, activity.date, null);
-      }
-    }
-    this.planned.add(this.date);
-    this.plugin.bookings.invalidate();
-    this.onDone();
-    if (!quiet) {
-      const placed = this.placement.size;
-      new import_obsidian35.Notice(
-        placed > 0 ? `Planned ${this.date} with ${placed} activit${placed === 1 ? "y" : "ies"}.` : `Planned ${this.date}.`
-      );
-    }
-    return true;
   }
   onClose() {
+    void this.flush();
     this.contentEl.empty();
   }
 };

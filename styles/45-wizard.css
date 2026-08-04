@@ -786,3 +786,11 @@
   opacity: 0.5;
   pointer-events: none;
 }
+
+/* Autosave status, so "no save button" does not read as "nothing happened". */
+.tp-autosave {
+  margin: 0.4em 0 0.2em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  text-align: right;
+}
