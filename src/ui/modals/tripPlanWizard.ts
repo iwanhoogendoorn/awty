@@ -2,7 +2,14 @@ import { App, Modal, Setting, setIcon } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type AwtyPlugin from "../../main";
 import type { Trip } from "../../types";
-import { SUB_NOTE_LABELS, kindDef } from "../../types";
+import {
+  SUB_NOTE_LABELS,
+  joinPlaces,
+  kindDef,
+  tripCities,
+  tripCountries,
+  tripStops,
+} from "../../types";
 import { daysBetween, formatDateRange } from "../../util/dates";
 import { formatMoney, formatTotals, sumMoney } from "../../util/money";
 import { checkVisa, exceedsAllowance } from "../../travel/visa";
@@ -100,10 +107,14 @@ export class TripPlanWizard extends Modal {
     const passports = (
       trip.passports.length > 0 ? trip.passports : plugin.settings.passportCountries
     ).filter(Boolean);
-    const checks = passports.map((passport) => checkVisa(passport, trip.country));
+    const checks = tripCountries(trip).flatMap((country) =>
+      passports.map((passport) => checkVisa(passport, country)),
+    );
     const tripDays = daysBetween(trip.startDate, trip.endDate);
     const blocking = checks.filter((c) => c.actionNeeded || exceedsAllowance(c, tripDays));
-    const advice = plugin.peekAdvice(trip.country);
+    const advice = tripCountries(trip)
+      .map((country) => plugin.peekAdvice(country))
+      .find((hit) => hit !== null);
     const needsNoAction = blocking.length === 0;
 
     const documentSummary = (() => {
@@ -127,8 +138,8 @@ export class TripPlanWizard extends Modal {
         title: "Where and when",
         detail: "Destination, dates and what kind of trip this is.",
         icon: "map-pin",
-        done: Boolean(trip.city || trip.country),
-        summary: [formatDateRange(trip.startDate, trip.endDate), [trip.city, trip.country].filter(Boolean).join(", ")]
+        done: tripStops(trip).some((stop) => stop.city || stop.country),
+        summary: [formatDateRange(trip.startDate, trip.endDate), [joinPlaces(tripCities(trip)), joinPlaces(tripCountries(trip))].filter(Boolean).join(", ")]
           .filter(Boolean)
           .join(" · "),
         action: () => plugin.openEditTripModal(trip),
@@ -142,9 +153,13 @@ export class TripPlanWizard extends Modal {
         icon: "shield-check",
         done: needsNoAction && advice !== null,
         summary: documentSummary,
-        action: () => void plugin.refreshAdvice(trip.country, () => this.render()),
+        action: () => {
+          for (const country of tripCountries(trip)) {
+            void plugin.refreshAdvice(country, () => this.render());
+          }
+        },
         actionLabel: advice ? "Re-check" : "Check",
-        applies: Boolean(trip.country),
+        applies: tripCountries(trip).length > 0,
       },
       {
         key: "getting-there",

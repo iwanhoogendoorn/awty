@@ -25,7 +25,7 @@ export { decodeQuotedPrintable, extractIcsFromEmail } from "./src/flights/parseC
 export { fold, rankMatches, flattenByRank, flattenGroups, replaceLastToken } from "./src/util/search.ts";
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
 export { allCategories, COST_CATEGORIES, BOOKING_KINDS } from "./src/bookings/types.ts";
-export { CREATABLE_SUB_NOTES, SUB_NOTE_LABELS, KINDS } from "./src/types.ts";
+export { CREATABLE_SUB_NOTES, SUB_NOTE_LABELS, KINDS, tripStops, tripCities, tripCountries, joinPlaces } from "./src/types.ts";
 export { parseAdviceColour, adviceUrlFor, isStale, ADVICE_TTL_MS } from "./src/travel/adviceData.ts";
 export { AIRPORTS } from "./src/data/airports.ts";
 export { AIRLINES, airlineLabel } from "./src/data/airlines.ts";
@@ -1653,6 +1653,37 @@ test("a table booked before this change is not thrown away", () => {
 
   // The empty template is not a booking either.
   assert.deepEqual(m.readLegacyFoodTable("## Booked\n\n_Nothing booked yet._"), []);
+});
+
+test("a trip can visit several countries in order", () => {
+  // home → Croatia → Montenegro → Italy → home cannot be said with one
+  // country and one city, which is all a trip used to have.
+  const trip = {
+    country: "Croatia",
+    city: "Dubrovnik",
+    stops: [
+      { country: "Croatia", city: "Dubrovnik" },
+      { country: "Montenegro", city: "Kotor" },
+      { country: "Croatia", city: "Split" },
+    ],
+  };
+  assert.deepEqual(m.tripCities(trip), ["Dubrovnik", "Kotor", "Split"]);
+  // Countries keep their order and appear once, however often you return.
+  assert.deepEqual(m.tripCountries(trip), ["Croatia", "Montenegro"]);
+
+  // A trip saved before stops existed still reads as one stop.
+  const old = { country: "France", city: "Paris" };
+  assert.deepEqual(m.tripStops(old), [{ country: "France", city: "Paris" }]);
+  assert.deepEqual(m.tripCities(old), ["Paris"]);
+
+  // Titles and folders name the whole route.
+  assert.equal(m.joinPlaces(["Dubrovnik"]), "Dubrovnik");
+  assert.equal(m.joinPlaces(["Dubrovnik", "Kotor"]), "Dubrovnik & Kotor");
+  assert.equal(m.joinPlaces(["Dubrovnik", "Kotor", "Split"]), "Dubrovnik, Kotor & Split");
+  assert.equal(m.joinPlaces([]), "");
+
+  // An empty trip has no stops rather than one blank one.
+  assert.deepEqual(m.tripCities({ country: "", city: "" }), []);
 });
 
 test("a transfer can start at the airport and end at the hotel", () => {

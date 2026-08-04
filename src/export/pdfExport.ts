@@ -2,6 +2,7 @@ import { App, Notice, TFile, TFolder, arrayBufferToBase64 } from "obsidian";
 import type AwtyPlugin from "../main";
 import type { Trip } from "../types";
 import { SUB_NOTE_LABELS, kindDef } from "../types";
+import { joinPlaces, tripCities, tripCountries } from "../types";
 import { BOOKING_KINDS } from "../bookings/types";
 import { fileFromLink, totalsByCategory } from "../bookings/bookingStore";
 import { checkVisa } from "../travel/visa";
@@ -82,27 +83,30 @@ export async function buildTripDocument(
   // ------------------------------------------------- documents & advice
   const documents: TripDocument["documents"] = [];
   const passports = trip.passports.length > 0 ? trip.passports : plugin.settings.passportCountries;
-  for (const passport of passports.filter(Boolean)) {
-    const check = checkVisa(passport, trip.country);
-    if (check.outcome === "same-country") continue;
-    documents.push({
-      label: `${passport} passport → ${trip.country}: ${check.label}`,
-      detail: check.detail,
-      tone:
-        check.outcome === "no-admission"
-          ? "bad"
-          : check.actionNeeded
-            ? "warn"
-            : check.outcome === "unknown"
-              ? "unknown"
-              : "good",
-    });
-  }
-  const advice = plugin.peekAdvice(trip.country);
-  if (advice) {
+  // A visa and an advice line for every border the trip crosses.
+  for (const country of tripCountries(trip)) {
+    for (const passport of passports.filter(Boolean)) {
+      const check = checkVisa(passport, country);
+      if (check.outcome === "same-country") continue;
+      documents.push({
+        label: `${passport} passport → ${country}: ${check.label}`,
+        detail: check.detail,
+        tone:
+          check.outcome === "no-admission"
+            ? "bad"
+            : check.actionNeeded
+              ? "warn"
+              : check.outcome === "unknown"
+                ? "unknown"
+                : "good",
+      });
+    }
+
+    const advice = plugin.peekAdvice(country);
+    if (!advice) continue;
     const meaning = ADVICE_MEANING[advice.colour];
     documents.push({
-      label: `Travel advice: ${meaning.label}`,
+      label: `Travel advice · ${country}: ${meaning.label}`,
       detail: `${meaning.detail} — ${advice.url}`,
       tone: advice.colour === "groen" ? "good" : advice.colour === "rood" ? "bad" : "warn",
     });
@@ -352,7 +356,7 @@ export async function buildTripDocument(
     title: trip.title,
     dates: formatDateRange(trip.startDate, trip.endDate),
     duration: formatDuration(trip.startDate, trip.endDate),
-    where: [trip.city, trip.country].filter(Boolean).join(", "),
+    where: [joinPlaces(tripCities(trip)), joinPlaces(tripCountries(trip))].filter(Boolean).join(", "),
     origin: [trip.originCity, trip.originAirport].filter(Boolean).join(" · "),
     travellers: trip.travellers,
     facts,

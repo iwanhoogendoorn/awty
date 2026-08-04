@@ -4,6 +4,7 @@ import {
   FOODSPOT_PLUGIN_ID,
   CREATABLE_SUB_NOTES,
   KINDS,
+  tripCountries,
   AWTY_DASHBOARD_TYPE,
   AWTY_SIDEBAR_TYPE,
   type SubNoteId,
@@ -198,7 +199,9 @@ export default class AwtyPlugin extends Plugin {
       checkCallback: (checking) => {
         const trip = this.contextTrip();
         if (!trip?.country) return false;
-        if (!checking) void this.refreshAdvice(trip.country);
+        if (!checking) {
+          for (const country of tripCountries(trip)) void this.refreshAdvice(country);
+        }
         return true;
       },
     });
@@ -960,7 +963,9 @@ export default class AwtyPlugin extends Plugin {
         // Nothing about the trip should survive it: places, cached routes and
         // the advice fetched for its country all go too.
         this.travelPlaces.delete(trip.folderPath);
-        if (trip.country && this.travelCache.advice) delete this.travelCache.advice[trip.country];
+        for (const country of tripCountries(trip)) {
+          if (this.travelCache.advice) delete this.travelCache.advice[country];
+        }
         await this.travel.forgetTrip(trip);
         new Notice(`Deleted “${trip.title}” (${count} file${count === 1 ? "" : "s"}).`);
         this.bookings.invalidate();

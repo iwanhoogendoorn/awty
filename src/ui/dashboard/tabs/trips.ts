@@ -3,7 +3,7 @@ import type { DashboardContext } from "../common";
 import { bar, emptyState, readiness, renderToolbar, stateMark, statTiles } from "../common";
 import { showTripMenu } from "../tripMenu";
 import type { Trip } from "../../../types";
-import { kindDef } from "../../../types";
+import { joinPlaces, kindDef, tripCities, tripCountries } from "../../../types";
 import { formatTotals, sumMoney } from "../../../util/money";
 import { daysUntil, formatDateRange, formatDuration } from "../../../util/dates";
 
@@ -95,7 +95,7 @@ export function renderTrips(
     headText.createDiv({ cls: "awty-card-title", text: trip.title });
     headText.createDiv({
       cls: "awty-card-where",
-      text: [trip.city, trip.country].filter(Boolean).join(", ") || def.label,
+      text: [joinPlaces(tripCities(trip)), joinPlaces(tripCountries(trip))].filter(Boolean).join(", ") || def.label,
     });
 
     const until = daysUntil(trip.startDate);

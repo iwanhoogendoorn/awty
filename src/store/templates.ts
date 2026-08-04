@@ -1,6 +1,14 @@
 import { FOODSPOT_COUNTRIES } from "../data/countries";
 import type { SubNoteId, AwtySettings, TripDraft } from "../types";
-import { SUB_NOTE_LABELS, kindDef } from "../types";
+import {
+  SUB_NOTE_LABELS,
+  joinPlaces,
+  kindDef,
+  tripCities,
+  tripCountries,
+  tripStops,
+  type TripStop,
+} from "../types";
 import { datesInRange, daysBetween, formatDateRange, formatDuration } from "../util/dates";
 import { buildPackingPlan, renderPackingPlan } from "./packing";
 
@@ -30,16 +38,27 @@ function lines(...parts: Lines[]): string {
  */
 export function foodSpotBlock(ctx: TemplateContext): string {
   const { draft, settings } = ctx;
-  const body: string[] = [`view: ${settings.foodSpotView}`];
-  if (draft.country && FOODSPOT_COUNTRIES.has(draft.country)) body.push(`country: ${draft.country}`);
-  if (draft.city) body.push(`city: ${draft.city}`);
-  body.push("status: want-to-try");
-  return lines("```foodspot", body, "```");
+  const stops = tripStops(draft).filter((stop) => stop.city || stop.country);
+
+  // One block per stop: Food Spot filters on a single city, so a trip through
+  // several places needs a shortlist for each rather than one that can only
+  // ever show the first.
+  const blocks: string[] = (
+    stops.length > 0 ? stops : [{ country: draft.country, city: draft.city }]
+  ).map((stop: TripStop) => {
+    const body: string[] = [`view: ${settings.foodSpotView}`];
+    if (stop.country && FOODSPOT_COUNTRIES.has(stop.country)) body.push(`country: ${stop.country}`);
+    if (stop.city) body.push(`city: ${stop.city}`);
+    body.push("status: want-to-try");
+    const block = lines("```foodspot", body, "```");
+      return stops.length > 1 && stop.city ? lines(`### ${stop.city}`, "", block) : block;
+  });
+  return blocks.join("\n\n");
 }
 
 function foodBody(ctx: TemplateContext): string {
   const { draft, settings } = ctx;
-  const place = draft.city || draft.country || draft.title;
+  const place = joinPlaces(tripCities(draft)) || joinPlaces(tripCountries(draft)) || draft.title;
   const head = lines(`# Food — ${place}`, "", "## Want to try", "");
 
   if (!settings.foodSpotEnabled) {
@@ -170,7 +189,7 @@ function eventDetailsBody(ctx: TemplateContext): string {
     `|---|---|`,
     `| **Date** | ${draft.startDate} |`,
     `| **Venue** | ${draft.venue || "_TBC_"} |`,
-    `| **City** | ${draft.city || "_TBC_"} |`,
+    `| **City** | ${joinPlaces(tripCities(draft)) || "_TBC_"} |`,
     `| **Doors** | |`,
     `| **Start** | |`,
     `| **Tickets** | |`,
@@ -228,7 +247,9 @@ export function buildSubNote(id: SubNoteId, ctx: TemplateContext): SubNoteSpec {
 export function buildTripBody(ctx: TemplateContext, subNotes: SubNoteId[]): string {
   const { draft } = ctx;
   const def = kindDef(draft.kind);
-  const where = [draft.city, draft.country].filter(Boolean).join(", ");
+  const where = [joinPlaces(tripCities(draft)), joinPlaces(tripCountries(draft))]
+    .filter(Boolean)
+    .join(", ");
 
   const meta = [`> **When:** ${formatDateRange(draft.startDate, draft.endDate)}`];
   if (!def.singleDay) meta.push(`> **Duration:** ${formatDuration(draft.startDate, draft.endDate)}`);

@@ -3,6 +3,7 @@ import type { DashboardContext } from "./common";
 import { sectionTitle } from "./common";
 import { checkVisa, exceedsAllowance } from "../../travel/visa";
 import { ADVICE_MEANING, adviceUrlFor, isStale } from "../../travel/advice";
+import { tripCountries } from "../../types";
 import { daysBetween } from "../../util/dates";
 
 /**
@@ -14,16 +15,28 @@ import { daysBetween } from "../../util/dates";
  */
 export function renderDocuments(parent: HTMLElement, ctx: DashboardContext): void {
   const { trip, plugin } = ctx;
-  if (!trip || !trip.country) return;
+  if (!trip) return;
+
+  // Every country the trip enters needs checking, not just the first: a visa
+  // you do not need for Croatia you may well need for the next border.
+  const countries = tripCountries(trip);
+  if (countries.length === 0) return;
 
   sectionTitle(parent, "Documents & advice", {
     label: "Check now",
     icon: "shield-check",
-    onClick: () => void plugin.refreshAdvice(trip.country, ctx.refresh),
+    onClick: () => {
+      for (const country of countries) void plugin.refreshAdvice(country, ctx.refresh);
+    },
   });
 
-  renderVisa(parent, ctx);
-  renderAdvice(parent, ctx);
+  for (const country of countries) {
+    if (countries.length > 1) {
+      parent.createDiv({ cls: "awty-around-group", text: country });
+    }
+    renderVisa(parent, ctx, country);
+    renderAdvice(parent, ctx, country);
+  }
 
   parent.createDiv({
     cls: "awty-doc-caveat",
@@ -31,7 +44,7 @@ export function renderDocuments(parent: HTMLElement, ctx: DashboardContext): voi
   });
 }
 
-function renderVisa(parent: HTMLElement, ctx: DashboardContext): void {
+function renderVisa(parent: HTMLElement, ctx: DashboardContext, country: string): void {
   const { trip, plugin } = ctx;
   if (!trip) return;
 
@@ -50,7 +63,7 @@ function renderVisa(parent: HTMLElement, ctx: DashboardContext): void {
   const list = parent.createDiv({ cls: "awty-doc-list-rows" });
 
   for (const passport of passports) {
-    const check = checkVisa(passport, trip.country);
+    const check = checkVisa(passport, country);
     if (check.outcome === "same-country") continue;
 
     const tooLong = exceedsAllowance(check, tripDays);
@@ -70,7 +83,7 @@ function renderVisa(parent: HTMLElement, ctx: DashboardContext): void {
     );
 
     const body = row.createDiv({ cls: "awty-doc-item-body" });
-    body.createDiv({ cls: "awty-doc-item-title", text: `${passport} passport → ${trip.country}` });
+    body.createDiv({ cls: "awty-doc-item-title", text: `${passport} passport → ${country}` });
     body.createDiv({ cls: "awty-doc-item-detail", text: check.detail });
 
     if (tooLong) {
@@ -84,15 +97,15 @@ function renderVisa(parent: HTMLElement, ctx: DashboardContext): void {
   }
 }
 
-function renderAdvice(parent: HTMLElement, ctx: DashboardContext): void {
+function renderAdvice(parent: HTMLElement, ctx: DashboardContext, country: string): void {
   const { trip, plugin } = ctx;
   if (!trip || !plugin.settings.travelAdviceEnabled) return;
 
   // Missing or a day old: fetched once, quietly, in the background.
-  plugin.ensureAdvice(trip.country, ctx.refresh);
+  plugin.ensureAdvice(country, ctx.refresh);
 
-  const url = adviceUrlFor(trip.country);
-  const advice = plugin.peekAdvice(trip.country);
+  const url = adviceUrlFor(country);
+  const advice = plugin.peekAdvice(country);
   const list = parent.createDiv({ cls: "awty-doc-list-rows" });
 
   if (!advice) {
@@ -104,7 +117,7 @@ function renderAdvice(parent: HTMLElement, ctx: DashboardContext): void {
       cls: "awty-doc-item-detail",
       text: url
         ? "Not checked yet — use Check now."
-        : `No advice page is published for ${trip.country}.`,
+        : `No advice page is published for ${country}.`,
     });
     if (url) appendLink(row, url);
     return;

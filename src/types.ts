@@ -130,6 +130,50 @@ export const SUB_NOTE_LABELS: Record<SubNoteId, string> = {
   transport: "Transport",
 };
 
+/**
+ * One place a trip goes.
+ *
+ * A trip used to be a country and a city, which cannot describe going home →
+ * Croatia → Montenegro → Italy → home. Stops are ordered, and the first is
+ * still the trip's headline: the country and city fields carry it, so
+ * everything that only needs one destination keeps working.
+ */
+export interface TripStop {
+  country: string;
+  city: string;
+}
+
+/** The stops of a trip, always at least one, oldest shape included. */
+export function tripStops(trip: { stops?: TripStop[]; country: string; city: string }): TripStop[] {
+  if (trip.stops && trip.stops.length > 0) return trip.stops;
+  return [{ country: trip.country, city: trip.city }];
+}
+
+/** Every country a trip visits, in order, without repeats. */
+export function tripCountries(trip: { stops?: TripStop[]; country: string; city: string }): string[] {
+  const out: string[] = [];
+  for (const stop of tripStops(trip)) {
+    if (stop.country && !out.includes(stop.country)) out.push(stop.country);
+  }
+  return out;
+}
+
+/** Every city a trip visits, in order, without repeats. */
+export function tripCities(trip: { stops?: TripStop[]; country: string; city: string }): string[] {
+  const out: string[] = [];
+  for (const stop of tripStops(trip)) {
+    if (stop.city && !out.includes(stop.city)) out.push(stop.city);
+  }
+  return out;
+}
+
+/** "Dubrovnik & Kotor", or "Dubrovnik, Kotor & Split" — for titles and headings. */
+export function joinPlaces(values: string[]): string {
+  if (values.length === 0) return "";
+  if (values.length === 1) return values[0];
+  return `${values.slice(0, -1).join(", ")} & ${values[values.length - 1]}`;
+}
+
 /** A trip as read back out of the vault. */
 export interface Trip {
   file: TFile;
@@ -137,8 +181,11 @@ export interface Trip {
   folderPath: string;
   title: string;
   kind: TripKind;
+  /** The first stop's country and city, kept for everything that needs one. */
   country: string;
   city: string;
+  /** Every stop in order. One entry for a trip to a single place. */
+  stops: TripStop[];
   venue: string;
   /** ISO YYYY-MM-DD. */
   startDate: string;
@@ -162,6 +209,8 @@ export interface TripDraft {
   kind: TripKind;
   country: string;
   city: string;
+  /** Every stop in order; the first is mirrored into country and city. */
+  stops: TripStop[];
   venue: string;
   startDate: string;
   endDate: string;

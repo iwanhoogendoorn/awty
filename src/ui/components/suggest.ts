@@ -286,8 +286,12 @@ export class FoodSpotSuggest extends AbstractInputSuggest<FoodSpotEntry> {
   }
 
   protected getSuggestions(query: string): FoodSpotEntry[] {
-    const city = this.getCity();
-    const all = foodSpots(this.app, city || undefined);
+    // Several cities arrive pipe-joined: a trip can run through more than one.
+    const cities = this.getCity().split("|").map((c) => c.trim()).filter(Boolean);
+    const all =
+      cities.length > 0
+        ? cities.flatMap((city) => foodSpots(this.app, city))
+        : foodSpots(this.app);
     const needle = fold(query.trim());
     const matches = needle ? all.filter((e) => fold(e.name).includes(needle)) : all;
     return matches.slice(0, 30);

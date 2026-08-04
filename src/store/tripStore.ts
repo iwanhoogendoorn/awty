@@ -1,5 +1,5 @@
 import { App, Plugin, TFile, TFolder, normalizePath } from "obsidian";
-import type { SubNoteId, AwtySettings, Trip, TripStatus } from "../types";
+import type { SubNoteId, AwtySettings, Trip, TripStatus, TripStop } from "../types";
 import { SUB_NOTE_LABELS, isTripKind } from "../types";
 
 export interface SubNote {
@@ -18,6 +18,37 @@ function list(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((v) => str(v)).filter(Boolean);
   const single = str(value);
   return single ? single.split(",").map((v) => v.trim()).filter(Boolean) : [];
+}
+
+/**
+ * The trip's stops, in order.
+ *
+ * Written as a list of "Country / City" strings, which stays readable in
+ * frontmatter and survives being edited by hand. A trip saved before stops
+ * existed has only country and city, and reads as a single stop.
+ */
+function readStops(fm: Record<string, unknown>): TripStop[] {
+  const raw = Array.isArray(fm.stops) ? fm.stops : [];
+  const stops: TripStop[] = [];
+
+  for (const entry of raw) {
+    if (typeof entry === "string") {
+      const [country, city] = entry.split("/").map((part) => part.trim());
+      if (country || city) stops.push({ country: country ?? "", city: city ?? "" });
+      continue;
+    }
+    if (entry && typeof entry === "object") {
+      const record = entry as Record<string, unknown>;
+      const country = str(record.country);
+      const city = str(record.city);
+      if (country || city) stops.push({ country, city });
+    }
+  }
+
+  if (stops.length > 0) return stops;
+  const country = str(fm.country);
+  const city = str(fm.city) || str(fm.destination);
+  return country || city ? [{ country, city }] : [];
 }
 
 function str(value: unknown): string {
@@ -155,6 +186,7 @@ export class TripStore {
         kind,
         country: str(fm.country),
         city: str(fm.city) || str(fm.destination),
+        stops: readStops(fm),
         venue: str(fm.venue),
         startDate,
         endDate,

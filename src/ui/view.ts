@@ -4,6 +4,7 @@ import type { Trip, TripStatus } from "../types";
 import { AWTY_SIDEBAR_TYPE, kindDef } from "../types";
 import type { SubNote } from "../store/tripStore";
 import type { NoteProgress } from "../store/noteProgress";
+import { joinPlaces, tripCities, tripCountries } from "../types";
 import { daysUntil, formatDateRange, formatDuration } from "../util/dates";
 
 const GROUPS: { status: TripStatus; label: string }[] = [
@@ -189,7 +190,7 @@ export class AwtySidebarView extends ItemView {
     const meta = body.createDiv({ cls: "awty-trip-meta" });
     meta.createSpan({ cls: "awty-trip-dates", text: formatDateRange(trip.startDate, trip.endDate) });
 
-    const where = [trip.city, trip.country].filter(Boolean).join(", ");
+    const where = [joinPlaces(tripCities(trip)), joinPlaces(tripCountries(trip))].filter(Boolean).join(", ");
     if (where) meta.createSpan({ cls: "awty-trip-where", text: where });
 
     const subNotes = this.plugin.store.getSubNotes(trip);

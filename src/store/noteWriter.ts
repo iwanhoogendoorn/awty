@@ -3,6 +3,7 @@ import type { SubNoteId, AwtySettings, Trip, TripDraft } from "../types";
 import { kindDef } from "../types";
 import { buildSubNote, buildTripBody, type TemplateContext } from "./templates";
 import { expandFolderPattern, joinPath, sanitizeName } from "../util/paths";
+import { joinPlaces, tripCities, tripCountries, tripStops } from "../types";
 import { isValidISODate, parseISO } from "../util/dates";
 import { emptyDayDates } from "./itinerary";
 
@@ -61,8 +62,10 @@ export function tripFolderPath(settings: AwtySettings, draft: TripDraft): string
     start: isValidISODate(draft.startDate) ? draft.startDate : "undated",
     end: isValidISODate(draft.endDate) ? draft.endDate : "undated",
     title: draft.title,
-    city: draft.city,
-    country: draft.country,
+    // The folder names the whole route, not just its first stop: a trip to
+    // three countries filed under one of them is filed wrongly.
+    city: joinPlaces(tripCities(draft)),
+    country: joinPlaces(tripCountries(draft)),
     kind: draft.kind,
   });
   return joinPath(normalizePath(settings.tripsFolder), relative);
@@ -84,6 +87,10 @@ function tripFrontmatter(draft: TripDraft): Record<string, unknown> {
   if (draft.originAirport) fm.origin_airport = draft.originAirport;
   if (draft.country) fm.country = draft.country;
   if (draft.city) fm.city = draft.city;
+  // Written as "Country / City" lines: readable in frontmatter, and editable
+  // by hand without needing to know a shape.
+  const stops = tripStops(draft);
+  if (stops.length > 1) fm.stops = stops.map((s) => `${s.country} / ${s.city}`.trim());
   if (def.hasVenue && draft.venue) fm.venue = draft.venue;
   return fm;
 }

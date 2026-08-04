@@ -1,7 +1,15 @@
 import { App, ButtonComponent, Modal, Notice, Setting, setIcon } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { SubNoteId, AwtySettings, Trip, TripDraft, TripKind } from "../../types";
-import { CREATABLE_SUB_NOTES, KINDS, SUB_NOTE_LABELS, kindDef } from "../../types";
+import {
+  CREATABLE_SUB_NOTES,
+  KINDS,
+  SUB_NOTE_LABELS,
+  joinPlaces,
+  kindDef,
+  tripCities,
+  tripCountries,
+} from "../../types";
 import { DateRangeField } from "../components/dateRange";
 import { AirportSuggest, CitySuggest, CountrySuggest } from "../components/suggest";
 import { isValidISODate, monthName, todayISO, yearOf } from "../../util/dates";
@@ -27,6 +35,7 @@ export class TripModal extends Modal {
   private submitting = false;
   /** True until the user types a title of their own, so the city can fill it in. */
   private titleIsAuto: boolean;
+  private stopsHost!: HTMLElement;
 
   constructor(
     app: App,
@@ -43,6 +52,15 @@ export class TripModal extends Modal {
       kind,
       country: initial.country ?? (mode === "create" ? settings.defaultCountry : ""),
       city: initial.city ?? "",
+      stops:
+        initial.stops && initial.stops.length > 0
+          ? initial.stops.map((stop) => ({ ...stop }))
+          : [
+              {
+                country: initial.country ?? (mode === "create" ? settings.defaultCountry : ""),
+                city: initial.city ?? "",
+              },
+            ],
       venue: initial.venue ?? "",
       startDate: start,
       endDate: initial.endDate ?? start,
@@ -74,6 +92,7 @@ export class TripModal extends Modal {
         kind: trip.kind,
         country: trip.country,
         city: trip.city,
+        stops: trip.stops,
         venue: trip.venue,
         startDate: trip.startDate,
         endDate: trip.endDate,
@@ -203,30 +222,7 @@ export class TripModal extends Modal {
       },
     );
 
-    new Setting(parent).setName("Country").addText((t) => {
-      this.countryInput = t.inputEl;
-      t.setPlaceholder("Start typing…");
-      t.setValue(this.draft.country);
-      t.onChange((v) => (this.draft.country = v.trim()));
-      new CountrySuggest(this.app, t.inputEl, (value) => {
-        this.draft.country = value;
-      });
-    });
-
-    new Setting(parent)
-      .setName("City")
-      .setDesc("Drives the Food Spot embed, so it should match how Food Spot spells it.")
-      .addText((t) => {
-        t.setPlaceholder("Start typing…");
-        t.setValue(this.draft.city);
-        t.onChange((v) => this.setCity(v.trim()));
-        new CitySuggest(
-          this.app,
-          t.inputEl,
-          () => this.draft.country,
-          (value, country) => this.setCity(value, country),
-        );
-      });
+    this.renderStops(parent);
 
     // A trip has two ends. Only ever recording the destination made "where am
     // I flying from?" unanswerable without opening a booking.
@@ -342,6 +338,126 @@ export class TripModal extends Modal {
    *   that name — fourteen places are called Victoria, and the first is in
    *   Argentina.
    */
+  /**
+   * Where the trip goes, in order.
+   *
+   * A trip used to be one country and one city, which cannot say home →
+   * Croatia → Montenegro → Italy → home. Each stop is a row; the first is the
+   * headline, and everything that needs a single destination uses it.
+   */
+  private renderStops(parent: HTMLElement): void {
+    this.stopsHost = parent.createDiv();
+    this.paintStops();
+  }
+
+  private paintStops(): void {
+    const wrap = this.stopsHost;
+    wrap.empty();
+    wrap.addClass("awty-stops");
+    const stops = this.draft.stops;
+
+    for (const [index, stop] of stops.entries()) {
+      const row = wrap.createDiv({ cls: "awty-stop-row" });
+      row.createDiv({
+        cls: "awty-stop-index",
+        text: stops.length > 1 ? String(index + 1) : "",
+      });
+
+      const country = row.createEl("input", { cls: "awty-stop-input" });
+      country.placeholder = "Country";
+      country.value = stop.country;
+      country.addEventListener("input", () => {
+        stop.country = country.value.trim();
+        this.syncPrimaryStop();
+      });
+      new CountrySuggest(this.app, country, (value) => {
+        stop.country = value;
+        this.syncPrimaryStop();
+        this.paintStops();
+      });
+
+      const city = row.createEl("input", { cls: "awty-stop-input" });
+      city.placeholder = "City";
+      city.value = stop.city;
+      city.addEventListener("input", () => {
+        stop.city = city.value.trim();
+        this.syncPrimaryStop();
+      });
+      new CitySuggest(
+        this.app,
+        city,
+        () => stop.country,
+        (value, picked) => {
+          stop.city = value;
+          if (!stop.country && picked) stop.country = picked;
+          this.syncPrimaryStop();
+          this.paintStops();
+        },
+      );
+
+      // Reordering matters: the stops are the route, and the first one names
+      // the trip and its folder.
+      const move = (delta: number) => {
+        const target = index + delta;
+        if (target < 0 || target >= stops.length) return;
+        [stops[index], stops[target]] = [stops[target], stops[index]];
+        this.syncPrimaryStop();
+        this.paintStops();
+      };
+      const button = (icon: string, label: string, onClick: () => void, disabled = false) => {
+        const btn = row.createEl("button", { cls: "awty-stop-btn" });
+        setIcon(btn, icon);
+        btn.setAttribute("aria-label", label);
+        btn.setAttribute("title", label);
+        btn.disabled = disabled;
+        btn.addEventListener("click", (evt) => {
+          evt.preventDefault();
+          onClick();
+        });
+      };
+
+      button("chevron-up", "Move earlier", () => move(-1), index === 0);
+      button("chevron-down", "Move later", () => move(1), index === stops.length - 1);
+      button(
+        "x",
+        "Remove this stop",
+        () => {
+          stops.splice(index, 1);
+          if (stops.length === 0) stops.push({ country: "", city: "" });
+          this.syncPrimaryStop();
+          this.paintStops();
+        },
+        stops.length === 1,
+      );
+    }
+
+    const add = wrap.createEl("button", { cls: "awty-stop-add" });
+    setIcon(add.createSpan(), "plus");
+    add.createSpan({ text: stops.length === 1 ? "Add another country or city" : "Add a stop" });
+    add.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      // A next stop is usually in the same country as the last.
+      stops.push({ country: stops[stops.length - 1]?.country ?? "", city: "" });
+      this.paintStops();
+    });
+
+    wrap.createDiv({
+      cls: "awty-date-readout",
+      text:
+        stops.length > 1
+          ? "The route, in order. The first stop names the trip and its folder."
+          : "One stop for now — add more for a trip through several places.",
+    });
+  }
+
+  /** The first stop is the headline everything single-destination still reads. */
+  private syncPrimaryStop(): void {
+    const first = this.draft.stops[0];
+    this.draft.country = first?.country ?? "";
+    this.draft.city = first?.city ?? "";
+    this.applyAutoTitle();
+  }
+
   private setCity(city: string, pickedCountry?: string): void {
     this.draft.city = city;
 
@@ -355,7 +471,14 @@ export class TripModal extends Modal {
 
   /** "Dubrovnik - August - 2026", falling back through city, venue, country. */
   private autoTitle(): string {
-    const place = this.draft.city || this.draft.venue || this.draft.country;
+    // A trip through several places is named for all of them: "Dubrovnik &
+    // Kotor - August - 2026" says what "Dubrovnik - August - 2026" hides.
+    const cities = tripCities(this.draft);
+    const countries = tripCountries(this.draft);
+    const place =
+      cities.length > 0
+        ? joinPlaces(cities)
+        : this.draft.venue || (countries.length > 0 ? joinPlaces(countries) : "");
     if (!place) return "";
     const month = monthName(this.draft.startDate);
     const year = yearOf(this.draft.startDate);

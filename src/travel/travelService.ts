@@ -2,7 +2,7 @@ import { App, TFile, normalizePath } from "obsidian";
 import type { Coord, Place, TravelLeg, TravelMode } from "./types";
 import { coordKey, formatLocation, legKey, parseLocation } from "./types";
 import { MAX_DESTINATIONS, distanceMatrix, geocode } from "./googleApi";
-import type { AwtySettings, Trip } from "../types";
+import { tripCities, type AwtySettings, type Trip } from "../types";
 import type { Booking } from "../bookings/types";
 import { parseISO } from "../util/dates";
 
@@ -137,14 +137,16 @@ export class TravelService {
 
   /** Restaurants come from Food Spot notes, which already carry coordinates. */
   restaurantsFor(trip: Trip): Place[] {
-    const city = trip.city.trim().toLowerCase();
-    if (!city) return [];
+    // Every city the trip visits, not just the first: a place in Kotor is no
+    // less on this trip than one in Dubrovnik.
+    const cities = new Set(tripCities(trip).map((c) => c.trim().toLowerCase()));
+    if (cities.size === 0) return [];
 
     const out: Place[] = [];
     for (const file of this.app.vault.getMarkdownFiles()) {
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
       if (!fm || fm.type !== "foodspot") continue;
-      if (String(fm.city ?? "").trim().toLowerCase() !== city) continue;
+      if (!cities.has(String(fm.city ?? "").trim().toLowerCase())) continue;
       const coord = parseLocation(fm.location);
       if (!coord) continue;
       out.push({

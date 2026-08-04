@@ -3,7 +3,7 @@ import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { Booking, BookingKind, BookingStatus, CostCategory } from "../../bookings/types";
 import { BOOKING_KINDS, BOOKING_STATUSES, allCategories } from "../../bookings/types";
 import { countAttachmentsNamed, type BookingDraft } from "../../bookings/bookingWriter";
-import type { AwtySettings, Trip } from "../../types";
+import { tripCities, type AwtySettings, type Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
 import {
   AirlineSuggest,
@@ -644,7 +644,8 @@ export class BookingWizard extends Modal {
       new FoodSpotSuggest(
         this.app,
         t.inputEl,
-        () => this.trip.city,
+        // Restaurants anywhere on the route, not only in the first city.
+        () => tripCities(this.trip).join("|"),
         (entry) => {
           this.draft.title = entry.name;
           if (entry.address) this.draft.address = entry.address;

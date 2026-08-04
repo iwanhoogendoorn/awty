@@ -5,6 +5,7 @@ import { renderGettingAround } from "../gettingAround";
 import { renderDocuments } from "../documents";
 import { BOOKING_KINDS, type BookingKind } from "../../../bookings/types";
 import type { SubNoteId } from "../../../types";
+import { joinPlaces, tripCities, tripCountries } from "../../../types";
 
 import { totalsByCategory } from "../../../bookings/bookingStore";
 import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/money";
@@ -228,7 +229,7 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
   const hero = parent.createDiv({ cls: `awty-hero is-${trip.status}` });
   const heroMain = hero.createDiv({ cls: "awty-hero-main" });
   heroMain.createDiv({ cls: "awty-hero-title", text: trip.title });
-  const where = [trip.city, trip.country].filter(Boolean).join(", ");
+  const where = [joinPlaces(tripCities(trip)), joinPlaces(tripCountries(trip))].filter(Boolean).join(", ");
   heroMain.createDiv({
     cls: "awty-hero-sub",
     text: [formatDateRange(trip.startDate, trip.endDate), where].filter(Boolean).join(" · "),
