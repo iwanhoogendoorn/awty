@@ -49,7 +49,21 @@ export interface Ongoing {
   file: TFile;
 }
 
-const SLOT_RANK: Record<string, number> = { morning: 0, afternoon: 1, evening: 2 };
+/**
+ * When an untimed event happens, for ordering only.
+ *
+ * Sorting by clock time alone sent every untimed event to the end of its band,
+ * so a 20:00 concert came before an activity pencilled in for the morning.
+ */
+const SLOT_TIME: Record<string, string> = {
+  morning: "09:00",
+  afternoon: "13:00",
+  evening: "19:00",
+};
+
+function effectiveTime(event: DayEvent): string {
+  return event.time || SLOT_TIME[event.slot] || "99:99";
+}
 
 /**
  * Events that actually happen on a date.
@@ -146,8 +160,7 @@ export function dayEvents(bookings: Booking[], date: string): DayEvent[] {
     .sort(
       (a, b) =>
         a.band - b.band ||
-        (a.time || "99:99").localeCompare(b.time || "99:99") ||
-        (SLOT_RANK[a.slot] ?? 9) - (SLOT_RANK[b.slot] ?? 9) ||
+        effectiveTime(a).localeCompare(effectiveTime(b)) ||
         a.title.localeCompare(b.title),
     );
 }

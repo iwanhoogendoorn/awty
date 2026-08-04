@@ -16,14 +16,16 @@ import { escapeHtml } from "./tripDocument";
 const FENCE = /^\s*(```|~~~)/;
 
 function inline(text: string): string {
-  let out = escapeHtml(text);
-
-  // Code first: nothing inside a span of code should be re-read as markup.
+  // Code spans come out before anything else, from the raw text: escaping
+  // first and escaping the body again on the way back gave "&amp;lt;" in the
+  // PDF where the note said "<". Nothing inside a span of code should be
+  // re-read as markup, and the placeholder survives escapeHtml untouched.
   const code: string[] = [];
-  out = out.replace(/`([^`]+)`/g, (_, body: string) => {
+  let out = text.replace(/`([^`]+)`/g, (_, body: string) => {
     code.push(body);
     return `\u0000${code.length - 1}\u0000`;
   });
+  out = escapeHtml(out);
 
   // Embeds are attachments; they are collected separately and shown as images.
   out = out.replace(/!\[\[[^\]]+\]\]/g, "");
@@ -196,5 +198,9 @@ export function stripFrontmatter(source: string): string {
   if (!source.startsWith("---")) return source;
   const end = source.indexOf("\n---", 3);
   if (end === -1) return source;
-  return source.slice(source.indexOf("\n", end + 1) + 1);
+  // A note whose closing "---" is the last line has no newline after it, and
+  // indexOf returned -1 there: slice(0) handed back the whole note, YAML and
+  // all, straight into the export.
+  const newline = source.indexOf("\n", end + 1);
+  return newline === -1 ? "" : source.slice(newline + 1);
 }

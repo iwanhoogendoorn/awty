@@ -1278,6 +1278,55 @@ test("inline code is not re-read as markup, and numbers survive", () => {
   assert.match(html, /<code>\*\*the gate\*\*<\/code>/);
 });
 
+test("inline code is escaped exactly once", () => {
+  // Escaping the line first and the code body again on the way back printed
+  // "&amp;lt;tag&amp;gt;" in the PDF where the note said "<tag>".
+  const html = m.renderMarkdown("Use `<tag> & \"quotes\"` here");
+  assert.match(html, /<code>&lt;tag&gt; &amp; &quot;quotes&quot;<\/code>/, html);
+  assert.ok(!html.includes("&amp;lt;"), "double-escaped");
+});
+
+test("frontmatter whose closing delimiter ends the file is still stripped", () => {
+  assert.equal(m.stripFrontmatter("---\ntype: trip\n---"), "");
+  assert.equal(m.stripFrontmatter("---\ntype: trip\n---\n"), "");
+  assert.equal(m.stripFrontmatter("---\ntype: trip\n---\n\nBody"), "\nBody");
+});
+
+test("an untimed morning activity comes before a timed evening one", () => {
+  const bk = (o) => ({
+    kind: "activity", status: "booked", title: "", date: "2026-08-18", time: "",
+    endDate: "", endTime: "", returnDate: "", returnTime: "", from: "", to: "",
+    slot: "", cost: null, file: { path: `${o.title}.md` }, ...o,
+  });
+  const order = m.dayEvents(
+    [bk({ title: "Museum", slot: "morning" }), bk({ title: "Concert", time: "20:00", slot: "evening" })],
+    "2026-08-18",
+  ).map((e) => e.title);
+  // Sorting untimed events to "99:99" put the concert first, and built the
+  // travel legs between them in that order too.
+  assert.deepEqual(order, ["Museum", "Concert"]);
+});
+
+test("an untouched Budget note is not a finished Budget note", () => {
+  // The template ships a row per category with every value blank; those are
+  // prompts, not content.
+  const template = [
+    "# Budget", "", "## Planned", "",
+    "| Category | Budgeted | Actual | Notes |",
+    "|----------|----------|--------|-------|",
+    "| Transport | | | |",
+    "| Accommodation | | | |",
+    "| Food & drink | | | |",
+    "| **Total** | | | |",
+  ].join("\n");
+  assert.equal(m.analyseNote("budget", template).state, "empty");
+
+  const filled = template.replace("| Transport | | | |", "| Transport | 400 | 380 | |");
+  const p = m.analyseNote("budget", filled);
+  assert.equal(p.state, "complete");
+  assert.equal(p.detail, "1 line");
+});
+
 // --------------------------------------------------------------- editing
 
 const BOOKING_NOTE = [

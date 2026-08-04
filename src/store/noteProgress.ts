@@ -96,7 +96,13 @@ function scan(body: string): Signals {
       if (isSeparatorRow((lines[i + 1] ?? "").trim())) continue;
 
       const cells = line.slice(1, line.endsWith("|") ? -1 : undefined).split("|");
-      const isEmpty = cells.every((c) => c.trim().length === 0);
+      // The generated Budget note ships a row per category with every value
+      // blank. Those are prompts, not content: a row counts only once
+      // something has been filled in beside its label.
+      const isEmpty =
+        cells.length > 1
+          ? cells.slice(1).every((c) => c.trim().length === 0)
+          : cells[0].trim().length === 0;
       const isHeader = cells.some((c) => /^\*\*.+\*\*$/.test(c.trim()));
       if (!isEmpty && !isHeader) {
         s.tableRows += 1;
