@@ -51,6 +51,7 @@ export { bookingBody, expenseBody } from "./src/bookings/noteBody.ts";
 export { budgetPlanTable, budgetLinesTable } from "./src/bookings/budgetTables.ts";
 export { readLegacyFoodTable } from "./src/bookings/legacyFood.ts";
 export { tripEndpoints, transferShortcuts } from "./src/bookings/tripEndpoints.ts";
+export { flightHops, airportForCity } from "./src/bookings/flightHops.ts";
 export { tripKml, tripMapNote, tripLinksText, directionsLink, placeLink, MAX_WAYPOINTS, MY_MAPS_URL } from "./src/export/mapsExport.ts";
 export { looksLikeMoreJourneys } from "./src/bookings/legs.ts";
 export { zoneForAirport, utcToLocal, localiseLegs } from "./src/flights/localTime.ts";
@@ -1775,6 +1776,42 @@ test("an arrival transfer comes before the check-in it delivers you to", () => {
     "2026-08-19",
   ).map((e) => e.title);
   assert.deepEqual(midTrip, ["Old town walls", "Bus to Kotor"]);
+});
+
+test("a multi-country route implies its flights", () => {
+  // A booking holds one journey, so Bangkok and Balikpapan is three bookings.
+  // Nothing stopped that; nothing suggested it either.
+  const hops = m.flightHops(
+    [
+      { country: "Thailand", city: "Bangkok" },
+      { country: "Indonesia", city: "Balikpapan" },
+    ],
+    "AMS",
+  );
+  assert.deepEqual(
+    hops.map((h) => `${h.from}>${h.to}`),
+    ["AMS>BKK", "BKK>BPN", "BPN>AMS"],
+  );
+  assert.equal(hops[1].label, "Bangkok → Balikpapan");
+
+  // Airport codes come from the city the trip already names.
+  assert.equal(m.airportForCity("Bangkok"), "BKK");
+  assert.equal(m.airportForCity("Balikpapan"), "BPN");
+  assert.equal(m.airportForCity("Nowhereville"), "", "no guess when unknown");
+
+  // Without a home airport there is no way home to suggest.
+  const noHome = m.flightHops([{ country: "Thailand", city: "Bangkok" }], "");
+  assert.deepEqual(noHome, []);
+
+  // A city with no airport in the dataset is skipped, not half-filled.
+  const gap = m.flightHops(
+    [
+      { country: "Thailand", city: "Bangkok" },
+      { country: "Nowhere", city: "Nowhereville" },
+    ],
+    "AMS",
+  );
+  assert.ok(gap.every((h) => h.from && h.to), JSON.stringify(gap));
 });
 
 test("a transfer records an address at both ends", () => {

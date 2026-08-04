@@ -3,7 +3,8 @@ import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { Booking, BookingKind, BookingStatus, CostCategory } from "../../bookings/types";
 import { BOOKING_KINDS, BOOKING_STATUSES, allCategories } from "../../bookings/types";
 import { countAttachmentsNamed, type BookingDraft } from "../../bookings/bookingWriter";
-import { tripCities, type AwtySettings, type Trip } from "../../types";
+import { tripCities, tripStops, type AwtySettings, type Trip } from "../../types";
+import { flightHops } from "../../bookings/flightHops";
 import { AttachmentField } from "../components/attachmentField";
 import {
   AirlineSuggest,
@@ -336,45 +337,24 @@ export class BookingWizard extends Modal {
 
   /** Direct or connecting; the editor handles both and works out the layovers. */
   /**
-   * One quiet line, rather than a panel.
+   * What a read confirmation found, once it has found something.
    *
-   * The capability matters more than the affordance: Cmd+V anywhere in the
-   * wizard parses a confirmation, and a dropped .ics does the same, so this is
-   * a reminder rather than a place you have to aim at.
+   * The standing "paste your confirmation here" prompt is gone: pasting still
+   * works anywhere in the wizard, and a line asking for it every time you open
+   * the form is clutter on the nine visits out of ten when you are typing.
    */
   private renderConfirmationHint(): void {
+    if (!this.readSummary) return;
+
     const row = this.bodyEl.createDiv({ cls: "awty-confirm-row" });
-
-    if (this.readSummary) {
-      setIcon(row.createSpan({ cls: "awty-confirm-row-icon is-done" }), "check");
-      row.createSpan({ cls: "awty-confirm-row-done", text: this.readSummary });
-      const again = row.createEl("button", { cls: "awty-confirm-link", text: "read another" });
-      again.type = "button";
-      again.addEventListener("click", () => {
-        this.readSummary = "";
-        this.renderBody();
-      });
-      return;
-    }
-
-    setIcon(row.createSpan({ cls: "awty-confirm-row-icon" }), "clipboard-paste");
-    row.createSpan({ text: "Paste your booking confirmation to fill this in" });
-
-    const file = row.createEl("input");
-    file.type = "file";
-    file.accept = ".ics,.txt,.eml,text/calendar,message/rfc822,text/plain";
-    file.addClass("awty-attach-input");
-    file.addEventListener("change", async () => {
-      const chosen = file.files?.[0];
-      if (!chosen) return;
-      const text = await chosen.text();
-      file.value = "";
-      this.readConfirmation(text, chosen.name);
+    setIcon(row.createSpan({ cls: "awty-confirm-row-icon is-done" }), "check");
+    row.createSpan({ cls: "awty-confirm-row-done", text: this.readSummary });
+    const again = row.createEl("button", { cls: "awty-confirm-link", text: "read another" });
+    again.type = "button";
+    again.addEventListener("click", () => {
+      this.readSummary = "";
+      this.renderBody();
     });
-
-    const choose = row.createEl("button", { cls: "awty-confirm-link", text: "or open a file" });
-    choose.type = "button";
-    choose.addEventListener("click", () => file.click());
   }
 
   /**
@@ -491,6 +471,7 @@ export class BookingWizard extends Modal {
 
   private renderFlightLegs(): void {
     this.renderConfirmationHint();
+    this.renderFlightHops();
     this.bodyEl.createDiv({ cls: "awty-section-label", text: "Outbound" });
     this.legsField = new LegsField({
       app: this.app,
@@ -716,6 +697,41 @@ export class BookingWizard extends Modal {
         },
       );
     });
+  }
+
+  /**
+   * The flights this route implies, one click each.
+   *
+   * A booking holds one journey — out and optionally back — so a trip through
+   * several countries is several bookings. Nothing prevented that, and nothing
+   * suggested it either; this names the hops and fills in the airport codes
+   * for cities the trip already knows.
+   */
+  private renderFlightHops(): void {
+    const stops = tripStops(this.trip);
+    if (stops.length < 2) return;
+
+    const hops = flightHops(stops, this.trip.originAirport);
+    if (hops.length === 0) return;
+
+    const setting = new Setting(this.bodyEl)
+      .setName("Flights this route needs")
+      .setDesc("One booking per journey. Fills the first leg; add the others as their own flights.");
+    setting.settingEl.addClass("awty-setting-stack");
+    const row = setting.controlEl.createDiv({ cls: "awty-chip-row" });
+
+    for (const hop of hops) {
+      const chip = row.createEl("button", { cls: "awty-chip" });
+      chip.type = "button";
+      chip.setText(hop.label);
+      chip.addEventListener("click", () => {
+        const leg = this.draft.legs[0] ?? emptyLeg(this.draft.date);
+        leg.from = hop.from;
+        leg.to = hop.to;
+        this.draft.legs = [leg, ...this.draft.legs.slice(1)];
+        this.renderBody();
+      });
+    }
   }
 
   /** One click for the transfers every trip has. */
