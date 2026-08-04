@@ -8550,6 +8550,11 @@ type: itinerary
 
 // src/settings/settingsTab.ts
 var import_obsidian36 = require("obsidian");
+var SHORT_LABELS = {
+  packing: "Packing",
+  accommodation: "Stay",
+  "event-details": "Event"
+};
 var NAV_SECTIONS = [
   { id: "trips", label: "Trips", icon: "plane" },
   { id: "you", label: "You", icon: "user" },
@@ -8851,15 +8856,23 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       title: "Notes per kind of trip",
       subtitle: "Which notes a new trip creates. You can still tick and untick per trip."
     });
+    const grid = templates.content.createDiv({ cls: "tp-matrix" });
+    grid.style.setProperty("--tp-matrix-cols", String(CREATABLE_SUB_NOTES.length));
+    grid.createDiv({ cls: "tp-matrix-corner" });
+    for (const id of CREATABLE_SUB_NOTES) {
+      grid.createDiv({ cls: "tp-matrix-col", text: SHORT_LABELS[id] ?? SUB_NOTE_LABELS[id] });
+    }
+    grid.createDiv({ cls: "tp-matrix-corner" });
     for (const def of KINDS) {
-      const setting = new import_obsidian36.Setting(templates.content).setName(def.label);
-      const row2 = setting.controlEl.createDiv({ cls: "tp-settings-subnotes" });
+      const name = grid.createDiv({ cls: "tp-matrix-row-head" });
+      (0, import_obsidian36.setIcon)(name.createSpan({ cls: "tp-matrix-row-icon" }), def.icon);
+      name.createSpan({ text: def.label });
       for (const id of CREATABLE_SUB_NOTES) {
-        const label = row2.createEl("label", { cls: "tp-subnote" });
-        const box = label.createEl("input");
+        const cell = grid.createDiv({ cls: "tp-matrix-cell" });
+        const box = cell.createEl("input");
         box.type = "checkbox";
         box.checked = (s.subNotesByKind[def.id] ?? []).includes(id);
-        label.createSpan({ text: SUB_NOTE_LABELS[id] });
+        box.setAttribute("aria-label", `${SUB_NOTE_LABELS[id]} for ${def.label}`);
         box.addEventListener("change", async () => {
           const current = new Set(s.subNotesByKind[def.id] ?? []);
           if (box.checked) current.add(id);
@@ -8868,13 +8881,17 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
           await this.save();
         });
       }
-      setting.addExtraButton(
-        (btn) => btn.setIcon("rotate-ccw").setTooltip("Reset to defaults").onClick(async () => {
-          s.subNotesByKind[def.id] = [...kindDef(def.id).subNotes];
-          await this.save();
-          this.renderBody();
-        })
-      );
+      const reset = grid.createDiv({ cls: "tp-matrix-cell" });
+      const btn = reset.createEl("button", {
+        cls: "tp-matrix-reset",
+        attr: { "aria-label": `Reset ${def.label}` }
+      });
+      (0, import_obsidian36.setIcon)(btn, "rotate-ccw");
+      btn.addEventListener("click", async () => {
+        s.subNotesByKind[def.id] = [...kindDef(def.id).subNotes];
+        await this.save();
+        this.renderBody();
+      });
     }
   }
   // -------------------------------------------------------------- documents

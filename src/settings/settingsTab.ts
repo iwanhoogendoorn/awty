@@ -18,6 +18,13 @@ interface GroupHandle {
   setChip(text: string, tone: ChipTone): void;
 }
 
+/** Column headings; the full names are too wide for a matrix. */
+const SHORT_LABELS: Partial<Record<SubNoteId, string>> = {
+  packing: "Packing",
+  accommodation: "Stay",
+  "event-details": "Event",
+};
+
 const NAV_SECTIONS: { id: string; label: string; icon: string }[] = [
   { id: "trips", label: "Trips", icon: "plane" },
   { id: "you", label: "You", icon: "user" },
@@ -435,16 +442,28 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
       subtitle: "Which notes a new trip creates. You can still tick and untick per trip.",
     });
 
+    // A grid, not a row per kind: Obsidian's Setting puts the name in a narrow
+    // column, which truncated "Holiday" to "Holi…" and wrapped the boxes.
+    const grid = templates.content.createDiv({ cls: "tp-matrix" });
+    grid.style.setProperty("--tp-matrix-cols", String(CREATABLE_SUB_NOTES.length));
+
+    grid.createDiv({ cls: "tp-matrix-corner" });
+    for (const id of CREATABLE_SUB_NOTES) {
+      grid.createDiv({ cls: "tp-matrix-col", text: SHORT_LABELS[id] ?? SUB_NOTE_LABELS[id] });
+    }
+    grid.createDiv({ cls: "tp-matrix-corner" });
+
     for (const def of KINDS) {
-      const setting = new Setting(templates.content).setName(def.label);
-      const row = setting.controlEl.createDiv({ cls: "tp-settings-subnotes" });
+      const name = grid.createDiv({ cls: "tp-matrix-row-head" });
+      setIcon(name.createSpan({ cls: "tp-matrix-row-icon" }), def.icon);
+      name.createSpan({ text: def.label });
 
       for (const id of CREATABLE_SUB_NOTES) {
-        const label = row.createEl("label", { cls: "tp-subnote" });
-        const box = label.createEl("input");
+        const cell = grid.createDiv({ cls: "tp-matrix-cell" });
+        const box = cell.createEl("input");
         box.type = "checkbox";
         box.checked = (s.subNotesByKind[def.id] ?? []).includes(id);
-        label.createSpan({ text: SUB_NOTE_LABELS[id] });
+        box.setAttribute("aria-label", `${SUB_NOTE_LABELS[id]} for ${def.label}`);
         box.addEventListener("change", async () => {
           const current = new Set(s.subNotesByKind[def.id] ?? []);
           if (box.checked) current.add(id);
@@ -455,16 +474,17 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
         });
       }
 
-      setting.addExtraButton((btn) =>
-        btn
-          .setIcon("rotate-ccw")
-          .setTooltip("Reset to defaults")
-          .onClick(async () => {
-            s.subNotesByKind[def.id] = [...kindDef(def.id).subNotes] as SubNoteId[];
-            await this.save();
-            this.renderBody();
-          }),
-      );
+      const reset = grid.createDiv({ cls: "tp-matrix-cell" });
+      const btn = reset.createEl("button", {
+        cls: "tp-matrix-reset",
+        attr: { "aria-label": `Reset ${def.label}` },
+      });
+      setIcon(btn, "rotate-ccw");
+      btn.addEventListener("click", async () => {
+        s.subNotesByKind[def.id] = [...kindDef(def.id).subNotes] as SubNoteId[];
+        await this.save();
+        this.renderBody();
+      });
     }
   }
 

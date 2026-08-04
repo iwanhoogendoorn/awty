@@ -219,3 +219,85 @@
 .tp-pill-x:hover {
   color: var(--color-red);
 }
+
+/* --- kind × note matrix ---------------------------------------------------- */
+
+.tp-matrix {
+  display: grid;
+  grid-template-columns: minmax(6em, auto) repeat(var(--tp-matrix-cols), minmax(0, 1fr)) auto;
+  align-items: center;
+  gap: 2px 4px;
+  margin-top: 4px;
+  overflow-x: auto;
+}
+
+.tp-matrix-col {
+  padding: 0 2px 6px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--text-muted);
+  text-align: center;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.tp-matrix-corner {
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.tp-matrix-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 0;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.tp-matrix-row-icon {
+  display: flex;
+  color: var(--text-accent);
+}
+
+.tp-matrix-row-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tp-matrix-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0;
+  border-radius: 4px;
+}
+
+.tp-matrix-cell:hover {
+  background: var(--background-modifier-hover);
+}
+
+.tp-matrix-cell input {
+  margin: 0;
+}
+
+.tp-matrix-reset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.tp-matrix-reset:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.tp-matrix-reset svg {
+  width: 13px;
+  height: 13px;
+}
