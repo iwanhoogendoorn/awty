@@ -1,7 +1,7 @@
 import { App, ButtonComponent, Modal, Notice, Setting, setIcon } from "obsidian";
 import type { BookingKind, BookingStatus, CostCategory } from "../../bookings/types";
 import { BOOKING_KINDS, BOOKING_STATUSES, COST_CATEGORIES } from "../../bookings/types";
-import type { BookingDraft } from "../../bookings/bookingWriter";
+import { countAttachmentsNamed, type BookingDraft } from "../../bookings/bookingWriter";
 import type { TravelPlannerSettings, Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
 import { AirlineSuggest, AirportSuggest, CitySuggest } from "../components/suggest";
@@ -129,7 +129,10 @@ export class BookingWizard extends Modal {
 
     // Built once and kept alive across steps so pending files survive Back.
     const hidden = contentEl.createDiv({ cls: "tp-attach-host is-hidden" });
-    this.attachments = new AttachmentField(hidden);
+    this.attachments = new AttachmentField(hidden, {
+      baseName: this.trip.title,
+      startIndex: countAttachmentsNamed(this.app, this.settings, this.trip, this.trip.title),
+    });
 
     new Setting(contentEl)
       .setClass("tp-wizard-nav")

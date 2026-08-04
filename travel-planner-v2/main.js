@@ -1691,6 +1691,14 @@ async function importAttachments(app, settings, trip, files) {
   }
   return paths;
 }
+function countAttachmentsNamed(app, settings, trip, baseName) {
+  const folder = app.vault.getAbstractFileByPath(attachmentsFolderFor(settings, trip));
+  if (!(folder instanceof import_obsidian4.TFolder) || !baseName) return 0;
+  const prefix = baseName.toLowerCase();
+  return folder.children.filter(
+    (child) => child instanceof import_obsidian4.TFile && child.basename.toLowerCase().startsWith(prefix)
+  ).length;
+}
 function linksFor(app, paths, sourcePath) {
   return paths.map((path) => {
     const file = app.vault.getAbstractFileByPath(path);
@@ -2982,12 +2990,27 @@ var import_obsidian17 = require("obsidian");
 // src/ui/components/attachmentField.ts
 var import_obsidian15 = require("obsidian");
 var AttachmentField = class {
-  constructor(container, label = "Tickets, confirmations, receipts") {
+  constructor(container, options = {}) {
     this.container = container;
-    this.label = label;
     this.files = [];
     this.pasteHandler = null;
+    /** Counts only the pastes made in this session. */
+    this.pasted = 0;
+    const opts = typeof options === "string" ? { label: options } : options;
+    this.label = opts.label ?? "Tickets, confirmations, receipts";
+    this.baseName = opts.baseName ?? "";
+    this.startIndex = opts.startIndex ?? 0;
     this.render();
+  }
+  /**
+   * A pasted screenshot is always called "image.png", which is useless in a
+   * folder and looks like a duplicate of the last one. Named after the trip and
+   * numbered on from whatever is already there.
+   */
+  nameFor(file, offset) {
+    const ext = extensionFor(file);
+    if (!this.baseName) return `pasted-${this.startIndex + this.pasted + offset + 1}${ext}`;
+    return `${this.baseName} ${this.startIndex + this.pasted + offset + 1}${ext}`;
   }
   render() {
     const wrap = this.container.createDiv({ cls: "tp-attach" });
@@ -3024,11 +3047,15 @@ var AttachmentField = class {
       const files = Array.from(evt.clipboardData?.files ?? []);
       if (files.length === 0) return;
       evt.preventDefault();
-      this.add(
-        files.map(
-          (file, index) => file.name && file.name !== "image.png" ? file : new File([file], `pasted-${this.files.length + index + 1}.png`, { type: file.type })
+      const renamed = files.map(
+        (file, index) => (
+          // A file dragged from Finder has a real name worth keeping; a clipboard
+          // image does not.
+          isGenericName(file.name) ? new File([file], this.nameFor(file, index), { type: file.type }) : file
         )
       );
+      this.pasted += renamed.length;
+      this.add(renamed);
     };
     document.addEventListener("paste", this.pasteHandler);
     this.listEl = wrap.createDiv({ cls: "tp-attach-list" });
@@ -3069,6 +3096,21 @@ var AttachmentField = class {
     this.pasteHandler = null;
   }
 };
+var EXTENSIONS = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "application/pdf": ".pdf"
+};
+function extensionFor(file) {
+  const dot = file.name.lastIndexOf(".");
+  if (dot > 0) return file.name.slice(dot);
+  return EXTENSIONS[file.type] ?? ".png";
+}
+function isGenericName(name) {
+  return !name || /^image\.\w+$/i.test(name) || /^(pasted|screenshot|clipboard)/i.test(name);
+}
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -3320,7 +3362,10 @@ var BookingWizard = class extends import_obsidian17.Modal {
     this.stepsEl = contentEl.createDiv({ cls: "tp-wizard-steps" });
     this.bodyEl = contentEl.createDiv({ cls: "tp-wizard-body" });
     const hidden = contentEl.createDiv({ cls: "tp-attach-host is-hidden" });
-    this.attachments = new AttachmentField(hidden);
+    this.attachments = new AttachmentField(hidden, {
+      baseName: this.trip.title,
+      startIndex: countAttachmentsNamed(this.app, this.settings, this.trip, this.trip.title)
+    });
     new import_obsidian17.Setting(contentEl).setClass("tp-wizard-nav").addButton((btn) => {
       this.backBtn = btn;
       btn.setButtonText("Back").onClick(() => this.go(this.step - 1));
@@ -3665,8 +3710,9 @@ var BookingWizard = class extends import_obsidian17.Modal {
 // src/ui/modals/expenseModal.ts
 var import_obsidian18 = require("obsidian");
 var ExpenseModal = class extends import_obsidian18.Modal {
-  constructor(app, trip, currency, onSubmit) {
+  constructor(app, settings, trip, currency, onSubmit) {
     super(app);
+    this.settings = settings;
     this.trip = trip;
     this.onSubmit = onSubmit;
     this.submitting = false;
@@ -3718,7 +3764,11 @@ var ExpenseModal = class extends import_obsidian18.Modal {
       t.setPlaceholder("Optional");
       t.onChange((v) => this.draft.paidBy = v.trim());
     });
-    this.attachments = new AttachmentField(contentEl, "Receipt");
+    this.attachments = new AttachmentField(contentEl, {
+      label: "Receipt",
+      baseName: this.trip.title,
+      startIndex: countAttachmentsNamed(this.app, this.settings, this.trip, this.trip.title)
+    });
     new import_obsidian18.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton((btn) => {
       this.saveBtn = btn;
       btn.setButtonText("Save expense").setCta().onClick(() => void this.submit());
@@ -6699,7 +6749,7 @@ var TravelPlannerPlugin = class extends import_obsidian33.Plugin {
     ).open();
   }
   openExpenseModal(trip) {
-    new ExpenseModal(this.app, trip, this.bookings.getCurrency(trip), async (draft, files) => {
+    new ExpenseModal(this.app, this.settings, trip, this.bookings.getCurrency(trip), async (draft, files) => {
       const paths = await importAttachments(this.app, this.settings, trip, files);
       await createExpense(this.app, this.settings, trip, { ...draft, attachments: paths });
       this.bookings.invalidate();

@@ -329,7 +329,7 @@ export default class TravelPlannerPlugin extends Plugin {
   }
 
   openExpenseModal(trip: Trip): void {
-    new ExpenseModal(this.app, trip, this.bookings.getCurrency(trip), async (draft, files) => {
+    new ExpenseModal(this.app, this.settings, trip, this.bookings.getCurrency(trip), async (draft, files) => {
       const paths = await importAttachments(this.app, this.settings, trip, files);
       await createExpense(this.app, this.settings, trip, { ...draft, attachments: paths });
       this.bookings.invalidate();

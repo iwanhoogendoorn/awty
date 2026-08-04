@@ -102,6 +102,21 @@ export async function importAttachments(
   return paths;
 }
 
+/** How many attachments already start with this name, so numbering continues. */
+export function countAttachmentsNamed(
+  app: App,
+  settings: TravelPlannerSettings,
+  trip: Trip,
+  baseName: string,
+): number {
+  const folder = app.vault.getAbstractFileByPath(attachmentsFolderFor(settings, trip));
+  if (!(folder instanceof TFolder) || !baseName) return 0;
+  const prefix = baseName.toLowerCase();
+  return folder.children.filter(
+    (child) => child instanceof TFile && child.basename.toLowerCase().startsWith(prefix),
+  ).length;
+}
+
 function linksFor(app: App, paths: string[], sourcePath: string): string[] {
   return paths
     .map((path) => {

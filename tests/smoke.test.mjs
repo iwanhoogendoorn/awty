@@ -347,6 +347,23 @@ test("airlines are searchable by name and by code", () => {
   assert.ok(m.rankMatches(labels, "transavia").includes("Transavia (HV)"));
 });
 
+// --------------------------------------------------------- attachments
+
+test("clipboard names are recognised as generic, real filenames are not", () => {
+  // Named exports would need a DOM to test the field itself, so this pins the
+  // rule the naming depends on.
+  const isGeneric = (name) =>
+    !name || /^image\.\w+$/i.test(name) || /^(pasted|screenshot|clipboard)/i.test(name);
+
+  assert.equal(isGeneric("image.png"), true);
+  assert.equal(isGeneric(""), true);
+  assert.equal(isGeneric("Screenshot 2026-08-04 at 13.22.png"), true);
+  assert.equal(isGeneric("pasted-1.png"), true);
+  // A real document dragged from Finder keeps its own name.
+  assert.equal(isGeneric("KL1885-boarding-pass.pdf"), false);
+  assert.equal(isGeneric("Hotel Excelsior confirmation.pdf"), false);
+});
+
 // -------------------------------------------------------------- packing
 
 function itemsOf(plan, section) {

@@ -1,8 +1,8 @@
 import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
 import type { CostCategory } from "../../bookings/types";
 import { COST_CATEGORIES } from "../../bookings/types";
-import type { ExpenseDraft } from "../../bookings/bookingWriter";
-import type { Trip } from "../../types";
+import { countAttachmentsNamed, type ExpenseDraft } from "../../bookings/bookingWriter";
+import type { TravelPlannerSettings, Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
 import { COMMON_CURRENCIES, parseAmount } from "../../util/money";
 import { isValidISODate, todayISO } from "../../util/dates";
@@ -19,6 +19,7 @@ export class ExpenseModal extends Modal {
 
   constructor(
     app: App,
+    private settings: TravelPlannerSettings,
     private trip: Trip,
     currency: string,
     private onSubmit: (draft: ExpenseDraft, files: File[]) => Promise<void>,
@@ -82,7 +83,11 @@ export class ExpenseModal extends Modal {
       t.onChange((v) => (this.draft.paidBy = v.trim()));
     });
 
-    this.attachments = new AttachmentField(contentEl, "Receipt");
+    this.attachments = new AttachmentField(contentEl, {
+      label: "Receipt",
+      baseName: this.trip.title,
+      startIndex: countAttachmentsNamed(this.app, this.settings, this.trip, this.trip.title),
+    });
 
     new Setting(contentEl)
       .addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close()))

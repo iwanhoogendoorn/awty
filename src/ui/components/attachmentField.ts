@@ -6,17 +6,45 @@ import { setIcon } from "obsidian";
  * Files are held in memory until the wizard finishes, so cancelling a half-filled
  * form leaves nothing behind in the vault.
  */
+export interface AttachmentFieldOptions {
+  label?: string;
+  /** Pasted files are named after this, usually the trip. */
+  baseName?: string;
+  /** How many files already carry that name, so numbering continues. */
+  startIndex?: number;
+}
+
 export class AttachmentField {
   private files: File[] = [];
   private pasteHandler: ((evt: ClipboardEvent) => void) | null = null;
   private listEl!: HTMLElement;
   private inputEl!: HTMLInputElement;
+  private label: string;
+  private baseName: string;
+  private startIndex: number;
+  /** Counts only the pastes made in this session. */
+  private pasted = 0;
 
   constructor(
     private container: HTMLElement,
-    private label = "Tickets, confirmations, receipts",
+    options: AttachmentFieldOptions | string = {},
   ) {
+    const opts = typeof options === "string" ? { label: options } : options;
+    this.label = opts.label ?? "Tickets, confirmations, receipts";
+    this.baseName = opts.baseName ?? "";
+    this.startIndex = opts.startIndex ?? 0;
     this.render();
+  }
+
+  /**
+   * A pasted screenshot is always called "image.png", which is useless in a
+   * folder and looks like a duplicate of the last one. Named after the trip and
+   * numbered on from whatever is already there.
+   */
+  private nameFor(file: File, offset: number): string {
+    const ext = extensionFor(file);
+    if (!this.baseName) return `pasted-${this.startIndex + this.pasted + offset + 1}${ext}`;
+    return `${this.baseName} ${this.startIndex + this.pasted + offset + 1}${ext}`;
   }
 
   private render(): void {
@@ -64,13 +92,15 @@ export class AttachmentField {
       evt.preventDefault();
       // Pasted images arrive named "image.png" every time; stamp them so a
       // second paste does not look like a duplicate of the first.
-      this.add(
-        files.map((file, index) =>
-          file.name && file.name !== "image.png"
-            ? file
-            : new File([file], `pasted-${this.files.length + index + 1}.png`, { type: file.type }),
-        ),
+      const renamed = files.map((file, index) =>
+        // A file dragged from Finder has a real name worth keeping; a clipboard
+        // image does not.
+        isGenericName(file.name)
+          ? new File([file], this.nameFor(file, index), { type: file.type })
+          : file,
       );
+      this.pasted += renamed.length;
+      this.add(renamed);
     };
     document.addEventListener("paste", this.pasteHandler);
 
@@ -117,6 +147,25 @@ export class AttachmentField {
     if (this.pasteHandler) document.removeEventListener("paste", this.pasteHandler);
     this.pasteHandler = null;
   }
+}
+
+const EXTENSIONS: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "application/pdf": ".pdf",
+};
+
+function extensionFor(file: File): string {
+  const dot = file.name.lastIndexOf(".");
+  if (dot > 0) return file.name.slice(dot);
+  return EXTENSIONS[file.type] ?? ".png";
+}
+
+/** Clipboard images arrive unnamed or as "image.png" on every platform. */
+function isGenericName(name: string): boolean {
+  return !name || /^image\.\w+$/i.test(name) || /^(pasted|screenshot|clipboard)/i.test(name);
 }
 
 function formatSize(bytes: number): string {
