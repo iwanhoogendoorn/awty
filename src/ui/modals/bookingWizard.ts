@@ -1,4 +1,5 @@
 import { App, ButtonComponent, Modal, Notice, Setting, setIcon } from "obsidian";
+import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { BookingKind, BookingStatus, CostCategory } from "../../bookings/types";
 import { BOOKING_KINDS, BOOKING_STATUSES, COST_CATEGORIES } from "../../bookings/types";
 import { countAttachmentsNamed, type BookingDraft } from "../../bookings/bookingWriter";
@@ -52,6 +53,7 @@ const FIELDS: Record<BookingKind, FieldSpec[]> = {
 };
 
 const STEPS = ["Details", "When", "Cost", "Attachments"] as const;
+const FLIGHT_STEPS = ["Flights", "Cost", "Attachments"] as const;
 
 /**
  * Step-by-step booking capture.
@@ -71,6 +73,13 @@ export class BookingWizard extends Modal {
   private nextBtn!: ButtonComponent;
   private amountRaw = "";
   private legsField: LegsField | null = null;
+  private returnField: LegsField | null = null;
+  private hasReturn = false;
+
+  /** Flights hold their dates on each leg, so they skip the separate When step. */
+  private get steps(): readonly string[] {
+    return this.draft.kind === "flight" ? FLIGHT_STEPS : STEPS;
+  }
 
   constructor(
     app: App,
@@ -105,11 +114,13 @@ export class BookingWizard extends Modal {
       notes: "",
       attachments: [],
       // The trip already knows where you are leaving from; no reason to ask twice.
-      legs: kind === "flight" ? [{ ...emptyLeg(start), from: trip.originAirport }] : [],
+    legs: kind === "flight" ? [{ ...emptyLeg(start), from: trip.originAirport }] : [],
+      returnLegs: [],
     };
   }
 
   onOpen(): void {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal", "tp-wizard");
@@ -147,7 +158,7 @@ export class BookingWizard extends Modal {
           .setCta()
           .setButtonText("Next")
           .onClick(() => {
-            if (this.step < STEPS.length - 1) this.go(this.step + 1);
+            if (this.step < this.steps.length - 1) this.go(this.step + 1);
             else void this.submit();
           });
       });
@@ -156,16 +167,16 @@ export class BookingWizard extends Modal {
   }
 
   private go(step: number): void {
-    this.step = Math.max(0, Math.min(STEPS.length - 1, step));
+    this.step = Math.max(0, Math.min(this.steps.length - 1, step));
     this.renderSteps();
     this.renderBody();
     this.backBtn.setDisabled(this.step === 0);
-    this.nextBtn.setButtonText(this.step === STEPS.length - 1 ? "Save booking" : "Next");
+    this.nextBtn.setButtonText(this.step === this.steps.length - 1 ? "Save booking" : "Next");
   }
 
   private renderSteps(): void {
     this.stepsEl.empty();
-    for (const [index, name] of STEPS.entries()) {
+    for (const [index, name] of this.steps.entries()) {
       const chip = this.stepsEl.createDiv({
         cls: `tp-wizard-step${index === this.step ? " is-active" : ""}${index < this.step ? " is-done" : ""}`,
       });
@@ -177,9 +188,10 @@ export class BookingWizard extends Modal {
 
   private renderBody(): void {
     this.bodyEl.empty();
-    if (this.step === 0) this.renderDetails();
-    else if (this.step === 1) this.renderWhen();
-    else if (this.step === 2) this.renderCost();
+    const name = this.steps[this.step];
+    if (name === "Details" || name === "Flights") this.renderDetails();
+    else if (name === "When") this.renderWhen();
+    else if (name === "Cost") this.renderCost();
     else this.renderAttachments();
   }
 
@@ -214,14 +226,12 @@ export class BookingWizard extends Modal {
     });
 
     if (this.trip.travellers.length > 1) {
-      new Setting(this.bodyEl)
-        .setName("For")
-        .setDesc("Who this booking covers.")
-        .addText((t) => {
-          t.setPlaceholder(this.trip.travellers.join(", "));
-          t.setValue(this.draft.seat);
-          t.onChange((v) => (this.draft.seat = v.trim()));
-        });
+      // Answered once, on the trip. Repeating it here was the second place the
+      // same fact had to be kept in step.
+      this.bodyEl.createDiv({
+        cls: "tp-dash-hint",
+        text: `For ${this.trip.travellers.join(", ")} — change this on the trip.`,
+      });
     }
 
     new Setting(this.bodyEl).setName("Notes").addTextArea((ta) => {
@@ -233,16 +243,56 @@ export class BookingWizard extends Modal {
 
   /** Direct or connecting; the editor handles both and works out the layovers. */
   private renderFlightLegs(): void {
-    const host = this.bodyEl.createDiv();
+    this.bodyEl.createDiv({ cls: "tp-section-label", text: "Outbound" });
     this.legsField = new LegsField({
       app: this.app,
-      container: host,
+      container: this.bodyEl.createDiv(),
       legs: this.draft.legs,
       defaultDate: this.draft.date,
       stars: this.stars,
       nearby: () => ({ country: this.trip.country, city: this.trip.city }),
       onChange: () => this.syncFromLegs(),
     });
+
+    // Almost every holiday flight is a return, so this is one toggle rather
+    // than making you run the whole wizard a second time.
+    new Setting(this.bodyEl)
+      .setName("Return flight")
+      .setDesc("Same ticket, coming back.")
+      .addToggle((t) => {
+        t.setValue(this.hasReturn);
+        t.onChange((value) => {
+          this.hasReturn = value;
+          if (value && this.draft.returnLegs.length === 0) {
+            const outbound = this.draft.legs[this.draft.legs.length - 1];
+            this.draft.returnLegs = [
+              {
+                ...emptyLeg(this.trip.endDate || this.draft.date),
+                // The way home reverses the way out.
+                from: outbound?.to ?? "",
+                to: this.draft.legs[0]?.from ?? "",
+              },
+            ];
+          }
+          this.renderBody();
+        });
+      });
+
+    if (this.hasReturn) {
+      this.bodyEl.createDiv({ cls: "tp-section-label", text: "Return" });
+      this.returnField = new LegsField({
+        app: this.app,
+        container: this.bodyEl.createDiv(),
+        legs: this.draft.returnLegs,
+        defaultDate: this.trip.endDate || this.draft.date,
+        stars: this.stars,
+        nearby: () => ({ country: this.trip.country, city: this.trip.city }),
+        onChange: () => this.syncFromLegs(),
+      });
+    } else {
+      this.returnField = null;
+    }
+
     this.syncFromLegs();
   }
 
@@ -262,7 +312,18 @@ export class BookingWizard extends Modal {
     this.draft.time = first.depTime;
     this.draft.endDate = last.arrDate || last.date || this.draft.date;
     this.draft.endTime = last.arrTime;
-    if (!this.draft.title) this.draft.title = legs.map((l) => l.number).filter(Boolean).join(" + ");
+
+    if (this.returnField) {
+      const back = this.returnField.getLegs();
+      this.draft.returnLegs = back;
+      const lastBack = back[back.length - 1];
+      if (lastBack) {
+        this.draft.endDate = lastBack.arrDate || lastBack.date || this.draft.endDate;
+        this.draft.endTime = lastBack.arrTime || this.draft.endTime;
+      }
+    } else {
+      this.draft.returnLegs = [];
+    }
   }
 
   /** Text field backed by a picker, with a star button for the ones you reuse. */
@@ -349,14 +410,6 @@ export class BookingWizard extends Modal {
   }
 
   private renderWhen(): void {
-    if (this.draft.kind === "flight") {
-      this.bodyEl.createDiv({
-        cls: "tp-dash-hint",
-        text: "Dates and times live on each leg, back on the Details step.",
-      });
-      this.bodyEl.createDiv({ cls: "tp-wizard-summary-value", text: this.whenSummary() });
-      return;
-    }
     const isStay = this.draft.kind === "stay";
     const wrap = this.bodyEl.createDiv({ cls: "tp-daterange" });
 
@@ -374,7 +427,9 @@ export class BookingWizard extends Modal {
       date.type = "date";
       date.value = value;
       // Nudge towards the trip's own dates without forbidding anything else.
+      // Bound the picker to the trip, so it opens on the right month.
       if (isValidISODate(this.trip.startDate)) date.min = this.trip.startDate;
+      if (isValidISODate(this.trip.endDate)) date.max = this.trip.endDate;
       date.addEventListener("change", () => onChange(date.value));
 
       const time = row.createEl("input", { cls: "tp-time-input" });
@@ -507,6 +562,15 @@ export class BookingWizard extends Modal {
 
   /** Falls back to something readable when the title field was left blank. */
   private effectiveTitle(): string {
+    if (this.draft.kind === "flight") {
+      const out = routeTitle(this.draft.legs);
+      const back = routeTitle(this.draft.returnLegs);
+      if (out && back) {
+        const [from, to] = [this.draft.legs[0]?.from, this.draft.legs[this.draft.legs.length - 1]?.to];
+        if (from && to) return `${from} ⇄ ${to}`;
+      }
+      if (out) return out;
+    }
     if (this.draft.title) {
       if (this.draft.kind === "flight" && this.draft.from && this.draft.to) {
         return `${this.draft.title} ${this.draft.from} → ${this.draft.to}`;

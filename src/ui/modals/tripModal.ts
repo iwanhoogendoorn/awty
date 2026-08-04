@@ -1,4 +1,5 @@
 import { App, ButtonComponent, Modal, Notice, Setting, setIcon } from "obsidian";
+import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { SubNoteId, TravelPlannerSettings, Trip, TripDraft, TripKind } from "../../types";
 import { KINDS, SUB_NOTE_LABELS, kindDef } from "../../types";
 import { DateRangeField } from "../components/dateRange";
@@ -81,6 +82,7 @@ export class TripModal extends Modal {
   }
 
   onOpen(): void {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");

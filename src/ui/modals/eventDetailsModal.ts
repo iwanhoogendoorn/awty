@@ -1,4 +1,5 @@
 import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
+import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { Trip } from "../../types";
 import { ensureSubNote, replaceSection, subNoteFile } from "../../store/sectionWriter";
 
@@ -27,6 +28,7 @@ export class EventDetailsModal extends Modal {
   }
 
   async onOpen(): Promise<void> {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");

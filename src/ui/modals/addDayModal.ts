@@ -1,8 +1,9 @@
 import { App, Modal, Notice, Setting, TFile } from "obsidian";
+import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { Trip } from "../../types";
 import { SUB_NOTE_LABELS } from "../../types";
 import type { TripStore } from "../../store/tripStore";
-import { insertItineraryDay } from "../../store/noteWriter";
+import { emptyDayDates, insertItineraryDay } from "../../store/noteWriter";
 import { isValidISODate, todayISO } from "../../util/dates";
 
 /**
@@ -53,7 +54,9 @@ export class AddDayModal extends Modal {
     return isValidISODate(this.trip.startDate) ? this.trip.startDate : today;
   }
 
-  onOpen(): void {
+  async onOpen(): Promise<void> {
+    keepOpenOnBackgroundClick(this);
+    await this.useFirstUnplannedDay();
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
@@ -75,6 +78,9 @@ export class AddDayModal extends Modal {
       dd.onChange((path) => {
         this.trip = trips.find((t) => t.file.path === path) ?? null;
         this.date = this.defaultDate();
+        void this.useFirstUnplannedDay().then(() => {
+          this.dateInput.value = this.date;
+        });
         this.dateInput.value = this.date;
         this.applyDateBounds();
       });
@@ -112,6 +118,21 @@ export class AddDayModal extends Modal {
     if (isValidISODate(this.trip.endDate)) this.dateInput.max = this.trip.endDate;
   }
 
+  /**
+   * Trips are created with every day already headed, so "the first day" is
+   * almost never the one you still need to plan.
+   */
+  private async useFirstUnplannedDay(): Promise<void> {
+    if (!this.trip) return;
+    const file = this.app.vault.getAbstractFileByPath(
+      `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`,
+    );
+    if (!(file instanceof TFile)) return;
+    const empty = emptyDayDates(await this.app.vault.cachedRead(file));
+    const next = [...empty].sort().find((d) => d >= this.trip!.startDate);
+    if (next) this.date = next;
+  }
+
   private async addDay(): Promise<void> {
     if (!this.trip) {
       new Notice("Pick a trip first.");
@@ -141,11 +162,15 @@ export class AddDayModal extends Modal {
     });
 
     if (result === "duplicate") {
-      new Notice(`${this.date} is already in this itinerary.`);
+      new Notice(`${this.date} already has plans. Edit the note to change them.`);
       return;
     }
 
-    new Notice(`Added ${this.date} to ${this.trip.title}.`);
+    new Notice(
+      result === "filled"
+        ? `Planned ${this.date} for ${this.trip.title}.`
+        : `Added ${this.date} to ${this.trip.title}.`,
+    );
     // Stays where you were; open the note yourself if you want to read it.
     this.onDone();
     this.close();

@@ -122,8 +122,10 @@ export function analyseNote(id: SubNoteId | null, content: string): NoteProgress
   if (id === "packing" || (s.tasksTotal > 0 && id !== "itinerary")) {
     if (s.tasksTotal === 0) return EMPTY;
     const ratio = s.tasksDone / s.tasksTotal;
+    // Having a list at all is the step being done; ticking things off is a
+    // separate activity that happens the night before, not while planning.
     return {
-      state: ratio >= 1 ? "complete" : ratio > 0 ? "started" : "empty",
+      state: ratio >= 1 ? "complete" : "started",
       detail: `${s.tasksDone}/${s.tasksTotal} packed`,
       ratio,
     };

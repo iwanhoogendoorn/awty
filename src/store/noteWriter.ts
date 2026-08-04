@@ -4,6 +4,9 @@ import { kindDef } from "../types";
 import { buildSubNote, buildTripBody, type TemplateContext } from "./templates";
 import { expandFolderPattern, joinPath, sanitizeName } from "../util/paths";
 import { isValidISODate, parseISO } from "../util/dates";
+import { emptyDayDates } from "./itinerary";
+
+export { emptyDayDates } from "./itinerary";
 
 export class TripWriteError extends Error {}
 
@@ -257,38 +260,62 @@ export async function deleteTrip(app: App, trip: Trip): Promise<number> {
  * Inserts a day into an itinerary in date order instead of appending blindly to
  * the end of the file the way 1.x did.
  */
+/**
+ * Writes a day into an itinerary.
+ *
+ * Trips are created with a heading per day already in place, so refusing when
+ * the heading exists made the wizard reject every day of the trip while the
+ * progress counter still read 0/8. An existing day with nothing under it gets
+ * filled in; only a day that already has content is reported as a duplicate.
+ */
 export async function insertItineraryDay(
   app: App,
   file: TFile,
   date: string,
   sections: { morning: string; afternoon: string; evening: string },
-): Promise<"inserted" | "duplicate"> {
+): Promise<"inserted" | "filled" | "duplicate"> {
   const content = await app.vault.read(file);
-  const heading = `## ${date}`;
-  if (new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m").test(content)) {
-    return "duplicate";
-  }
+  const lines = content.split("\n");
 
-  const block = [
-    heading,
+  const body = [
     "",
     "### Morning",
-    sections.morning.trim() || "",
+    sections.morning.trim(),
     "",
     "### Afternoon",
-    sections.afternoon.trim() || "",
+    sections.afternoon.trim(),
     "",
     "### Evening",
-    sections.evening.trim() || "",
+    sections.evening.trim(),
     "",
   ].join("\n");
 
-  const lines = content.split("\n");
-  // Find the first day heading that sorts after the new one. ISO dates compare
-  // correctly as strings, but only once we've confirmed they *are* ISO dates.
+  const headingAt = lines.findIndex(
+    (line) => /^##\s+(\d{4}-\d{2}-\d{2})\s*$/.test(line.trim()) && line.trim().endsWith(date),
+  );
+
+  if (headingAt !== -1) {
+    if (!emptyDayDates(content).has(date)) return "duplicate";
+
+    // Replace the empty scaffolding under this heading.
+    let end = lines.length;
+    for (let i = headingAt + 1; i < lines.length; i += 1) {
+      if (/^#{1,2}\s/.test(lines[i])) {
+        end = i;
+        break;
+      }
+    }
+    const next = [...lines.slice(0, headingAt + 1), body, ...lines.slice(end)].join("\n");
+    await app.vault.modify(file, next.replace(/\n{3,}/g, "\n\n"));
+    return "filled";
+  }
+
+  const block = `## ${date}\n${body}`;
+
+  // Keep days in date order rather than appending blindly.
   let insertAt = -1;
   for (let i = 0; i < lines.length; i += 1) {
-    const m = /^##\s+(\d{4}-\d{2}-\d{2})\s*$/.exec(lines[i]);
+    const m = /^##\s+(\d{4}-\d{2}-\d{2})\s*$/.exec(lines[i].trim());
     if (m && isValidISODate(m[1]) && m[1] > date) {
       insertAt = i;
       break;

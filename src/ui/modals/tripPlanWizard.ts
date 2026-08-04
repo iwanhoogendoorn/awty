@@ -1,4 +1,5 @@
 import { App, Modal, Setting, setIcon } from "obsidian";
+import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type TravelPlannerPlugin from "../../main";
 import type { Trip } from "../../types";
 import { SUB_NOTE_LABELS, kindDef } from "../../types";
@@ -40,6 +41,7 @@ export class TripPlanWizard extends Modal {
   }
 
   onOpen(): void {
+    keepOpenOnBackgroundClick(this);
     this.modalEl.addClass("tp-modal-shell");
     // Wizards launched from here change the answers, so redraw when they land.
     this.unsubscribe = this.plugin.store.onChange(() => this.render());

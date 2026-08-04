@@ -27,6 +27,8 @@ export interface BookingDraft {
   attachments: string[];
   /** Flight legs; a direct flight is one, a connection is several. */
   legs: FlightLeg[];
+  /** The way home, on the same ticket. Empty for a one-way. */
+  returnLegs: FlightLeg[];
 }
 
 export interface ExpenseDraft {
@@ -148,14 +150,13 @@ function bookingBody(draft: BookingDraft, attachmentLinks: string[]): string {
   const out = [`# ${draft.title}`, ""];
   if (rows.length) out.push("| | |", "|---|---|", ...rows, "");
 
-  if (draft.legs.length > 1) {
-    out.push("## Itinerary", "");
+  const itinerary = (legs: FlightLeg[], heading: string): void => {
+    if (legs.length === 0) return;
+    out.push(`## ${heading}`, "");
     out.push("| Leg | Airline | Flight | From | To | Departs | Arrives |");
     out.push("|---|---|---|---|---|---|---|");
-    draft.legs.forEach((leg, index) => {
-      const arrives = leg.arrDate && leg.arrDate !== leg.date
-        ? `${leg.arrTime} (+1)`
-        : leg.arrTime;
+    legs.forEach((leg, index) => {
+      const arrives = leg.arrDate && leg.arrDate !== leg.date ? `${leg.arrTime} (+1)` : leg.arrTime;
       out.push(
         `| ${index + 1} | ${leg.operator} | ${leg.number} | ${leg.from} | ${leg.to} | ${leg.date} ${leg.depTime} | ${arrives} |`,
       );
@@ -163,13 +164,16 @@ function bookingBody(draft: BookingDraft, attachmentLinks: string[]): string {
     out.push("");
     // Connection times are the thing you actually worry about when booking.
     const layovers: string[] = [];
-    for (let i = 1; i < draft.legs.length; i += 1) {
-      const gap = layoverMinutes(draft.legs[i - 1], draft.legs[i]);
-      if (gap !== null) {
-        layovers.push(`- ${formatLayover(gap)} in ${draft.legs[i - 1].to || "transit"}`);
-      }
+    for (let i = 1; i < legs.length; i += 1) {
+      const gap = layoverMinutes(legs[i - 1], legs[i]);
+      if (gap !== null) layovers.push(`- ${formatLayover(gap)} in ${legs[i - 1].to || "transit"}`);
     }
     if (layovers.length) out.push("**Layovers**", "", ...layovers, "");
+  };
+
+  if (draft.legs.length > 1 || draft.returnLegs.length > 0) {
+    itinerary(draft.legs, draft.returnLegs.length > 0 ? "Outbound" : "Itinerary");
+    itinerary(draft.returnLegs, "Return");
   }
   if (draft.notes.trim()) out.push("## Notes", "", draft.notes.trim(), "");
   if (attachmentLinks.length) {
@@ -227,6 +231,7 @@ export async function createBooking(
     if (draft.operator) fm.operator = draft.operator;
     if (draft.seat) fm.seat = draft.seat;
     if (draft.legs.length > 1) fm.legs = legsToFrontmatter(draft.legs);
+    if (draft.returnLegs.length > 0) fm.return_legs = legsToFrontmatter(draft.returnLegs);
     if (links.length) fm.attachments = links;
   });
 

@@ -479,7 +479,7 @@ function analyseNote(id, content) {
     if (s.tasksTotal === 0) return EMPTY;
     const ratio = s.tasksDone / s.tasksTotal;
     return {
-      state: ratio >= 1 ? "complete" : ratio > 0 ? "started" : "empty",
+      state: ratio >= 1 ? "complete" : "started",
       detail: `${s.tasksDone}/${s.tasksTotal} packed`,
       ratio
     };
@@ -1741,11 +1741,12 @@ function bookingBody(draft, attachmentLinks) {
   add("Reference", draft.reference);
   const out = [`# ${draft.title}`, ""];
   if (rows.length) out.push("| | |", "|---|---|", ...rows, "");
-  if (draft.legs.length > 1) {
-    out.push("## Itinerary", "");
+  const itinerary = (legs, heading) => {
+    if (legs.length === 0) return;
+    out.push(`## ${heading}`, "");
     out.push("| Leg | Airline | Flight | From | To | Departs | Arrives |");
     out.push("|---|---|---|---|---|---|---|");
-    draft.legs.forEach((leg, index) => {
+    legs.forEach((leg, index) => {
       const arrives = leg.arrDate && leg.arrDate !== leg.date ? `${leg.arrTime} (+1)` : leg.arrTime;
       out.push(
         `| ${index + 1} | ${leg.operator} | ${leg.number} | ${leg.from} | ${leg.to} | ${leg.date} ${leg.depTime} | ${arrives} |`
@@ -1753,13 +1754,15 @@ function bookingBody(draft, attachmentLinks) {
     });
     out.push("");
     const layovers = [];
-    for (let i = 1; i < draft.legs.length; i += 1) {
-      const gap = layoverMinutes(draft.legs[i - 1], draft.legs[i]);
-      if (gap !== null) {
-        layovers.push(`- ${formatLayover(gap)} in ${draft.legs[i - 1].to || "transit"}`);
-      }
+    for (let i = 1; i < legs.length; i += 1) {
+      const gap = layoverMinutes(legs[i - 1], legs[i]);
+      if (gap !== null) layovers.push(`- ${formatLayover(gap)} in ${legs[i - 1].to || "transit"}`);
     }
     if (layovers.length) out.push("**Layovers**", "", ...layovers, "");
+  };
+  if (draft.legs.length > 1 || draft.returnLegs.length > 0) {
+    itinerary(draft.legs, draft.returnLegs.length > 0 ? "Outbound" : "Itinerary");
+    itinerary(draft.returnLegs, "Return");
   }
   if (draft.notes.trim()) out.push("## Notes", "", draft.notes.trim(), "");
   if (attachmentLinks.length) {
@@ -1803,6 +1806,7 @@ async function createBooking(app, settings, trip, draft) {
     if (draft.operator) fm.operator = draft.operator;
     if (draft.seat) fm.seat = draft.seat;
     if (draft.legs.length > 1) fm.legs = legsToFrontmatter(draft.legs);
+    if (draft.returnLegs.length > 0) fm.return_legs = legsToFrontmatter(draft.returnLegs);
     if (links.length) fm.attachments = links;
   });
   const head = await app.vault.read(file);
@@ -3005,6 +3009,22 @@ var TravelDashboardView = class extends import_obsidian14.ItemView {
 // src/ui/modals/bookingWizard.ts
 var import_obsidian17 = require("obsidian");
 
+// src/ui/modalUtils.ts
+function keepOpenOnBackgroundClick(modal) {
+  modal.containerEl.addEventListener(
+    "click",
+    (evt) => {
+      const target = evt.target;
+      if (!target) return;
+      const onBackground = target === modal.containerEl || target.classList.contains("modal-bg");
+      if (!onBackground) return;
+      evt.preventDefault();
+      evt.stopImmediatePropagation();
+    },
+    true
+  );
+}
+
 // src/ui/components/attachmentField.ts
 var import_obsidian15 = require("obsidian");
 var AttachmentField = class {
@@ -3329,6 +3349,7 @@ var FIELDS = {
   ]
 };
 var STEPS = ["Details", "When", "Cost", "Attachments"];
+var FLIGHT_STEPS = ["Flights", "Cost", "Attachments"];
 var BookingWizard = class extends import_obsidian17.Modal {
   constructor(app, settings, trip, kind, currency, stars, onSubmit) {
     super(app);
@@ -3341,6 +3362,8 @@ var BookingWizard = class extends import_obsidian17.Modal {
     this.submitting = false;
     this.amountRaw = "";
     this.legsField = null;
+    this.returnField = null;
+    this.hasReturn = false;
     const start = isValidISODate(trip.startDate) ? trip.startDate : todayISO();
     this.draft = {
       kind,
@@ -3361,10 +3384,16 @@ var BookingWizard = class extends import_obsidian17.Modal {
       notes: "",
       attachments: [],
       // The trip already knows where you are leaving from; no reason to ask twice.
-      legs: kind === "flight" ? [{ ...emptyLeg(start), from: trip.originAirport }] : []
+      legs: kind === "flight" ? [{ ...emptyLeg(start), from: trip.originAirport }] : [],
+      returnLegs: []
     };
   }
+  /** Flights hold their dates on each leg, so they skip the separate When step. */
+  get steps() {
+    return this.draft.kind === "flight" ? FLIGHT_STEPS : STEPS;
+  }
   onOpen() {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal", "tp-wizard");
@@ -3391,22 +3420,22 @@ var BookingWizard = class extends import_obsidian17.Modal {
     }).addButton((btn) => {
       this.nextBtn = btn;
       btn.setCta().setButtonText("Next").onClick(() => {
-        if (this.step < STEPS.length - 1) this.go(this.step + 1);
+        if (this.step < this.steps.length - 1) this.go(this.step + 1);
         else void this.submit();
       });
     });
     this.go(0);
   }
   go(step) {
-    this.step = Math.max(0, Math.min(STEPS.length - 1, step));
+    this.step = Math.max(0, Math.min(this.steps.length - 1, step));
     this.renderSteps();
     this.renderBody();
     this.backBtn.setDisabled(this.step === 0);
-    this.nextBtn.setButtonText(this.step === STEPS.length - 1 ? "Save booking" : "Next");
+    this.nextBtn.setButtonText(this.step === this.steps.length - 1 ? "Save booking" : "Next");
   }
   renderSteps() {
     this.stepsEl.empty();
-    for (const [index, name] of STEPS.entries()) {
+    for (const [index, name] of this.steps.entries()) {
       const chip = this.stepsEl.createDiv({
         cls: `tp-wizard-step${index === this.step ? " is-active" : ""}${index < this.step ? " is-done" : ""}`
       });
@@ -3417,9 +3446,10 @@ var BookingWizard = class extends import_obsidian17.Modal {
   }
   renderBody() {
     this.bodyEl.empty();
-    if (this.step === 0) this.renderDetails();
-    else if (this.step === 1) this.renderWhen();
-    else if (this.step === 2) this.renderCost();
+    const name = this.steps[this.step];
+    if (name === "Details" || name === "Flights") this.renderDetails();
+    else if (name === "When") this.renderWhen();
+    else if (name === "Cost") this.renderCost();
     else this.renderAttachments();
   }
   renderDetails() {
@@ -3448,10 +3478,9 @@ var BookingWizard = class extends import_obsidian17.Modal {
       dd.onChange((v) => this.draft.status = v);
     });
     if (this.trip.travellers.length > 1) {
-      new import_obsidian17.Setting(this.bodyEl).setName("For").setDesc("Who this booking covers.").addText((t) => {
-        t.setPlaceholder(this.trip.travellers.join(", "));
-        t.setValue(this.draft.seat);
-        t.onChange((v) => this.draft.seat = v.trim());
+      this.bodyEl.createDiv({
+        cls: "tp-dash-hint",
+        text: `For ${this.trip.travellers.join(", ")} \u2014 change this on the trip.`
       });
     }
     new import_obsidian17.Setting(this.bodyEl).setName("Notes").addTextArea((ta) => {
@@ -3462,16 +3491,48 @@ var BookingWizard = class extends import_obsidian17.Modal {
   }
   /** Direct or connecting; the editor handles both and works out the layovers. */
   renderFlightLegs() {
-    const host = this.bodyEl.createDiv();
+    this.bodyEl.createDiv({ cls: "tp-section-label", text: "Outbound" });
     this.legsField = new LegsField({
       app: this.app,
-      container: host,
+      container: this.bodyEl.createDiv(),
       legs: this.draft.legs,
       defaultDate: this.draft.date,
       stars: this.stars,
       nearby: () => ({ country: this.trip.country, city: this.trip.city }),
       onChange: () => this.syncFromLegs()
     });
+    new import_obsidian17.Setting(this.bodyEl).setName("Return flight").setDesc("Same ticket, coming back.").addToggle((t) => {
+      t.setValue(this.hasReturn);
+      t.onChange((value) => {
+        this.hasReturn = value;
+        if (value && this.draft.returnLegs.length === 0) {
+          const outbound = this.draft.legs[this.draft.legs.length - 1];
+          this.draft.returnLegs = [
+            {
+              ...emptyLeg(this.trip.endDate || this.draft.date),
+              // The way home reverses the way out.
+              from: outbound?.to ?? "",
+              to: this.draft.legs[0]?.from ?? ""
+            }
+          ];
+        }
+        this.renderBody();
+      });
+    });
+    if (this.hasReturn) {
+      this.bodyEl.createDiv({ cls: "tp-section-label", text: "Return" });
+      this.returnField = new LegsField({
+        app: this.app,
+        container: this.bodyEl.createDiv(),
+        legs: this.draft.returnLegs,
+        defaultDate: this.trip.endDate || this.draft.date,
+        stars: this.stars,
+        nearby: () => ({ country: this.trip.country, city: this.trip.city }),
+        onChange: () => this.syncFromLegs()
+      });
+    } else {
+      this.returnField = null;
+    }
     this.syncFromLegs();
   }
   /** Collapses the legs down to the flat fields the rest of the plugin reads. */
@@ -3489,7 +3550,17 @@ var BookingWizard = class extends import_obsidian17.Modal {
     this.draft.time = first.depTime;
     this.draft.endDate = last.arrDate || last.date || this.draft.date;
     this.draft.endTime = last.arrTime;
-    if (!this.draft.title) this.draft.title = legs.map((l) => l.number).filter(Boolean).join(" + ");
+    if (this.returnField) {
+      const back = this.returnField.getLegs();
+      this.draft.returnLegs = back;
+      const lastBack = back[back.length - 1];
+      if (lastBack) {
+        this.draft.endDate = lastBack.arrDate || lastBack.date || this.draft.endDate;
+        this.draft.endTime = lastBack.arrTime || this.draft.endTime;
+      }
+    } else {
+      this.draft.returnLegs = [];
+    }
   }
   /** Text field backed by a picker, with a star button for the ones you reuse. */
   renderPickerField(spec, kind) {
@@ -3564,14 +3635,6 @@ var BookingWizard = class extends import_obsidian17.Modal {
     });
   }
   renderWhen() {
-    if (this.draft.kind === "flight") {
-      this.bodyEl.createDiv({
-        cls: "tp-dash-hint",
-        text: "Dates and times live on each leg, back on the Details step."
-      });
-      this.bodyEl.createDiv({ cls: "tp-wizard-summary-value", text: this.whenSummary() });
-      return;
-    }
     const isStay = this.draft.kind === "stay";
     const wrap = this.bodyEl.createDiv({ cls: "tp-daterange" });
     const dateRow = (label, value, onChange, timeLabel, timeValue, onTime) => {
@@ -3581,6 +3644,7 @@ var BookingWizard = class extends import_obsidian17.Modal {
       date.type = "date";
       date.value = value;
       if (isValidISODate(this.trip.startDate)) date.min = this.trip.startDate;
+      if (isValidISODate(this.trip.endDate)) date.max = this.trip.endDate;
       date.addEventListener("change", () => onChange(date.value));
       const time = row2.createEl("input", { cls: "tp-time-input" });
       time.type = "time";
@@ -3689,6 +3753,15 @@ var BookingWizard = class extends import_obsidian17.Modal {
   }
   /** Falls back to something readable when the title field was left blank. */
   effectiveTitle() {
+    if (this.draft.kind === "flight") {
+      const out = routeTitle(this.draft.legs);
+      const back = routeTitle(this.draft.returnLegs);
+      if (out && back) {
+        const [from, to] = [this.draft.legs[0]?.from, this.draft.legs[this.draft.legs.length - 1]?.to];
+        if (from && to) return `${from} \u21C4 ${to}`;
+      }
+      if (out) return out;
+    }
     if (this.draft.title) {
       if (this.draft.kind === "flight" && this.draft.from && this.draft.to) {
         return `${this.draft.title} ${this.draft.from} \u2192 ${this.draft.to}`;
@@ -3749,6 +3822,7 @@ var ExpenseModal = class extends import_obsidian18.Modal {
     };
   }
   onOpen() {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
@@ -3828,15 +3902,17 @@ var ExpenseModal = class extends import_obsidian18.Modal {
 // src/ui/modals/budgetModal.ts
 var import_obsidian19 = require("obsidian");
 var BudgetModal = class extends import_obsidian19.Modal {
-  constructor(app, trip, existing, currency, onSave) {
+  constructor(app, trip, existing, currency, actuals, onSave) {
     super(app);
     this.trip = trip;
     this.currency = currency;
+    this.actuals = actuals;
     this.onSave = onSave;
     this.values = /* @__PURE__ */ new Map();
     this.values = new Map(existing);
   }
   onOpen() {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
@@ -3851,11 +3927,22 @@ var BudgetModal = class extends import_obsidian19.Modal {
         this.renderTotal();
       });
     });
-    const categories = /* @__PURE__ */ new Set([...COST_CATEGORIES, ...this.values.keys()]);
+    const categories = /* @__PURE__ */ new Set([
+      ...COST_CATEGORIES,
+      ...this.values.keys(),
+      ...this.actuals.keys()
+    ]);
     for (const category of categories) {
-      new import_obsidian19.Setting(contentEl).setName(category).addText((t) => {
+      const actual = this.actuals.get(category) ?? 0;
+      const setting = new import_obsidian19.Setting(contentEl).setName(category);
+      if (actual > 0) {
+        setting.setDesc(
+          `${formatMoney({ amount: actual, currency: this.currency })} already booked`
+        );
+      }
+      setting.addText((t) => {
         const current = this.values.get(category);
-        t.setPlaceholder("0");
+        t.setPlaceholder(actual > 0 ? String(Math.ceil(actual)) : "0");
         t.setValue(current !== void 0 ? String(current) : "");
         t.inputEl.inputMode = "decimal";
         t.onChange((v) => {
@@ -3864,6 +3951,18 @@ var BudgetModal = class extends import_obsidian19.Modal {
           else this.values.set(category, amount);
           this.renderTotal();
         });
+      });
+    }
+    if (this.values.size === 0 && this.actuals.size > 0) {
+      const seed = contentEl.createEl("button", {
+        cls: "tp-dash-add",
+        text: "Start from what's already booked"
+      });
+      seed.addEventListener("click", () => {
+        for (const [category, amount] of this.actuals) {
+          if (amount > 0) this.values.set(category, Math.ceil(amount));
+        }
+        this.onOpen();
       });
     }
     this.totalEl = contentEl.createDiv({ cls: "tp-budget-total" });
@@ -4112,9 +4211,10 @@ var PackingModal = class extends import_obsidian21.Modal {
     this.onSaved = onSaved;
     this.rows = [];
     this.saveBtn = null;
-    this.travellers = Math.min(4, Math.max(1, trip.travellers.length || 1));
+    this.packFor = new Set(trip.travellers);
   }
   async onOpen() {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal", "tp-packing");
@@ -4127,14 +4227,8 @@ var PackingModal = class extends import_obsidian21.Modal {
       text: `${this.trip.title} \xB7 ${days} day${days === 1 ? "" : "s"}`
     });
     await this.buildRows(days);
-    new import_obsidian21.Setting(contentEl).setName("Travelling as").setDesc("Multiplies the clothing counts. Toiletries and gear stay as one each.").addDropdown((dd) => {
-      for (const n of [1, 2, 3, 4]) dd.addOption(String(n), n === 1 ? "1 person" : `${n} people`);
-      dd.setValue(String(this.travellers));
-      dd.onChange((v) => {
-        this.travellers = Number(v);
-        this.renderList();
-      });
-    });
+    this.renderPackFor(contentEl);
+    this.renderAddItem(contentEl);
     this.summaryEl = contentEl.createDiv({ cls: "tp-packing-summary" });
     this.listEl = contentEl.createDiv({ cls: "tp-packing-list" });
     this.renderList();
@@ -4201,10 +4295,77 @@ var PackingModal = class extends import_obsidian21.Modal {
     }
     return out;
   }
+  get headcount() {
+    return Math.max(1, this.packFor.size);
+  }
+  /** Who the list covers. Packing for yourself is not packing for the family. */
+  renderPackFor(parent) {
+    const people = this.trip.travellers;
+    if (people.length <= 1) return;
+    const setting = new import_obsidian21.Setting(parent).setName("Packing for").setDesc("Clothing counts scale with who you tick. Toiletries and gear stay as one each.");
+    const row2 = setting.controlEl.createDiv({ cls: "tp-settings-subnotes" });
+    for (const person of people) {
+      const label = row2.createEl("label", { cls: "tp-subnote" });
+      const box = label.createEl("input");
+      box.type = "checkbox";
+      box.checked = this.packFor.has(person);
+      label.createSpan({ text: person });
+      box.addEventListener("change", () => {
+        if (box.checked) this.packFor.add(person);
+        else this.packFor.delete(person);
+        this.renderList();
+      });
+    }
+  }
+  /** Nothing generated covers everything; this is the escape hatch. */
+  renderAddItem(parent) {
+    const setting = new import_obsidian21.Setting(parent).setName("Add an item");
+    let name = "";
+    let section = "Misc";
+    let quantity = "";
+    setting.addText((t) => {
+      t.setPlaceholder("Snorkel");
+      t.onChange((v) => name = v.trim());
+      t.inputEl.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter") {
+          evt.preventDefault();
+          add();
+          t.setValue("");
+        }
+      });
+    });
+    setting.addDropdown((dd) => {
+      for (const s of [...new Set(this.rows.map((r) => r.section))]) dd.addOption(s, s);
+      dd.setValue(section);
+      dd.onChange((v) => section = v);
+    });
+    setting.addText((t) => {
+      t.setPlaceholder("Qty");
+      t.inputEl.type = "number";
+      t.inputEl.min = "1";
+      t.inputEl.style.width = "4.5em";
+      t.onChange((v) => quantity = v);
+    });
+    const add = () => {
+      if (!name) return;
+      const qty = Number(quantity);
+      this.rows.push({
+        section,
+        label: name,
+        quantity: Number.isFinite(qty) && qty > 0 ? qty : null,
+        include: true,
+        packed: false
+      });
+      name = "";
+      quantity = "";
+      this.renderList();
+    };
+    setting.addButton((b) => b.setButtonText("Add").onClick(add));
+  }
   /** Clothing scales with headcount; a tube of toothpaste does not. */
   quantityFor(row2) {
     if (row2.quantity === null) return null;
-    return row2.section === "Clothes" ? row2.quantity * this.travellers : row2.quantity;
+    return row2.section === "Clothes" ? row2.quantity * this.headcount : row2.quantity;
   }
   renderList() {
     this.listEl.empty();
@@ -4238,7 +4399,7 @@ var PackingModal = class extends import_obsidian21.Modal {
           qty.addEventListener("change", () => {
             const value = Number(qty.value);
             if (Number.isFinite(value) && value > 0) {
-              row2.quantity = row2.section === "Clothes" ? Math.max(1, Math.round(value / this.travellers)) : value;
+              row2.quantity = row2.section === "Clothes" ? Math.max(1, Math.round(value / this.headcount)) : value;
             }
             this.renderList();
           });
@@ -4253,7 +4414,9 @@ var PackingModal = class extends import_obsidian21.Modal {
       const file = await ensureSubNote(this.app, this.trip, "packing");
       const included = this.rows.filter((r) => r.include);
       const out = [`# Packing List \u2014 ${this.trip.title}`, ""];
-      if (this.travellers > 1) out.push(`> Quantities for ${this.travellers} people.`, "");
+      if (this.packFor.size > 1) {
+        out.push(`> Quantities for ${[...this.packFor].join(", ")}.`, "");
+      }
       for (const section of [...new Set(included.map((r) => r.section))]) {
         out.push(`## ${section}`);
         for (const row2 of included.filter((r) => r.section === section)) {
@@ -4304,6 +4467,7 @@ var EventDetailsModal = class extends import_obsidian22.Modal {
     this.fields.venue = trip.venue;
   }
   async onOpen() {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
@@ -4420,6 +4584,7 @@ var FoodModal = class extends import_obsidian23.Modal {
     this.date = inTrip ? today : isValidISODate(trip.startDate) ? trip.startDate : today;
   }
   onOpen() {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
@@ -4515,6 +4680,7 @@ var TripPlanWizard = class extends import_obsidian24.Modal {
     this.unsubscribe = null;
   }
   onOpen() {
+    keepOpenOnBackgroundClick(this);
     this.modalEl.addClass("tp-modal-shell");
     this.unsubscribe = this.plugin.store.onChange(() => this.render());
     this.render();
@@ -5223,6 +5389,37 @@ function buildTripBody(ctx, subNotes) {
   );
 }
 
+// src/store/itinerary.ts
+function emptyDayDates(content) {
+  const out = /* @__PURE__ */ new Set();
+  const lines2 = content.split("\n");
+  let current = null;
+  let hasContent = false;
+  const flush = () => {
+    if (current && !hasContent) out.add(current);
+  };
+  for (const raw of lines2) {
+    const line = raw.trim();
+    const heading = /^##\s+(\d{4}-\d{2}-\d{2})\s*$/.exec(line);
+    if (heading) {
+      flush();
+      current = heading[1];
+      hasContent = false;
+      continue;
+    }
+    if (!current) continue;
+    if (/^#{1,2}\s/.test(line)) {
+      flush();
+      current = null;
+      continue;
+    }
+    if (line.length === 0 || /^###\s/.test(line) || /^_.*_$/.test(line)) continue;
+    hasContent = true;
+  }
+  flush();
+  return out;
+}
+
 // src/store/noteWriter.ts
 var TripWriteError = class extends Error {
 };
@@ -5404,27 +5601,40 @@ async function deleteTrip(app, trip) {
 }
 async function insertItineraryDay(app, file, date, sections) {
   const content = await app.vault.read(file);
-  const heading = `## ${date}`;
-  if (new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m").test(content)) {
-    return "duplicate";
-  }
-  const block = [
-    heading,
+  const lines2 = content.split("\n");
+  const body = [
     "",
     "### Morning",
-    sections.morning.trim() || "",
+    sections.morning.trim(),
     "",
     "### Afternoon",
-    sections.afternoon.trim() || "",
+    sections.afternoon.trim(),
     "",
     "### Evening",
-    sections.evening.trim() || "",
+    sections.evening.trim(),
     ""
   ].join("\n");
-  const lines2 = content.split("\n");
+  const headingAt = lines2.findIndex(
+    (line) => /^##\s+(\d{4}-\d{2}-\d{2})\s*$/.test(line.trim()) && line.trim().endsWith(date)
+  );
+  if (headingAt !== -1) {
+    if (!emptyDayDates(content).has(date)) return "duplicate";
+    let end = lines2.length;
+    for (let i = headingAt + 1; i < lines2.length; i += 1) {
+      if (/^#{1,2}\s/.test(lines2[i])) {
+        end = i;
+        break;
+      }
+    }
+    const next2 = [...lines2.slice(0, headingAt + 1), body, ...lines2.slice(end)].join("\n");
+    await app.vault.modify(file, next2.replace(/\n{3,}/g, "\n\n"));
+    return "filled";
+  }
+  const block = `## ${date}
+${body}`;
   let insertAt = -1;
   for (let i = 0; i < lines2.length; i += 1) {
-    const m = /^##\s+(\d{4}-\d{2}-\d{2})\s*$/.exec(lines2[i]);
+    const m = /^##\s+(\d{4}-\d{2}-\d{2})\s*$/.exec(lines2[i].trim());
     if (m && isValidISODate(m[1]) && m[1] > date) {
       insertAt = i;
       break;
@@ -5916,6 +6126,7 @@ var TripModal = class _TripModal extends import_obsidian29.Modal {
     );
   }
   onOpen() {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
@@ -6229,7 +6440,9 @@ var AddDayModal = class extends import_obsidian31.Modal {
     if (today >= this.trip.startDate && today <= this.trip.endDate) return today;
     return isValidISODate(this.trip.startDate) ? this.trip.startDate : today;
   }
-  onOpen() {
+  async onOpen() {
+    keepOpenOnBackgroundClick(this);
+    await this.useFirstUnplannedDay();
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
@@ -6249,6 +6462,9 @@ var AddDayModal = class extends import_obsidian31.Modal {
       dd.onChange((path) => {
         this.trip = trips.find((t) => t.file.path === path) ?? null;
         this.date = this.defaultDate();
+        void this.useFirstUnplannedDay().then(() => {
+          this.dateInput.value = this.date;
+        });
         this.dateInput.value = this.date;
         this.applyDateBounds();
       });
@@ -6276,6 +6492,20 @@ var AddDayModal = class extends import_obsidian31.Modal {
     if (!this.trip) return;
     if (isValidISODate(this.trip.startDate)) this.dateInput.min = this.trip.startDate;
     if (isValidISODate(this.trip.endDate)) this.dateInput.max = this.trip.endDate;
+  }
+  /**
+   * Trips are created with every day already headed, so "the first day" is
+   * almost never the one you still need to plan.
+   */
+  async useFirstUnplannedDay() {
+    if (!this.trip) return;
+    const file = this.app.vault.getAbstractFileByPath(
+      `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`
+    );
+    if (!(file instanceof import_obsidian31.TFile)) return;
+    const empty = emptyDayDates(await this.app.vault.cachedRead(file));
+    const next = [...empty].sort().find((d) => d >= this.trip.startDate);
+    if (next) this.date = next;
   }
   async addDay() {
     if (!this.trip) {
@@ -6305,10 +6535,12 @@ type: itinerary
       evening: this.evening
     });
     if (result === "duplicate") {
-      new import_obsidian31.Notice(`${this.date} is already in this itinerary.`);
+      new import_obsidian31.Notice(`${this.date} already has plans. Edit the note to change them.`);
       return;
     }
-    new import_obsidian31.Notice(`Added ${this.date} to ${this.trip.title}.`);
+    new import_obsidian31.Notice(
+      result === "filled" ? `Planned ${this.date} for ${this.trip.title}.` : `Added ${this.date} to ${this.trip.title}.`
+    );
     this.onDone();
     this.close();
   }
@@ -6795,6 +7027,12 @@ var TravelPlannerPlugin = class extends import_obsidian33.Plugin {
       trip,
       this.bookings.getBudget(trip),
       this.bookings.getCurrency(trip),
+      new Map(
+        [...totalsByCategory(this.bookings.getCostLines(trip))].map(([category, byCurrency]) => [
+          category,
+          byCurrency.get(this.bookings.getCurrency(trip)) ?? 0
+        ])
+      ),
       async (budget, currency) => {
         await saveBudget(this.app, trip, budget, currency);
         this.bookings.invalidate();

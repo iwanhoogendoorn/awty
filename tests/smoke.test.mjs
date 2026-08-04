@@ -15,6 +15,8 @@ export * from "./src/util/dates.ts";
 export * from "./src/util/paths.ts";
 export { foodSpotBlock } from "./src/store/templates.ts";
 export { analyseNote } from "./src/store/noteProgress.ts";
+export { emptyDayDates } from "./src/store/itinerary.ts";
+export { routeTitle, layoverMinutes, formatLayover } from "./src/bookings/legs.ts";
 export { fold, rankMatches, flattenByRank } from "./src/util/search.ts";
 export { AIRPORTS } from "./src/data/airports.ts";
 export { AIRLINES, airlineLabel } from "./src/data/airlines.ts";
@@ -245,12 +247,14 @@ test("the real Greek dataset is reachable by ASCII typing", () => {
 
 // ------------------------------------------------------------- progress
 
-test("a freshly generated packing list reads as untouched", () => {
+test("a generated packing list counts as started, and reports nothing packed", () => {
+  // Deliberately not "empty": the list existing is the planning step being
+  // done. Ticking things off happens the night before you leave.
   const p = m.analyseNote(
     "packing",
     "---\ntype: packing-list\n---\n\n# Packing List\n\n## Documents\n- [ ] Passport / ID\n- [ ] Visa\n",
   );
-  assert.equal(p.state, "empty");
+  assert.equal(p.state, "started");
   assert.equal(p.detail, "0/2 packed");
   assert.equal(p.ratio, 0);
 });
@@ -379,6 +383,65 @@ test("clipboard names are recognised as generic, real filenames are not", () => 
   // A real document dragged from Finder keeps its own name.
   assert.equal(isGeneric("KL1885-boarding-pass.pdf"), false);
   assert.equal(isGeneric("Hotel Excelsior confirmation.pdf"), false);
+});
+
+// ------------------------------------------------------------- itinerary
+
+test("a generated day with only sub-headings counts as unplanned", () => {
+  // Trips ship with a heading per day, which made "add day" reject every date
+  // of the trip while the counter still read 0/8.
+  const note = [
+    "# Itinerary",
+    "",
+    "## 2026-08-17",
+    "",
+    "### Morning",
+    "",
+    "### Afternoon",
+    "",
+    "## 2026-08-18",
+    "",
+    "### Morning",
+    "Walk the walls",
+    "",
+  ].join("\n");
+
+  const empty = m.emptyDayDates(note);
+  assert.equal(empty.has("2026-08-17"), true, "scaffolding is not a plan");
+  assert.equal(empty.has("2026-08-18"), false, "a day with content is planned");
+});
+
+test("packing counts as done once the list exists", () => {
+  // A saved list showing 0/38 was reported as empty, so the step stayed red
+  // immediately after saving it.
+  const list = "# Packing\n\n## Clothes\n- [ ] Socks ×8\n- [ ] Underwear ×8\n";
+  const p = m.analyseNote("packing", list);
+  assert.equal(p.state, "started");
+  assert.equal(p.detail, "0/2 packed");
+  // A note with no list at all is still genuinely empty.
+  assert.equal(m.analyseNote("packing", "# Packing\n\nnothing here\n").state, "empty");
+});
+
+// ---------------------------------------------------------------- flights
+
+test("route titles describe the journey, not the first keystroke", () => {
+  const leg = (from, to) => ({ operator: "", number: "", from, to, date: "", depTime: "", arrDate: "", arrTime: "" });
+  assert.equal(m.routeTitle([leg("AMS", "DBV")]), "AMS → DBV");
+  assert.equal(m.routeTitle([leg("AMS", "IST"), leg("IST", "DBV")]), "AMS → DBV via IST");
+  assert.equal(m.routeTitle([]), "");
+});
+
+test("layovers are computed, and refuse to guess without times", () => {
+  const leg = (date, dep, arrDate, arr) => ({
+    operator: "", number: "", from: "", to: "", date, depTime: dep, arrDate, arrTime: arr,
+  });
+  const first = leg("2026-08-17", "10:15", "2026-08-17", "13:40");
+  assert.equal(m.layoverMinutes(first, leg("2026-08-17", "15:45", "", "")), 125);
+  assert.equal(m.formatLayover(125), "2 h 5 min");
+  // An overnight connection spans the date boundary.
+  assert.equal(m.layoverMinutes(first, leg("2026-08-18", "07:00", "", "")), 1040);
+  // No times means no number, rather than a made-up one.
+  assert.equal(m.layoverMinutes(first, leg("2026-08-17", "", "", "")), null);
 });
 
 // -------------------------------------------------------------- packing

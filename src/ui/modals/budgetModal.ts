@@ -1,4 +1,5 @@
 import { App, Modal, Notice, Setting } from "obsidian";
+import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { CostCategory } from "../../bookings/types";
 import { COST_CATEGORIES } from "../../bookings/types";
 import type { Trip } from "../../types";
@@ -14,6 +15,8 @@ export class BudgetModal extends Modal {
     private trip: Trip,
     existing: Map<CostCategory, number>,
     private currency: string,
+    /** What the bookings and expenses already commit to, per category. */
+    private actuals: Map<CostCategory, number>,
     private onSave: (budget: Map<CostCategory, number>, currency: string) => Promise<void>,
   ) {
     super(app);
@@ -21,6 +24,7 @@ export class BudgetModal extends Modal {
   }
 
   onOpen(): void {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
@@ -40,11 +44,22 @@ export class BudgetModal extends Modal {
         });
       });
 
-    const categories = new Set<string>([...COST_CATEGORIES, ...this.values.keys()]);
+    const categories = new Set<string>([
+      ...COST_CATEGORIES,
+      ...this.values.keys(),
+      ...this.actuals.keys(),
+    ]);
     for (const category of categories) {
-      new Setting(contentEl).setName(category).addText((t) => {
+      const actual = this.actuals.get(category) ?? 0;
+      const setting = new Setting(contentEl).setName(category);
+      if (actual > 0) {
+        setting.setDesc(
+          `${formatMoney({ amount: actual, currency: this.currency })} already booked`,
+        );
+      }
+      setting.addText((t) => {
         const current = this.values.get(category);
-        t.setPlaceholder("0");
+        t.setPlaceholder(actual > 0 ? String(Math.ceil(actual)) : "0");
         t.setValue(current !== undefined ? String(current) : "");
         t.inputEl.inputMode = "decimal";
         t.onChange((v) => {
@@ -53,6 +68,21 @@ export class BudgetModal extends Modal {
           else this.values.set(category, amount);
           this.renderTotal();
         });
+      });
+    }
+
+    // Starting from zero when the flights and hotel are already booked is
+    // just data entry; this seeds each line from what is actually committed.
+    if (this.values.size === 0 && this.actuals.size > 0) {
+      const seed = contentEl.createEl("button", {
+        cls: "tp-dash-add",
+        text: "Start from what's already booked",
+      });
+      seed.addEventListener("click", () => {
+        for (const [category, amount] of this.actuals) {
+          if (amount > 0) this.values.set(category, Math.ceil(amount));
+        }
+        this.onOpen();
       });
     }
 

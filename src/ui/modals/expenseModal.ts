@@ -1,4 +1,5 @@
 import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
+import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { CostCategory } from "../../bookings/types";
 import { COST_CATEGORIES } from "../../bookings/types";
 import { countAttachmentsNamed, type ExpenseDraft } from "../../bookings/bookingWriter";
@@ -40,6 +41,7 @@ export class ExpenseModal extends Modal {
   }
 
   onOpen(): void {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");

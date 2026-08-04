@@ -13,7 +13,7 @@ import {
 } from "./types";
 import { TripStore } from "./store/tripStore";
 import { ProgressCache } from "./store/noteProgress";
-import { BookingStore } from "./bookings/bookingStore";
+import { BookingStore, totalsByCategory } from "./bookings/bookingStore";
 import type { BookingKind } from "./bookings/types";
 import {
   createBooking,
@@ -348,6 +348,12 @@ export default class TravelPlannerPlugin extends Plugin {
       trip,
       this.bookings.getBudget(trip),
       this.bookings.getCurrency(trip),
+      new Map(
+        [...totalsByCategory(this.bookings.getCostLines(trip))].map(([category, byCurrency]) => [
+          category,
+          byCurrency.get(this.bookings.getCurrency(trip)) ?? 0,
+        ]),
+      ),
       async (budget, currency) => {
         await saveBudget(this.app, trip, budget, currency);
         this.bookings.invalidate();

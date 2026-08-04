@@ -1,4 +1,5 @@
 import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
+import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { Trip } from "../../types";
 import { kindDef } from "../../types";
 import { buildPackingPlan } from "../../store/packing";
@@ -22,8 +23,8 @@ interface Row {
  */
 export class PackingModal extends Modal {
   private rows: Row[] = [];
-  /** Defaults to who is actually on the trip. */
-  private travellers: number;
+  /** Names selected to pack for; empty means just you. */
+  private packFor: Set<string>;
   private saveBtn: ButtonComponent | null = null;
   private listEl!: HTMLElement;
   private summaryEl!: HTMLElement;
@@ -34,10 +35,11 @@ export class PackingModal extends Modal {
     private onSaved: () => void,
   ) {
     super(app);
-    this.travellers = Math.min(4, Math.max(1, trip.travellers.length || 1));
+    this.packFor = new Set(trip.travellers);
   }
 
   async onOpen(): Promise<void> {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal", "tp-packing");
@@ -53,17 +55,8 @@ export class PackingModal extends Modal {
 
     await this.buildRows(days);
 
-    new Setting(contentEl)
-      .setName("Travelling as")
-      .setDesc("Multiplies the clothing counts. Toiletries and gear stay as one each.")
-      .addDropdown((dd) => {
-        for (const n of [1, 2, 3, 4]) dd.addOption(String(n), n === 1 ? "1 person" : `${n} people`);
-        dd.setValue(String(this.travellers));
-        dd.onChange((v) => {
-          this.travellers = Number(v);
-          this.renderList();
-        });
-      });
+    this.renderPackFor(contentEl);
+    this.renderAddItem(contentEl);
 
     this.summaryEl = contentEl.createDiv({ cls: "tp-packing-summary" });
     this.listEl = contentEl.createDiv({ cls: "tp-packing-list" });
@@ -146,10 +139,87 @@ export class PackingModal extends Modal {
     return out;
   }
 
+  private get headcount(): number {
+    return Math.max(1, this.packFor.size);
+  }
+
+  /** Who the list covers. Packing for yourself is not packing for the family. */
+  private renderPackFor(parent: HTMLElement): void {
+    const people = this.trip.travellers;
+    if (people.length <= 1) return;
+
+    const setting = new Setting(parent)
+      .setName("Packing for")
+      .setDesc("Clothing counts scale with who you tick. Toiletries and gear stay as one each.");
+
+    const row = setting.controlEl.createDiv({ cls: "tp-settings-subnotes" });
+    for (const person of people) {
+      const label = row.createEl("label", { cls: "tp-subnote" });
+      const box = label.createEl("input");
+      box.type = "checkbox";
+      box.checked = this.packFor.has(person);
+      label.createSpan({ text: person });
+      box.addEventListener("change", () => {
+        if (box.checked) this.packFor.add(person);
+        else this.packFor.delete(person);
+        this.renderList();
+      });
+    }
+  }
+
+  /** Nothing generated covers everything; this is the escape hatch. */
+  private renderAddItem(parent: HTMLElement): void {
+    const setting = new Setting(parent).setName("Add an item");
+    let name = "";
+    let section = "Misc";
+    let quantity = "";
+
+    setting.addText((t) => {
+      t.setPlaceholder("Snorkel");
+      t.onChange((v) => (name = v.trim()));
+      t.inputEl.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter") {
+          evt.preventDefault();
+          add();
+          t.setValue("");
+        }
+      });
+    });
+    setting.addDropdown((dd) => {
+      for (const s of [...new Set(this.rows.map((r) => r.section))]) dd.addOption(s, s);
+      dd.setValue(section);
+      dd.onChange((v) => (section = v));
+    });
+    setting.addText((t) => {
+      t.setPlaceholder("Qty");
+      t.inputEl.type = "number";
+      t.inputEl.min = "1";
+      t.inputEl.style.width = "4.5em";
+      t.onChange((v) => (quantity = v));
+    });
+
+    const add = () => {
+      if (!name) return;
+      const qty = Number(quantity);
+      this.rows.push({
+        section,
+        label: name,
+        quantity: Number.isFinite(qty) && qty > 0 ? qty : null,
+        include: true,
+        packed: false,
+      });
+      name = "";
+      quantity = "";
+      this.renderList();
+    };
+
+    setting.addButton((b) => b.setButtonText("Add").onClick(add));
+  }
+
   /** Clothing scales with headcount; a tube of toothpaste does not. */
   private quantityFor(row: Row): number | null {
     if (row.quantity === null) return null;
-    return row.section === "Clothes" ? row.quantity * this.travellers : row.quantity;
+    return row.section === "Clothes" ? row.quantity * this.headcount : row.quantity;
   }
 
   private renderList(): void {
@@ -191,7 +261,7 @@ export class PackingModal extends Modal {
             const value = Number(qty.value);
             if (Number.isFinite(value) && value > 0) {
               // Store the per-person figure so the multiplier stays meaningful.
-              row.quantity = row.section === "Clothes" ? Math.max(1, Math.round(value / this.travellers)) : value;
+              row.quantity = row.section === "Clothes" ? Math.max(1, Math.round(value / this.headcount)) : value;
             }
             this.renderList();
           });
@@ -209,7 +279,9 @@ export class PackingModal extends Modal {
       const included = this.rows.filter((r) => r.include);
 
       const out: string[] = [`# Packing List — ${this.trip.title}`, ""];
-      if (this.travellers > 1) out.push(`> Quantities for ${this.travellers} people.`, "");
+      if (this.packFor.size > 1) {
+        out.push(`> Quantities for ${[...this.packFor].join(", ")}.`, "");
+      }
 
       for (const section of [...new Set(included.map((r) => r.section))]) {
         out.push(`## ${section}`);

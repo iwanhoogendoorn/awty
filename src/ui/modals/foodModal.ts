@@ -1,4 +1,5 @@
 import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
+import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { TravelPlannerSettings, Trip } from "../../types";
 import { appendTableRow, ensureSubNote } from "../../store/sectionWriter";
 import { isValidISODate, todayISO } from "../../util/dates";
@@ -32,6 +33,7 @@ export class FoodModal extends Modal {
   }
 
   onOpen(): void {
+    keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
