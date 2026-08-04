@@ -40,6 +40,7 @@ import {
 import { travelTable } from "./ui/dashboard/gettingAround";
 import { ADVICE_MEANING, AdviceUnavailable, fetchAdvice, type TravelAdvice } from "./travel/advice";
 import { replaceSection } from "./store/sectionWriter";
+import { exportTrip } from "./export/pdfExport";
 import { createTrip, deleteTrip, notifyError, updateTrip } from "./store/noteWriter";
 import { TravelSidebarView } from "./ui/view";
 import { TripModal } from "./ui/modals/tripModal";
@@ -179,6 +180,16 @@ export default class TravelPlannerPlugin extends Plugin {
         const trip = this.contextTrip();
         if (!trip?.country) return false;
         if (!checking) void this.refreshAdvice(trip.country);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "export-trip",
+      name: "Export this trip to PDF",
+      checkCallback: (checking) => {
+        const trip = this.contextTrip();
+        if (!trip) return false;
+        if (!checking) void exportTrip(this, trip);
         return true;
       },
     });
@@ -393,6 +404,10 @@ export default class TravelPlannerPlugin extends Plugin {
       new Notice(`Travel Planner: ${message}`, 8000);
       console.error("[travel-planner]", err);
     }
+  }
+
+  exportTrip(trip: Trip): void {
+    void exportTrip(this, trip);
   }
 
   openPlanWizard(trip: Trip): void {

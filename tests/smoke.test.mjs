@@ -19,6 +19,7 @@ export { emptyDayDates } from "./src/store/itinerary.ts";
 export { routeTitle, layoverMinutes, formatLayover } from "./src/bookings/legs.ts";
 export { parseConfirmation, parseIcs, parseConfirmationText, parseLooseDate } from "./src/flights/parseConfirmation.ts";
 export { splitFlightNumber } from "./src/flights/flightNumber.ts";
+export { renderTripDocument, escapeHtml } from "./src/export/tripDocument.ts";
 export { decodeQuotedPrintable, extractIcsFromEmail } from "./src/flights/parseConfirmation.ts";
 export { fold, rankMatches, flattenByRank, replaceLastToken } from "./src/util/search.ts";
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
@@ -737,6 +738,71 @@ test("custom categories join the built-in ones without duplicating them", () => 
   assert.equal(m.allCategories(["Diving"], ["Diving"]).filter((c) => c === "Diving").length, 1);
   // Blank names are not categories.
   assert.deepEqual(m.allCategories(["", "  "], []), base);
+});
+
+// ----------------------------------------------------------------- export
+
+const emptyDoc = {
+  title: "Dubrovnik - August - 2026",
+  dates: "17 – 24 Aug 2026",
+  duration: "8 days, 7 nights",
+  where: "Dubrovnik, Croatia",
+  origin: "",
+  travellers: [],
+  facts: [["Kind", "Holiday"]],
+  documents: [],
+  bookings: [],
+  days: [],
+  costs: { lines: [], total: "", budget: "", byCategory: [] },
+  packing: [],
+  images: [],
+  generatedOn: "4 Aug 2026",
+};
+
+test("the exported document is self-contained and complete", () => {
+  const html = m.renderTripDocument({
+    ...emptyDoc,
+    documents: [{ label: "Netherlands passport → Croatia: No visa needed", detail: "90 days", tone: "good" }],
+    bookings: [
+      {
+        kind: "flight", kindLabel: "Flight", title: "AMS ⇄ DBV", status: "booked",
+        date: "2026-08-17", endDate: "2026-08-24", time: "10:15", endTime: "16:05",
+        from: "AMS", to: "DBV", reference: "XY7K2Q", seat: "14A", cost: "€827", notes: "",
+        legs: [{ operator: "KL", number: "KL1885", from: "AMS", to: "DBV", date: "2026-08-17", depTime: "10:15", arrDate: "2026-08-17", arrTime: "12:35" }],
+        returnLegs: [],
+      },
+    ],
+    days: [{ date: "2026-08-17", label: "Day 1", weekday: "Mon 17 August", items: [{ time: "10:15", title: "AMS ⇄ DBV", detail: "AMS → DBV" }], staying: "" }],
+    costs: { lines: [{ date: "2026-08-17", description: "Flight", category: "Transport", amount: "€827" }], total: "€827", budget: "€3,000", byCategory: [["Transport", "€827"]] },
+    packing: [{ section: "Documents", items: [{ label: "Passport", packed: true }, { label: "Visa", packed: false }] }],
+  });
+
+  assert.match(html, /^<!doctype html>/);
+  // No external stylesheet, script or image: it has to survive being emailed.
+  assert.equal(/<link\b/i.test(html), false);
+  assert.equal(/<script\b/i.test(html), false);
+  assert.equal(/src="http/i.test(html), false);
+
+  for (const expected of ["Dubrovnik - August - 2026", "XY7K2Q", "KL1885", "Day 1", "€3,000", "Passport"]) {
+    assert.ok(html.includes(expected), `missing ${expected}`);
+  }
+  assert.ok(html.includes('class="box on"'), "packed items are ticked");
+  assert.ok(html.includes("@page"), "carries print styling");
+});
+
+test("trip content cannot inject markup into the export", () => {
+  assert.equal(m.escapeHtml('<script>alert("x")</script>'), "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
+  const html = m.renderTripDocument({ ...emptyDoc, title: '<img src=x onerror=alert(1)>' });
+  assert.equal(html.includes("<img src=x"), false);
+  assert.ok(html.includes("&lt;img src=x"));
+});
+
+test("empty sections are left out rather than printed blank", () => {
+  const html = m.renderTripDocument(emptyDoc);
+  for (const heading of ["Bookings", "Day by day", "Costs", "Packing list", "Attachments"]) {
+    assert.equal(html.includes(`>${heading}</h2>`), false, `${heading} should be omitted`);
+  }
+  assert.ok(html.includes("Dubrovnik - August - 2026"));
 });
 
 // ---------------------------------------------------------------- money

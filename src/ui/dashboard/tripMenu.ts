@@ -80,6 +80,12 @@ export function showTripMenu(evt: MouseEvent, trip: Trip, ctx: DashboardContext)
   }
   menu.addItem((item) =>
     item
+      .setTitle("Export to PDF…")
+      .setIcon("file-down")
+      .onClick(() => plugin.exportTrip(trip)),
+  );
+  menu.addItem((item) =>
+    item
       .setTitle("Copy folder path")
       .setIcon("clipboard-copy")
       .onClick(async () => {
