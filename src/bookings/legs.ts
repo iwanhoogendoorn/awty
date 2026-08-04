@@ -99,3 +99,46 @@ export function legsToFrontmatter(legs: FlightLeg[]): Record<string, string>[] {
     return out;
   });
 }
+
+/**
+ * A gap this long is a stay, not a connection.
+ *
+ * No airline schedules a twelve-hour layover as a normal connection, and no
+ * holiday is shorter than one. It is the only reliable line between "still
+ * travelling" and "arrived, and going home later".
+ */
+export const MIN_STAY_MINUTES = 12 * 60;
+
+/**
+ * Splits a parsed confirmation into the way out and the way home.
+ *
+ * The previous rule looked for the first leg departing from the final
+ * destination, which on a normal return ticket is outbound leg zero — the
+ * split never happened and AMS→DBV→AMS was saved as an outbound
+ * "AMS → AMS via DBV". A return ticket is instead recognised by two things
+ * together: it ends where it started, and somewhere in the middle there is a
+ * gap far too long to be a connection.
+ */
+export function splitJourney(legs: FlightLeg[]): { outbound: FlightLeg[]; back: FlightLeg[] } {
+  const sorted = [...legs].sort((a, b) =>
+    `${a.date}${a.depTime}`.localeCompare(`${b.date}${b.depTime}`),
+  );
+  if (sorted.length < 2) return { outbound: sorted, back: [] };
+
+  const origin = sorted[0].from.trim().toUpperCase();
+  const finish = sorted[sorted.length - 1].to.trim().toUpperCase();
+  if (!origin || origin !== finish) return { outbound: sorted, back: [] };
+
+  let pivot = -1;
+  let longest = MIN_STAY_MINUTES;
+  for (let i = 1; i < sorted.length; i += 1) {
+    const gap = layoverMinutes(sorted[i - 1], sorted[i]);
+    if (gap !== null && gap >= longest) {
+      longest = gap;
+      pivot = i;
+    }
+  }
+  if (pivot === -1) return { outbound: sorted, back: [] };
+
+  return { outbound: sorted.slice(0, pivot), back: sorted.slice(pivot) };
+}

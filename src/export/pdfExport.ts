@@ -185,7 +185,7 @@ export async function buildTripDocument(
       const previous =
         position === 0
           ? staying
-            ? origin
+            ? (placeByPath.get(staying.file.path) ?? origin)
             : undefined
           : placeByPath.get(events[position - 1].file.path);
       return {

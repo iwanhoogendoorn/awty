@@ -10,6 +10,7 @@ import type {
 } from "./types";
 import { BOOKING_KINDS } from "./types";
 import type { AwtySettings, Trip } from "../types";
+import { linkTarget } from "./linkTarget";
 import { isValidISODate } from "../util/dates";
 import { parseAmount } from "../util/money";
 
@@ -271,7 +272,14 @@ export function totalsByCategory(lines: CostLine[]): Map<CostCategory, Map<strin
 }
 
 export function fileFromLink(app: App, link: string, sourcePath: string): TFile | null {
-  const cleaned = link.replace(/^!?\[\[/, "").replace(/\]\]$/, "").split("|")[0].trim();
+  const cleaned = linkTarget(link);
   if (!cleaned) return null;
-  return app.metadataCache.getFirstLinkpathDest(cleaned, sourcePath);
+  return (
+    app.metadataCache.getFirstLinkpathDest(cleaned, sourcePath) ??
+    // A markdown link holds a path rather than a link name, and the path is
+    // vault-absolute when Obsidian is set to "Absolute path in vault".
+    (app.vault.getAbstractFileByPath(cleaned) instanceof TFile
+      ? (app.vault.getAbstractFileByPath(cleaned) as TFile)
+      : null)
+  );
 }

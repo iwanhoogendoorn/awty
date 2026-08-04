@@ -38,9 +38,11 @@ export function itineraryPairs(
     const events = dayEvents(bookings, date);
     if (events.length === 0) continue;
 
-    // You wake up where you slept, so a day inside a stay starts at the hotel.
-    if (ongoingOn(bookings, date).length > 0) {
-      add(base, byPath.get(events[0].file.path));
+    // You wake up where you slept — which on a trip with more than one hotel
+    // is whichever stay covers this night, not the first one in the list.
+    const stay = ongoingOn(bookings, date)[0];
+    if (stay) {
+      add(byPath.get(stay.file.path) ?? base, byPath.get(events[0].file.path));
     }
     for (let i = 0; i < events.length - 1; i += 1) {
       add(byPath.get(events[i].file.path), byPath.get(events[i + 1].file.path));

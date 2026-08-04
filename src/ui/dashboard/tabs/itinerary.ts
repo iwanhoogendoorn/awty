@@ -86,8 +86,10 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
 
     // You wake up where you slept, so the first hop of a day is from the hotel
     // — unless the day starts by arriving at it.
-    if (router && ongoing.length > 0) {
-      router.hop(list, router.base, router.placeFor(events[0].file), router.base?.label);
+    // Whichever stay covers this night, not simply the first hotel booked.
+    const wokeAt = ongoing[0] ? (router?.placeFor(ongoing[0].file) ?? router?.base) : undefined;
+    if (router && wokeAt) {
+      router.hop(list, wokeAt, router.placeFor(events[0].file), wokeAt.label);
     }
 
     for (const [position, event] of events.entries()) {

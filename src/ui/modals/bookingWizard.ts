@@ -9,7 +9,14 @@ import { AirlineSuggest, AirportSuggest, CitySuggest } from "../components/sugge
 import { LegsField } from "../components/legsField";
 import { airportFromLabel } from "../components/suggest";
 import { parseConfirmation, type ParsedConfirmation } from "../../flights/parseConfirmation";
-import { emptyLeg, routeTitle, totalJourneyMinutes, formatLayover, type FlightLeg } from "../../bookings/legs";
+import {
+  emptyLeg,
+  routeTitle,
+  splitJourney,
+  totalJourneyMinutes,
+  formatLayover,
+  type FlightLeg,
+} from "../../bookings/legs";
 import { COMMON_CURRENCIES, formatMoney, parseAmount } from "../../util/money";
 import { formatDateRange, isValidISODate, todayISO } from "../../util/dates";
 
@@ -362,17 +369,8 @@ export class BookingWizard extends Modal {
   }
 
   private applyParsed(parsed: ParsedConfirmation): void {
-    // Legs before the trip's end date are the way out; anything later is the
-    // way home. Works for a one-way too, which simply has no later legs.
-    const sorted = [...parsed.legs].sort((a, b) => `${a.date}${a.depTime}`.localeCompare(`${b.date}${b.depTime}`));
-    const pivot = sorted.findIndex((leg) => leg.from && leg.from === sorted[sorted.length - 1].to);
-
-    let outbound = sorted;
-    let back: typeof sorted = [];
-    if (sorted.length > 1 && pivot > 0) {
-      outbound = sorted.slice(0, pivot);
-      back = sorted.slice(pivot);
-    }
+    const { outbound, back } = splitJourney(parsed.legs);
+    const sorted = [...outbound, ...back];
 
     this.draft.legs = outbound;
     this.draft.returnLegs = back;
@@ -393,7 +391,7 @@ export class BookingWizard extends Modal {
 
     this.readSummary = `Read ${detail.join(" · ")}${
       parsed.source === "ics" ? " from the calendar invite" : ""
-    }`;
+    }${parsed.utcTimes ? " — times are UTC in that calendar, so check them" : ""}`;
 
     new Notice(
       parsed.source === "ics"

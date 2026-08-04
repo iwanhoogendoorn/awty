@@ -1,4 +1,5 @@
 import type { FlightLeg } from "../bookings/legs";
+import { parseAmount } from "../util/money";
 import { isValidISODate } from "../util/dates";
 
 /**
@@ -18,6 +19,15 @@ export interface ParsedConfirmation {
   currency: string;
   /** How the details were obtained, so the UI can say how much to trust them. */
   source: "ics" | "text";
+  /**
+   * True when a calendar timestamp was in UTC.
+   *
+   * A TZID value is already local wall time at the airport and needs no
+   * conversion, but a trailing "Z" is UTC and the offset at the destination is
+   * not something this plugin knows. Rather than silently storing 08:15Z as
+   * 08:15 local, the wizard says the times need checking.
+   */
+  utcTimes: boolean;
 }
 
 const MONTHS: Record<string, number> = {
@@ -106,13 +116,14 @@ function icsValue(line: string): string {
   return at === -1 ? "" : line.slice(at + 1).replace(/\\,/g, ",").replace(/\\n/g, " ").trim();
 }
 
-function icsDateTime(line: string): { date: string; time: string } {
+function icsDateTime(line: string): { date: string; time: string; utc: boolean } {
   const value = icsValue(line);
-  const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2}))?/.exec(value);
-  if (!m) return { date: "", time: "" };
+  const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?/.exec(value);
+  if (!m) return { date: "", time: "", utc: false };
   return {
     date: `${m[1]}-${m[2]}-${m[3]}`,
     time: m[4] ? `${m[4]}:${m[5]}` : "",
+    utc: m[7] === "Z",
   };
 }
 
@@ -124,6 +135,7 @@ export function parseIcs(text: string): ParsedConfirmation | null {
 
   const legs: FlightLeg[] = [];
   let reference = "";
+  let utcTimes = false;
   let current: Record<string, string> | null = null;
 
   for (const line of unfoldIcs(text)) {
@@ -149,10 +161,12 @@ export function parseIcs(text: string): ParsedConfirmation | null {
       const parsed = icsDateTime(line);
       current.startDate = parsed.date;
       current.startTime = parsed.time;
+      if (parsed.utc) utcTimes = true;
     } else if (upper.startsWith("DTEND")) {
       const parsed = icsDateTime(line);
       current.endDate = parsed.date;
       current.endTime = parsed.time;
+      if (parsed.utc) utcTimes = true;
     }
   }
 
@@ -168,7 +182,7 @@ export function parseIcs(text: string): ParsedConfirmation | null {
 
   if (legs.length === 0) return null;
   legs.sort((a, b) => `${a.date}${a.depTime}`.localeCompare(`${b.date}${b.depTime}`));
-  return { legs, reference, amount: null, currency: "", source: "ics" };
+  return { legs, reference, amount: null, currency: "", source: "ics", utcTimes };
 }
 
 function legFromIcsEvent(event: Record<string, string>): FlightLeg | null {
@@ -245,9 +259,10 @@ export function parseConfirmationText(text: string): ParsedConfirmation | null {
   if (priceMatch) {
     const symbols: Record<string, string> = { "€": "EUR", $: "USD", "£": "GBP" };
     currency = symbols[priceMatch[1]] ?? priceMatch[1].toUpperCase();
-    const cleaned = priceMatch[2].replace(/\.(?=\d{3}\b)/g, "").replace(",", ".");
-    const value = Number(cleaned);
-    if (Number.isFinite(value)) amount = value;
+    // parseAmount reads both 1.234,56 and 1,234.56. The rule this used to
+    // apply assumed European punctuation, so "USD 1,234.56" normalised to
+    // "1.234.56" and was dropped, and "USD 1,234" became 1.234.
+    amount = parseAmount(priceMatch[2]);
   }
 
   return {
@@ -256,6 +271,7 @@ export function parseConfirmationText(text: string): ParsedConfirmation | null {
     amount,
     currency,
     source: "text",
+    utcTimes: false,
   };
 }
 

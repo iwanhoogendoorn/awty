@@ -16,7 +16,7 @@ export * from "./src/util/paths.ts";
 export { foodSpotBlock } from "./src/store/templates.ts";
 export { analyseNote } from "./src/store/noteProgress.ts";
 export { emptyDayDates, readDaySections } from "./src/store/itinerary.ts";
-export { routeTitle, layoverMinutes, formatLayover, totalJourneyMinutes } from "./src/bookings/legs.ts";
+export { routeTitle, layoverMinutes, formatLayover, totalJourneyMinutes, splitJourney } from "./src/bookings/legs.ts";
 export { parseConfirmation, parseIcs, parseConfirmationText, parseLooseDate } from "./src/flights/parseConfirmation.ts";
 export { splitFlightNumber } from "./src/flights/flightNumber.ts";
 export { parseLegTable } from "./src/bookings/legTable.ts";
@@ -46,6 +46,7 @@ export { itineraryPairs, groupByOrigin } from "./src/travel/routePlan.ts";
 export { readLegs, summariseFlight } from "./src/bookings/flightSummary.ts";
 export { renderMarkdown, stripFrontmatter } from "./src/export/markdown.ts";
 export { customSections, sectionText } from "./src/bookings/noteSections.ts";
+export { linkTarget } from "./src/bookings/linkTarget.ts";
 `;
 
 const outfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tp-test-")), "bundle.mjs");
@@ -1152,6 +1153,27 @@ test("the fan-out covers the hops the timeline draws, not just the ones from the
   assert.ok(keys.includes("Rausion.md>Shopping.md"), keys.join(", "));
 });
 
+test("a second hotel is the origin for the nights you spend in it", () => {
+  // The base was fixed to hotels[0] for the whole trip, so a day-5 activity
+  // measured from the hotel left on day 3.
+  const b = (o) => ({
+    kind: "activity", status: "booked", title: "", date: "", time: "", endDate: "",
+    endTime: "", returnDate: "", returnTime: "", from: "", to: "", slot: "",
+    cost: null, file: { path: `${o.title}.md` }, ...o,
+  });
+  const bookings = [
+    b({ kind: "stay", title: "Hotel A", date: "2026-08-17", endDate: "2026-08-20" }),
+    b({ kind: "stay", title: "Hotel B", date: "2026-08-20", endDate: "2026-08-24" }),
+    b({ title: "Kayaking", date: "2026-08-22", slot: "morning" }),
+  ];
+  const P = (id, kind) => ({ id, label: id, kind, coord: { lat: 1, lng: 1 }, file: { path: id } });
+  const places = [P("Hotel A.md", "hotel"), P("Hotel B.md", "hotel"), P("Kayaking.md", "activity")];
+  const keys = m
+    .itineraryPairs(bookings, ["2026-08-22"], places, places[0])
+    .map((p) => `${p.from.id}>${p.to.id}`);
+  assert.deepEqual(keys, ["Hotel B.md>Kayaking.md"], keys.join(", "));
+});
+
 test("pairs sharing an origin are batched into one request", () => {
   const a = place("a", "hotel");
   const groups = m.groupByOrigin([
@@ -1290,6 +1312,87 @@ test("frontmatter whose closing delimiter ends the file is still stripped", () =
   assert.equal(m.stripFrontmatter("---\ntype: trip\n---"), "");
   assert.equal(m.stripFrontmatter("---\ntype: trip\n---\n"), "");
   assert.equal(m.stripFrontmatter("---\ntype: trip\n---\n\nBody"), "\nBody");
+});
+
+test("a confirmation total is read in either notation", () => {
+  const read = (line) =>
+    m.parseConfirmationText(
+      ["KL1885 AMS - DBV", "17 Aug 2026 10:15 - 12:35", line].join("\n"),
+    );
+  // The old rule assumed European punctuation: "1,234.56" normalised to
+  // "1.234.56" and was dropped, and "1,234" became 1.234.
+  assert.equal(read("Total paid: USD 1,234.56").amount, 1234.56);
+  assert.equal(read("Total paid: USD 1,234").amount, 1234);
+  assert.equal(read("Totaal: EUR 827,50").amount, 827.5);
+  assert.equal(read("Total: EUR 1.234,56").amount, 1234.56);
+});
+
+test("a UTC calendar time is flagged rather than passed off as local", () => {
+  const ics = [
+    "BEGIN:VCALENDAR", "BEGIN:VEVENT",
+    "SUMMARY:KL1885 Amsterdam (AMS) to Dubrovnik (DBV)",
+    "DTSTART:20260817T081500Z", "DTEND:20260817T103500Z",
+    "END:VEVENT", "END:VCALENDAR",
+  ].join("\n");
+  const parsed = m.parseIcs(ics);
+  assert.equal(parsed.utcTimes, true, "a trailing Z is UTC, not local wall time");
+
+  const local = m.parseIcs(ics.replace(/Z$/gm, ""));
+  assert.equal(local.utcTimes, false, "a floating or TZID time is already local");
+});
+
+test("an attachment resolves whichever link style the vault is set to", () => {
+  // Only the wikilink form was unwrapped. With "Use [[Wikilinks]]" off,
+  // every attachment resolved to nothing: editing a booking dropped them and
+  // the PDF export skipped the images.
+  assert.equal(m.linkTarget("[[receipt.pdf]]"), "receipt.pdf");
+  assert.equal(m.linkTarget("![[Trips/a b.png]]"), "Trips/a b.png");
+  assert.equal(m.linkTarget("[[receipt.pdf|the receipt]]"), "receipt.pdf");
+  assert.equal(m.linkTarget("[receipt](Trips/receipt.pdf)"), "Trips/receipt.pdf");
+  assert.equal(m.linkTarget("![shot](Trips/a%20b.png)"), "Trips/a b.png", "percent-encoded");
+  assert.equal(m.linkTarget("[x](<Trips/a b.pdf>)"), "Trips/a b.pdf", "angle-wrapped");
+  assert.equal(m.linkTarget("Trips/plain.pdf"), "Trips/plain.pdf", "a bare path");
+  assert.equal(m.linkTarget("[site](https://example.com)"), "", "not a vault file");
+});
+
+test("a return ticket is split into out and back, not one long outbound", () => {
+  // The pivot looked for the first leg departing from the final destination,
+  // which on a return ticket is outbound leg zero. Nothing ever split, and the
+  // booking saved as an outbound "AMS → AMS via DBV".
+  const leg = (from, to, date, dep, arr) => ({
+    operator: "KL", number: "KL1885", from, to, date, depTime: dep, arrDate: date, arrTime: arr,
+  });
+  const ret = m.splitJourney([
+    leg("AMS", "DBV", "2026-08-17", "10:15", "12:35"),
+    leg("DBV", "AMS", "2026-08-24", "13:25", "15:55"),
+  ]);
+  assert.equal(ret.outbound.length, 1);
+  assert.equal(ret.back.length, 1);
+  assert.equal(ret.back[0].from, "DBV");
+
+  // Connections inside one journey are not a split.
+  const connecting = m.splitJourney([
+    leg("AMS", "VIE", "2026-08-17", "10:15", "11:55"),
+    leg("VIE", "DBV", "2026-08-17", "12:40", "13:50"),
+  ]);
+  assert.equal(connecting.back.length, 0, "a 45 minute layover is a connection");
+
+  // A one-way with a long stopover does not end where it started.
+  const stopover = m.splitJourney([
+    leg("AMS", "VIE", "2026-08-17", "10:15", "11:55"),
+    leg("VIE", "DBV", "2026-08-18", "09:00", "10:10"),
+  ]);
+  assert.equal(stopover.back.length, 0, "it never returns to AMS");
+
+  // A connecting return splits at the stay, not at either layover.
+  const both = m.splitJourney([
+    leg("AMS", "VIE", "2026-08-17", "10:15", "11:55"),
+    leg("VIE", "DBV", "2026-08-17", "12:40", "13:50"),
+    leg("DBV", "VIE", "2026-08-24", "14:20", "15:30"),
+    leg("VIE", "AMS", "2026-08-24", "16:40", "18:20"),
+  ]);
+  assert.deepEqual(both.outbound.map((l) => l.to), ["VIE", "DBV"]);
+  assert.deepEqual(both.back.map((l) => l.to), ["VIE", "AMS"]);
 });
 
 test("an untimed morning activity comes before a timed evening one", () => {
