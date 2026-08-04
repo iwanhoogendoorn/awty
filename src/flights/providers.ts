@@ -1,12 +1,13 @@
 import { requestUrl } from "obsidian";
 import type { FlightLeg } from "../bookings/legs";
+import { splitFlightNumber } from "./flightNumber";
+
+export { splitFlightNumber } from "./flightNumber";
 
 export class FlightApiError extends Error {}
 
 /** Both providers are optional and off until you supply your own credentials. */
 export interface FlightApiConfig {
-  /** RapidAPI key for the flight-number lookup. */
-  rapidApiKey: string;
   amadeusClientId: string;
   amadeusClientSecret: string;
   /** Amadeus test returns sample data; production returns real fares. */
@@ -15,99 +16,111 @@ export interface FlightApiConfig {
 
 // ------------------------------------------------- flight-number lookup
 
-const AERODATABOX_HOST = "aerodatabox.p.rapidapi.com";
-
 function str(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** "2026-08-17T10:15+02:00" and friends, split into date and time. */
-function splitLocal(value: unknown): { date: string; time: string } {
+/** "2026-08-17T10:15+02:00" and bare "10:15:00" both appear in the wild. */
+function splitLocal(value: unknown, fallbackDate = ""): { date: string; time: string } {
   const text = str(value);
-  const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(text);
-  return m ? { date: m[1], time: m[2] } : { date: "", time: "" };
+  const full = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(text);
+  if (full) return { date: full[1], time: full[2] };
+  const timeOnly = /^(\d{2}):(\d{2})/.exec(text);
+  return timeOnly ? { date: fallbackDate, time: `${timeOnly[1]}:${timeOnly[2]}` } : { date: "", time: "" };
 }
 
-interface AeroEndpoint {
-  airport?: { iata?: string; iataCode?: string; name?: string };
-  scheduledTime?: { local?: string };
-  scheduledTimeLocal?: string;
-  terminal?: string;
+interface Timing {
+  qualifier?: string;
+  value?: string;
 }
 
-interface AeroFlight {
-  number?: string;
-  airline?: { name?: string };
-  departure?: AeroEndpoint;
-  arrival?: AeroEndpoint;
+interface FlightPoint {
+  iataCode?: string;
+  departure?: { timings?: Timing[] };
+  arrival?: { timings?: Timing[] };
 }
 
-function endpointOf(end: AeroEndpoint | undefined): { code: string; date: string; time: string } {
-  const code = str(end?.airport?.iata ?? end?.airport?.iataCode);
-  const when = splitLocal(end?.scheduledTime?.local ?? end?.scheduledTimeLocal);
-  return { code, ...when };
+interface DatedFlight {
+  scheduledDepartureDate?: string;
+  flightDesignator?: { carrierCode?: string; flightNumber?: number };
+  flightPoints?: FlightPoint[];
+}
+
+function timingOf(timings: Timing[] | undefined, qualifier: string): string {
+  if (!Array.isArray(timings) || timings.length === 0) return "";
+  const match = timings.find((t) => str(t.qualifier).toUpperCase() === qualifier);
+  return str((match ?? timings[0]).value);
 }
 
 /**
  * Looks up a scheduled flight by its number and date.
  *
- * By the time you are using this you have already booked; the flight number is
- * on the confirmation and everything else is transcription. Shapes are read
- * defensively because this is a third-party API that can change under us.
+ * Uses the same Amadeus credentials as the fare search rather than a second
+ * account with another provider: one set of keys, and an endpoint whose shape
+ * is verified against their published OpenAPI spec.
  */
 export async function lookupFlight(
   flightNumber: string,
   date: string,
   config: FlightApiConfig,
 ): Promise<FlightLeg[]> {
-  const key = config.rapidApiKey.trim();
-  if (!key) throw new FlightApiError("No RapidAPI key set in Travel Planner settings.");
+  const parts = splitFlightNumber(flightNumber);
+  if (!parts) throw new FlightApiError(`"${flightNumber}" does not look like a flight number.`);
 
-  const number = flightNumber.replace(/\s+/g, "").toUpperCase();
-  if (!/^[A-Z0-9]{2}\d{1,4}$/.test(number)) {
-    throw new FlightApiError(`"${flightNumber}" does not look like a flight number.`);
-  }
-
-  const url = `https://${AERODATABOX_HOST}/flights/number/${encodeURIComponent(number)}/${encodeURIComponent(date)}`;
-  const response = await requestUrl({
-    url,
-    throw: false,
-    headers: { "X-RapidAPI-Key": key, "X-RapidAPI-Host": AERODATABOX_HOST },
+  const token = await amadeusToken(config);
+  const params = new URLSearchParams({
+    carrierCode: parts.carrier,
+    flightNumber: parts.number,
+    scheduledDepartureDate: date,
   });
 
-  if (response.status === 204 || response.status === 404) {
-    throw new FlightApiError(`No schedule found for ${number} on ${date}.`);
+  const response = await requestUrl({
+    url: `https://${amadeusHost(config)}/v2/schedule/flights?${params.toString()}`,
+    throw: false,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (response.status === 401) {
+    cachedToken = null;
+    throw new FlightApiError("Amadeus rejected the token. Try again.");
   }
-  if (response.status === 401 || response.status === 403) {
-    throw new FlightApiError("The RapidAPI key was rejected. Check it, and that you are subscribed to AeroDataBox.");
-  }
-  if (response.status === 429) {
-    throw new FlightApiError("Rate limit reached on your RapidAPI plan.");
+  if (response.status === 404) {
+    throw new FlightApiError(`No schedule found for ${parts.carrier}${parts.number} on ${date}.`);
   }
   if (response.status !== 200) {
-    throw new FlightApiError(`Flight lookup failed with HTTP ${response.status}.`);
+    const detail = (response.json as { errors?: { detail?: string }[] })?.errors?.[0]?.detail;
+    throw new FlightApiError(detail ?? `Flight lookup failed with HTTP ${response.status}.`);
   }
 
-  const body = response.json as AeroFlight[] | { flights?: AeroFlight[] };
-  const flights = Array.isArray(body) ? body : (body?.flights ?? []);
-  if (!Array.isArray(flights) || flights.length === 0) {
-    throw new FlightApiError(`No schedule found for ${number} on ${date}.`);
+  const body = response.json as { data?: DatedFlight[] };
+  const flights = body.data ?? [];
+  if (flights.length === 0) {
+    throw new FlightApiError(`No schedule found for ${parts.carrier}${parts.number} on ${date}.`);
   }
 
-  return flights.map((flight) => {
-    const from = endpointOf(flight.departure);
-    const to = endpointOf(flight.arrival);
-    return {
-      operator: str(flight.airline?.name),
-      number: str(flight.number).replace(/\s+/g, "") || number,
-      from: from.code,
-      to: to.code,
-      date: from.date || date,
-      depTime: from.time,
-      arrDate: to.date || from.date || date,
-      arrTime: to.time,
-    };
-  });
+  return flights
+    .map((flight) => {
+      const points = flight.flightPoints ?? [];
+      const origin = points.find((p) => p.departure) ?? points[0];
+      const destination = [...points].reverse().find((p) => p.arrival) ?? points[points.length - 1];
+      if (!origin || !destination) return null;
+
+      const scheduled = str(flight.scheduledDepartureDate) || date;
+      const out = splitLocal(timingOf(origin.departure?.timings, "STD"), scheduled);
+      const arrive = splitLocal(timingOf(destination.arrival?.timings, "STA"), scheduled);
+
+      return {
+        operator: str(flight.flightDesignator?.carrierCode) || parts.carrier,
+        number: `${parts.carrier}${parts.number}`,
+        from: str(origin.iataCode),
+        to: str(destination.iataCode),
+        date: out.date || scheduled,
+        depTime: out.time,
+        arrDate: arrive.date || out.date || scheduled,
+        arrTime: arrive.time,
+      };
+    })
+    .filter((leg): leg is FlightLeg => leg !== null);
 }
 
 // ---------------------------------------------------------- fare search

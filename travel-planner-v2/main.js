@@ -128,7 +128,6 @@ var DEFAULT_SETTINGS = {
   passportCountries: ["Netherlands"],
   travelAdviceEnabled: true,
   customCategories: [],
-  rapidApiKey: "",
   amadeusClientId: "",
   amadeusClientSecret: "",
   amadeusEnvironment: "test",
@@ -3880,7 +3879,7 @@ var LegsField = class {
         }
         if (!this.opts.canLookUp()) {
           this.opts.explainLookup(
-            "Add a RapidAPI key under Settings \u2192 Travel Planner \u2192 Flight data to look flights up automatically."
+            "Add your Amadeus key and secret under Settings \u2192 Travel Planner \u2192 Flight data to look flights up automatically."
           );
           return;
         }
@@ -4166,66 +4165,83 @@ function parseConfirmation(text) {
 
 // src/flights/providers.ts
 var import_obsidian20 = require("obsidian");
+
+// src/flights/flightNumber.ts
+function splitFlightNumber(raw) {
+  const cleaned = raw.replace(/\s+/g, "").toUpperCase();
+  const m = /^([A-Z0-9]{2,3}?)(\d{1,4})$/.exec(cleaned);
+  if (!m) return null;
+  if (!/^[A-Z]{2,3}$|^[A-Z]\d$|^\d[A-Z]$/.test(m[1])) return null;
+  return { carrier: m[1], number: m[2] };
+}
+
+// src/flights/providers.ts
 var FlightApiError = class extends Error {
 };
-var AERODATABOX_HOST = "aerodatabox.p.rapidapi.com";
 function str3(value) {
   return typeof value === "string" ? value.trim() : "";
 }
-function splitLocal(value) {
+function splitLocal(value, fallbackDate = "") {
   const text = str3(value);
-  const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(text);
-  return m ? { date: m[1], time: m[2] } : { date: "", time: "" };
+  const full = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(text);
+  if (full) return { date: full[1], time: full[2] };
+  const timeOnly = /^(\d{2}):(\d{2})/.exec(text);
+  return timeOnly ? { date: fallbackDate, time: `${timeOnly[1]}:${timeOnly[2]}` } : { date: "", time: "" };
 }
-function endpointOf(end) {
-  const code = str3(end?.airport?.iata ?? end?.airport?.iataCode);
-  const when = splitLocal(end?.scheduledTime?.local ?? end?.scheduledTimeLocal);
-  return { code, ...when };
+function timingOf(timings, qualifier) {
+  if (!Array.isArray(timings) || timings.length === 0) return "";
+  const match = timings.find((t) => str3(t.qualifier).toUpperCase() === qualifier);
+  return str3((match ?? timings[0]).value);
 }
 async function lookupFlight(flightNumber, date, config) {
-  const key = config.rapidApiKey.trim();
-  if (!key) throw new FlightApiError("No RapidAPI key set in Travel Planner settings.");
-  const number = flightNumber.replace(/\s+/g, "").toUpperCase();
-  if (!/^[A-Z0-9]{2}\d{1,4}$/.test(number)) {
-    throw new FlightApiError(`"${flightNumber}" does not look like a flight number.`);
-  }
-  const url = `https://${AERODATABOX_HOST}/flights/number/${encodeURIComponent(number)}/${encodeURIComponent(date)}`;
-  const response = await (0, import_obsidian20.requestUrl)({
-    url,
-    throw: false,
-    headers: { "X-RapidAPI-Key": key, "X-RapidAPI-Host": AERODATABOX_HOST }
+  const parts = splitFlightNumber(flightNumber);
+  if (!parts) throw new FlightApiError(`"${flightNumber}" does not look like a flight number.`);
+  const token = await amadeusToken(config);
+  const params = new URLSearchParams({
+    carrierCode: parts.carrier,
+    flightNumber: parts.number,
+    scheduledDepartureDate: date
   });
-  if (response.status === 204 || response.status === 404) {
-    throw new FlightApiError(`No schedule found for ${number} on ${date}.`);
+  const response = await (0, import_obsidian20.requestUrl)({
+    url: `https://${amadeusHost(config)}/v2/schedule/flights?${params.toString()}`,
+    throw: false,
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (response.status === 401) {
+    cachedToken = null;
+    throw new FlightApiError("Amadeus rejected the token. Try again.");
   }
-  if (response.status === 401 || response.status === 403) {
-    throw new FlightApiError("The RapidAPI key was rejected. Check it, and that you are subscribed to AeroDataBox.");
-  }
-  if (response.status === 429) {
-    throw new FlightApiError("Rate limit reached on your RapidAPI plan.");
+  if (response.status === 404) {
+    throw new FlightApiError(`No schedule found for ${parts.carrier}${parts.number} on ${date}.`);
   }
   if (response.status !== 200) {
-    throw new FlightApiError(`Flight lookup failed with HTTP ${response.status}.`);
+    const detail = response.json?.errors?.[0]?.detail;
+    throw new FlightApiError(detail ?? `Flight lookup failed with HTTP ${response.status}.`);
   }
   const body = response.json;
-  const flights = Array.isArray(body) ? body : body?.flights ?? [];
-  if (!Array.isArray(flights) || flights.length === 0) {
-    throw new FlightApiError(`No schedule found for ${number} on ${date}.`);
+  const flights = body.data ?? [];
+  if (flights.length === 0) {
+    throw new FlightApiError(`No schedule found for ${parts.carrier}${parts.number} on ${date}.`);
   }
   return flights.map((flight) => {
-    const from = endpointOf(flight.departure);
-    const to = endpointOf(flight.arrival);
+    const points = flight.flightPoints ?? [];
+    const origin = points.find((p) => p.departure) ?? points[0];
+    const destination = [...points].reverse().find((p) => p.arrival) ?? points[points.length - 1];
+    if (!origin || !destination) return null;
+    const scheduled = str3(flight.scheduledDepartureDate) || date;
+    const out = splitLocal(timingOf(origin.departure?.timings, "STD"), scheduled);
+    const arrive = splitLocal(timingOf(destination.arrival?.timings, "STA"), scheduled);
     return {
-      operator: str3(flight.airline?.name),
-      number: str3(flight.number).replace(/\s+/g, "") || number,
-      from: from.code,
-      to: to.code,
-      date: from.date || date,
-      depTime: from.time,
-      arrDate: to.date || from.date || date,
-      arrTime: to.time
+      operator: str3(flight.flightDesignator?.carrierCode) || parts.carrier,
+      number: `${parts.carrier}${parts.number}`,
+      from: str3(origin.iataCode),
+      to: str3(destination.iataCode),
+      date: out.date || scheduled,
+      depTime: out.time,
+      arrDate: arrive.date || out.date || scheduled,
+      arrTime: arrive.time
     };
-  });
+  }).filter((leg) => leg !== null);
 }
 function legOf(segment) {
   const from = splitLocal(segment.departure?.at);
@@ -4567,7 +4583,7 @@ var BookingWizard = class extends import_obsidian22.Modal {
     (0, import_obsidian22.setIcon)(paste.createSpan(), "clipboard-paste");
     paste.createSpan({ text: "Paste a confirmation" });
     paste.addEventListener("click", () => this.openPasteBox());
-    if (this.settings.amadeusClientId.trim() && this.settings.amadeusClientSecret.trim()) {
+    if (this.hasAmadeus()) {
       const search = tools.createEl("button", { cls: "tp-dash-add" });
       search.type = "button";
       (0, import_obsidian22.setIcon)(search.createSpan(), "search");
@@ -4623,6 +4639,9 @@ var BookingWizard = class extends import_obsidian22.Modal {
       `Read ${sorted.length} leg${sorted.length === 1 ? "" : "s"}${parsed.source === "ics" ? " from the calendar invite" : ""}. Check the times before saving.`
     );
     this.renderBody();
+  }
+  hasAmadeus() {
+    return this.settings.amadeusClientId.trim().length > 0 && this.settings.amadeusClientSecret.trim().length > 0;
   }
   async lookUpLeg(number, date) {
     try {
@@ -4687,7 +4706,7 @@ var BookingWizard = class extends import_obsidian22.Modal {
       stars: this.stars,
       nearby: () => ({ country: this.trip.country, city: this.trip.city }),
       onChange: () => this.syncFromLegs(),
-      canLookUp: () => this.settings.rapidApiKey.trim().length > 0,
+      canLookUp: () => this.hasAmadeus(),
       lookUp: (number, date) => this.lookUpLeg(number, date),
       explainLookup: (message) => new import_obsidian22.Notice(message, 7e3)
     });
@@ -4719,7 +4738,7 @@ var BookingWizard = class extends import_obsidian22.Modal {
         stars: this.stars,
         nearby: () => ({ country: this.trip.country, city: this.trip.city }),
         onChange: () => this.syncFromLegs(),
-        canLookUp: () => this.settings.rapidApiKey.trim().length > 0,
+        canLookUp: () => this.hasAmadeus(),
         lookUp: (number, date) => this.lookUpLeg(number, date),
         explainLookup: (message) => new import_obsidian22.Notice(message, 7e3)
       });
@@ -8193,18 +8212,9 @@ var TravelPlannerSettingTab = class extends import_obsidian37.PluginSettingTab {
     new import_obsidian37.Setting(containerEl).setName("Flight data").setHeading();
     containerEl.createDiv({
       cls: "tp-settings-note",
-      text: "Pasting a confirmation needs nothing at all and works offline. The two lookups below are optional, use your own accounts, and are only called when you press the button."
+      text: "Pasting a confirmation needs nothing at all and works offline. One free Amadeus Self-Service account covers both looking a flight up by its number and searching fares \u2014 no second provider, no RapidAPI. Nothing is called until you press a button."
     });
-    new import_obsidian37.Setting(containerEl).setName("RapidAPI key").setDesc("Looks a flight up by its number and date, via AeroDataBox. Leave blank to skip.").addText((t) => {
-      t.inputEl.type = "password";
-      t.setPlaceholder("Optional");
-      t.setValue(this.plugin.settings.rapidApiKey);
-      t.onChange(async (v) => {
-        this.plugin.settings.rapidApiKey = v.trim();
-        await this.plugin.saveSettings();
-      });
-    });
-    new import_obsidian37.Setting(containerEl).setName("Amadeus API key").setDesc("Searches for bookable fares. Leave blank to skip.").addText((t) => {
+    new import_obsidian37.Setting(containerEl).setName("Amadeus API key").setDesc("Looks flights up by number, and searches fares. Free to register. Leave blank to skip both.").addText((t) => {
       t.setPlaceholder("Client ID");
       t.setValue(this.plugin.settings.amadeusClientId);
       t.onChange(async (v) => {

@@ -18,6 +18,7 @@ export { analyseNote } from "./src/store/noteProgress.ts";
 export { emptyDayDates } from "./src/store/itinerary.ts";
 export { routeTitle, layoverMinutes, formatLayover } from "./src/bookings/legs.ts";
 export { parseConfirmation, parseIcs, parseConfirmationText, parseLooseDate } from "./src/flights/parseConfirmation.ts";
+export { splitFlightNumber } from "./src/flights/flightNumber.ts";
 export { fold, rankMatches, flattenByRank } from "./src/util/search.ts";
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
 export { allCategories, COST_CATEGORIES } from "./src/bookings/types.ts";
@@ -588,6 +589,16 @@ test("12-hour times are converted, and prose is not mistaken for a flight", () =
   // A line has to carry both a flight number and an airport pair.
   assert.equal(m.parseConfirmationText("Thanks for flying with us. See you soon!"), null);
   assert.equal(m.parseConfirmationText("Your reference is ABC123"), null);
+});
+
+test("flight numbers split into carrier and number", () => {
+  assert.deepEqual(m.splitFlightNumber("KL1885"), { carrier: "KL", number: "1885" });
+  assert.deepEqual(m.splitFlightNumber("kl 1885"), { carrier: "KL", number: "1885" });
+  // Carriers with a digit in the code are real: U2 is easyJet, 6E is IndiGo.
+  assert.deepEqual(m.splitFlightNumber("U21234"), { carrier: "U2", number: "1234" });
+  assert.deepEqual(m.splitFlightNumber("6E77"), { carrier: "6E", number: "77" });
+  assert.equal(m.splitFlightNumber("nonsense"), null);
+  assert.equal(m.splitFlightNumber("1885"), null);
 });
 
 // ---------------------------------------------------------------- flights

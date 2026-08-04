@@ -165,7 +165,7 @@ export class LegsField {
         }
         if (!this.opts.canLookUp()) {
           this.opts.explainLookup(
-            "Add a RapidAPI key under Settings → Travel Planner → Flight data to look flights up automatically.",
+            "Add your Amadeus key and secret under Settings → Travel Planner → Flight data to look flights up automatically.",
           );
           return;
         }

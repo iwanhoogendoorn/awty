@@ -256,7 +256,7 @@ export class BookingWizard extends Modal {
     paste.createSpan({ text: "Paste a confirmation" });
     paste.addEventListener("click", () => this.openPasteBox());
 
-    if (this.settings.amadeusClientId.trim() && this.settings.amadeusClientSecret.trim()) {
+    if (this.hasAmadeus()) {
       const search = tools.createEl("button", { cls: "tp-dash-add" });
       search.type = "button";
       setIcon(search.createSpan(), "search");
@@ -322,6 +322,13 @@ export class BookingWizard extends Modal {
       `Read ${sorted.length} leg${sorted.length === 1 ? "" : "s"}${parsed.source === "ics" ? " from the calendar invite" : ""}. Check the times before saving.`,
     );
     this.renderBody();
+  }
+
+  private hasAmadeus(): boolean {
+    return (
+      this.settings.amadeusClientId.trim().length > 0 &&
+      this.settings.amadeusClientSecret.trim().length > 0
+    );
   }
 
   private async lookUpLeg(number: string, date: string): Promise<FlightLeg | null> {
@@ -390,7 +397,7 @@ export class BookingWizard extends Modal {
       stars: this.stars,
       nearby: () => ({ country: this.trip.country, city: this.trip.city }),
       onChange: () => this.syncFromLegs(),
-      canLookUp: () => this.settings.rapidApiKey.trim().length > 0,
+      canLookUp: () => this.hasAmadeus(),
       lookUp: (number, date) => this.lookUpLeg(number, date),
       explainLookup: (message) => new Notice(message, 7000),
     });
@@ -429,7 +436,7 @@ export class BookingWizard extends Modal {
         stars: this.stars,
         nearby: () => ({ country: this.trip.country, city: this.trip.city }),
         onChange: () => this.syncFromLegs(),
-        canLookUp: () => this.settings.rapidApiKey.trim().length > 0,
+        canLookUp: () => this.hasAmadeus(),
         lookUp: (number, date) => this.lookUpLeg(number, date),
         explainLookup: (message) => new Notice(message, 7000),
       });

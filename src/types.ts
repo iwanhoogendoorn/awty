@@ -206,9 +206,7 @@ export interface TravelPlannerSettings {
   travelAdviceEnabled: boolean;
   /** Cost categories you added yourself, alongside the built-in ones. */
   customCategories: string[];
-  /** RapidAPI key for looking a flight up by its number. Optional. */
-  rapidApiKey: string;
-  /** Amadeus credentials for fare search. Optional, and billed by them. */
+  /** Amadeus credentials, used for both flight look-up and fare search. */
   amadeusClientId: string;
   amadeusClientSecret: string;
   amadeusEnvironment: "test" | "production";
@@ -249,7 +247,6 @@ export const DEFAULT_SETTINGS: TravelPlannerSettings = {
   passportCountries: ["Netherlands"],
   travelAdviceEnabled: true,
   customCategories: [],
-  rapidApiKey: "",
   amadeusClientId: "",
   amadeusClientSecret: "",
   amadeusEnvironment: "test",

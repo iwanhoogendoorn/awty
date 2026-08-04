@@ -259,26 +259,14 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
     containerEl.createDiv({
       cls: "tp-settings-note",
       text:
-        "Pasting a confirmation needs nothing at all and works offline. The two lookups below are optional, " +
-        "use your own accounts, and are only called when you press the button.",
+        "Pasting a confirmation needs nothing at all and works offline. One free Amadeus Self-Service account " +
+        "covers both looking a flight up by its number and searching fares — no second provider, no RapidAPI. " +
+        "Nothing is called until you press a button.",
     });
 
     new Setting(containerEl)
-      .setName("RapidAPI key")
-      .setDesc("Looks a flight up by its number and date, via AeroDataBox. Leave blank to skip.")
-      .addText((t) => {
-        t.inputEl.type = "password";
-        t.setPlaceholder("Optional");
-        t.setValue(this.plugin.settings.rapidApiKey);
-        t.onChange(async (v) => {
-          this.plugin.settings.rapidApiKey = v.trim();
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(containerEl)
       .setName("Amadeus API key")
-      .setDesc("Searches for bookable fares. Leave blank to skip.")
+      .setDesc("Looks flights up by number, and searches fares. Free to register. Leave blank to skip both.")
       .addText((t) => {
         t.setPlaceholder("Client ID");
         t.setValue(this.plugin.settings.amadeusClientId);
