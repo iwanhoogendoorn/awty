@@ -1,6 +1,7 @@
 import { AbstractInputSuggest, App, setIcon } from "obsidian";
 import { COUNTRIES } from "../../data/countries";
 import { AIRLINES, airlineLabel } from "../../data/airlines";
+import { AIRPORTS, type AirportRecord } from "../../data/airports";
 import { CITIES } from "../../data/cities";
 import { fold, rankMatches as rank } from "../../util/search";
 
@@ -100,6 +101,95 @@ export class AirlineSuggest extends AbstractInputSuggest<string> {
   selectSuggestion(value: string): void {
     this.setValue(value);
     this.onPick(value);
+    this.close();
+  }
+}
+
+/** "Amsterdam (AMS)" — what the picker shows and what gets stored. */
+export function airportLabel(a: AirportRecord): string {
+  return `${a.c} (${a.i})`;
+}
+
+const AIRPORT_BY_IATA = new Map(AIRPORTS.map((a) => [a.i, a]));
+
+/** Pulls the IATA code back out of a stored "City (XXX)" value. */
+export function airportFromLabel(value: string): AirportRecord | null {
+  const match = /\(([A-Za-z]{3})\)\s*$/.exec(value.trim());
+  if (match) return AIRPORT_BY_IATA.get(match[1].toUpperCase()) ?? null;
+  const bare = value.trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(bare) ? (AIRPORT_BY_IATA.get(bare) ?? null) : null;
+}
+
+/**
+ * Airport picker.
+ *
+ * Searches the code, the city and the airport's own name, because people reach
+ * for whichever they remember — "AMS", "Amsterdam" and "Schiphol" all land on
+ * the same row. Starred airports sit on top; you fly from the same one most
+ * of the time.
+ */
+export class AirportSuggest extends AbstractInputSuggest<AirportRecord> {
+  constructor(
+    app: App,
+    input: HTMLInputElement,
+    private isStarred: (value: string) => boolean,
+    private onPick: (value: string, airport: AirportRecord) => void,
+  ) {
+    super(app, input);
+  }
+
+  protected getSuggestions(query: string): AirportRecord[] {
+    const q = fold(query.trim());
+    const starredFirst = (list: AirportRecord[]) => {
+      const starred = list.filter((a) => this.isStarred(airportLabel(a)));
+      const rest = list.filter((a) => !this.isStarred(airportLabel(a)));
+      return [...starred, ...rest];
+    };
+
+    if (!q) return starredFirst(AIRPORTS.slice(0, 60)).slice(0, 50);
+
+    // An exact code wins outright — "AMS" should never be buried under cities
+    // that merely contain those letters.
+    const exact = AIRPORT_BY_IATA.get(q.toUpperCase());
+    const codePrefix: AirportRecord[] = [];
+    const cityPrefix: AirportRecord[] = [];
+    const cityContains: AirportRecord[] = [];
+    const nameContains: AirportRecord[] = [];
+
+    for (const a of AIRPORTS) {
+      if (exact && a.i === exact.i) continue;
+      const code = a.i.toLowerCase();
+      const city = fold(a.c);
+      if (code.startsWith(q)) codePrefix.push(a);
+      else if (city.startsWith(q)) cityPrefix.push(a);
+      else if (city.includes(q)) cityContains.push(a);
+      else if (fold(a.n).includes(q)) nameContains.push(a);
+      if (codePrefix.length + cityPrefix.length > 60) break;
+    }
+
+    const ordered = [
+      ...(exact ? [exact] : []),
+      ...starredFirst(cityPrefix),
+      ...codePrefix,
+      ...cityContains,
+      ...nameContains,
+    ];
+    return ordered.slice(0, 50);
+  }
+
+  renderSuggestion(airport: AirportRecord, el: HTMLElement): void {
+    if (this.isStarred(airportLabel(airport))) {
+      setIcon(el.createSpan({ cls: "tp-suggest-star" }), "star");
+    }
+    el.createSpan({ cls: "tp-suggest-code", text: airport.i });
+    el.createSpan({ text: ` ${airport.c}` });
+    el.createSpan({ cls: "tp-suggest-hint", text: [airport.n, airport.y].filter(Boolean).join(" · ") });
+  }
+
+  selectSuggestion(airport: AirportRecord): void {
+    const label = airportLabel(airport);
+    this.setValue(label);
+    this.onPick(label, airport);
     this.close();
   }
 }

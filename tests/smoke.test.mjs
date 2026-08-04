@@ -16,6 +16,8 @@ export * from "./src/util/paths.ts";
 export { foodSpotBlock } from "./src/store/templates.ts";
 export { analyseNote } from "./src/store/noteProgress.ts";
 export { fold, rankMatches } from "./src/util/search.ts";
+export { AIRPORTS } from "./src/data/airports.ts";
+export { AIRLINES, airlineLabel } from "./src/data/airlines.ts";
 export { buildPackingPlan, effectiveDays, renderPackingPlan } from "./src/store/packing.ts";
 export { parseAmount, formatMoney, sumMoney, formatTotals } from "./src/util/money.ts";
 export {
@@ -309,6 +311,40 @@ test("blockquote callouts and italic placeholders are not content", () => {
     "# Budget\n\n> **When:** 17 Aug\n\n_Add trip overview here._\n",
   );
   assert.equal(p.state, "empty");
+});
+
+// ------------------------------------------------------------- airports
+
+test("airports carry usable coordinates, so flights need no geocoding", () => {
+  const byIata = new Map(m.AIRPORTS.map((a) => [a.i, a]));
+  const ams = byIata.get("AMS");
+  assert.equal(ams.c, "Amsterdam");
+  assert.equal(ams.y, "Netherlands");
+  assert.ok(Math.abs(ams.a - 52.3086) < 0.01, `latitude was ${ams.a}`);
+  assert.ok(Math.abs(ams.o - 4.7639) < 0.01, `longitude was ${ams.o}`);
+
+  for (const code of ["DBV", "JFK", "NRT", "LHR", "DXB"]) {
+    const a = byIata.get(code);
+    assert.ok(a, `${code} missing`);
+    assert.ok(Math.abs(a.a) <= 90 && Math.abs(a.o) <= 180, `${code} has impossible coordinates`);
+  }
+  assert.ok(m.AIRPORTS.length > 5000, `expected >5000 airports, got ${m.AIRPORTS.length}`);
+});
+
+test("every airport code is a unique three-letter IATA", () => {
+  const seen = new Set();
+  for (const a of m.AIRPORTS) {
+    assert.match(a.i, /^[A-Z]{3}$/, `bad code ${a.i}`);
+    assert.ok(!seen.has(a.i), `duplicate code ${a.i}`);
+    seen.add(a.i);
+  }
+});
+
+test("airlines are searchable by name and by code", () => {
+  const labels = m.AIRLINES.map(m.airlineLabel);
+  assert.ok(labels.includes("KLM (KL)"));
+  assert.deepEqual(m.rankMatches(labels, "KLM"), ["KLM (KL)"]);
+  assert.ok(m.rankMatches(labels, "transavia").includes("Transavia (HV)"));
 });
 
 // -------------------------------------------------------------- packing

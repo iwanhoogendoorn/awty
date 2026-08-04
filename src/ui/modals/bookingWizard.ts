@@ -4,11 +4,13 @@ import { BOOKING_KINDS, BOOKING_STATUSES, COST_CATEGORIES } from "../../bookings
 import type { BookingDraft } from "../../bookings/bookingWriter";
 import type { TravelPlannerSettings, Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
-import { AirlineSuggest } from "../components/suggest";
+import { AirlineSuggest, AirportSuggest, CitySuggest } from "../components/suggest";
 import { COMMON_CURRENCIES, formatMoney, parseAmount } from "../../util/money";
 import { formatDateRange, isValidISODate, todayISO } from "../../util/dates";
 
 type FieldKey = "operator" | "reference" | "from" | "to" | "seat" | "title";
+
+export type StarKind = "airline" | "airport";
 
 interface FieldSpec {
   key: FieldKey;
@@ -73,7 +75,10 @@ export class BookingWizard extends Modal {
     private trip: Trip,
     kind: BookingKind,
     private currency: string,
-    private stars: { isStarred: (v: string) => boolean; toggle: (v: string) => Promise<void> },
+    private stars: {
+      isStarred: (kind: StarKind, v: string) => boolean;
+      toggle: (kind: StarKind, v: string) => Promise<void>;
+    },
     private onSubmit: (draft: BookingDraft, files: File[]) => Promise<void>,
   ) {
     super(app);
@@ -172,10 +177,18 @@ export class BookingWizard extends Modal {
 
   private renderDetails(): void {
     for (const spec of FIELDS[this.draft.kind]) {
-      // The airline gets a picker with your starred carriers pinned on top;
-      // everything else is a plain text field.
+      // Anything with a known set of answers gets a picker; only genuinely
+      // free-form fields stay as text boxes.
       if (spec.key === "operator" && this.draft.kind === "flight") {
-        this.renderAirlineField(spec);
+        this.renderPickerField(spec, "airline");
+        continue;
+      }
+      if ((spec.key === "from" || spec.key === "to") && this.draft.kind === "flight") {
+        this.renderPickerField(spec, "airport");
+        continue;
+      }
+      if ((spec.key === "from" || spec.key === "to") && this.draft.kind === "transport") {
+        this.renderCityField(spec);
         continue;
       }
       new Setting(this.bodyEl).setName(spec.label).addText((t) => {
@@ -198,54 +211,87 @@ export class BookingWizard extends Modal {
     });
   }
 
-  private renderAirlineField(spec: FieldSpec): void {
+  /** Text field backed by a picker, with a star button for the ones you reuse. */
+  private renderPickerField(spec: FieldSpec, kind: StarKind): void {
     const setting = new Setting(this.bodyEl)
       .setName(spec.label)
-      .setDesc("Star the ones you fly and they stay at the top of the list.");
+      .setDesc(
+        kind === "airline"
+          ? "Star the airlines you fly and they stay at the top."
+          : "Search by code, city or airport name. Star the ones you use often.",
+      );
 
     let input!: HTMLInputElement;
+    let syncStar = (): void => {};
+
     setting.addText((t) => {
       input = t.inputEl;
       t.setPlaceholder(spec.placeholder);
-      t.setValue(this.draft.operator);
+      t.setValue(this.draft[spec.key]);
       t.onChange((v) => {
-        this.draft.operator = v.trim();
+        this.draft[spec.key] = v.trim();
         syncStar();
       });
-      new AirlineSuggest(
-        this.app,
-        t.inputEl,
-        (value) => this.stars.isStarred(value),
-        (value) => {
-          this.draft.operator = value;
-          syncStar();
-        },
-      );
+
+      if (kind === "airline") {
+        new AirlineSuggest(
+          this.app,
+          t.inputEl,
+          (value) => this.stars.isStarred("airline", value),
+          (value) => {
+            this.draft[spec.key] = value;
+            syncStar();
+          },
+        );
+      } else {
+        new AirportSuggest(
+          this.app,
+          t.inputEl,
+          (value) => this.stars.isStarred("airport", value),
+          (value) => {
+            this.draft[spec.key] = value;
+            syncStar();
+          },
+        );
+      }
     });
 
-    const starBtn = setting.controlEl.createEl("button", {
-      cls: "tp-star-btn",
-      attr: { "aria-label": "Star this airline" },
-    });
-
-    const syncStar = () => {
-      const starred = this.draft.operator.length > 0 && this.stars.isStarred(this.draft.operator);
+    const starBtn = setting.controlEl.createEl("button", { cls: "tp-star-btn" });
+    syncStar = () => {
+      const value = this.draft[spec.key];
+      const starred = value.length > 0 && this.stars.isStarred(kind, value);
       starBtn.empty();
       setIcon(starBtn, "star");
       starBtn.toggleClass("is-starred", starred);
-      starBtn.setAttribute("aria-label", starred ? "Unstar this airline" : "Star this airline");
-      starBtn.toggleClass("is-disabled", this.draft.operator.length === 0);
+      starBtn.toggleClass("is-disabled", value.length === 0);
+      starBtn.setAttribute("aria-label", starred ? `Unstar ${value}` : `Star ${value || spec.label}`);
     };
 
     starBtn.addEventListener("click", async (evt) => {
       evt.preventDefault();
-      if (!this.draft.operator) return;
-      await this.stars.toggle(this.draft.operator);
+      const value = this.draft[spec.key];
+      if (!value) return;
+      await this.stars.toggle(kind, value);
       syncStar();
       input.focus();
     });
 
     syncStar();
+  }
+
+  /** Stations and stops are best described by their city. */
+  private renderCityField(spec: FieldSpec): void {
+    new Setting(this.bodyEl).setName(spec.label).addText((t) => {
+      t.setPlaceholder(spec.placeholder);
+      t.setValue(this.draft[spec.key]);
+      t.onChange((v) => (this.draft[spec.key] = v.trim()));
+      new CitySuggest(
+        this.app,
+        t.inputEl,
+        () => this.trip.country,
+        (value) => (this.draft[spec.key] = value),
+      );
+    });
   }
 
   private renderWhen(): void {

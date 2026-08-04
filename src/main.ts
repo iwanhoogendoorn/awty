@@ -295,12 +295,19 @@ export default class TravelPlannerPlugin extends Plugin {
       kind,
       this.bookings.getCurrency(trip),
       {
-        isStarred: (value) => this.settings.starredAirlines.includes(value),
-        toggle: async (value) => {
-          const starred = new Set(this.settings.starredAirlines);
+        isStarred: (kind, value) =>
+          (kind === "airline" ? this.settings.starredAirlines : this.settings.starredAirports).includes(
+            value,
+          ),
+        toggle: async (kind, value) => {
+          const list =
+            kind === "airline" ? this.settings.starredAirlines : this.settings.starredAirports;
+          const starred = new Set(list);
           if (starred.has(value)) starred.delete(value);
           else starred.add(value);
-          this.settings.starredAirlines = [...starred].sort();
+          const next = [...starred].sort();
+          if (kind === "airline") this.settings.starredAirlines = next;
+          else this.settings.starredAirports = next;
           await this.saveSettings();
         },
       },

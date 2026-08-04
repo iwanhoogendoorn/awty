@@ -908,6 +908,14 @@
   pointer-events: none;
 }
 
+.tp-suggest-code {
+  display: inline-block;
+  min-width: 2.6em;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-accent);
+}
+
 .tp-suggest-star {
   display: inline-flex;
   margin-right: 0.4em;

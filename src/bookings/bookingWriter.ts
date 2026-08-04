@@ -3,6 +3,7 @@ import type { BookingKind, BookingStatus, CostCategory } from "./types";
 import { BOOKING_KINDS } from "./types";
 import type { TravelPlannerSettings, Trip } from "../types";
 import { joinPath, sanitizeName } from "../util/paths";
+import { airportFromLabel } from "../ui/components/suggest";
 
 export interface BookingDraft {
   kind: BookingKind;
@@ -174,6 +175,10 @@ export async function createBooking(
       fm.currency = draft.currency;
     }
     fm.category = draft.category;
+    // An airport picked from the list already knows where it is, so travel
+    // times can skip the billed geocoding call entirely.
+    const airport = airportFromLabel(draft.to) ?? airportFromLabel(draft.from);
+    if (draft.kind === "flight" && airport) fm.location = `${airport.a},${airport.o}`;
     if (draft.reference) fm.reference = draft.reference;
     if (draft.from) fm.from = draft.from;
     if (draft.to) fm.to = draft.to;
