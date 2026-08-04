@@ -99,10 +99,14 @@ export interface TripDocument {
   notes: DocNote[];
   /** Images embedded as data URIs, so the file stands alone. */
   images: { caption: string; dataUri: string }[];
+  /** Shown wherever requirements are, and in full at the end. */
+  disclaimer: string;
   generatedOn: string;
 }
 
 /** Escapes text for HTML. Every value below goes through this. */
+import { DISCLAIMER_SHORT } from "../data/disclaimer";
+
 export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -249,6 +253,16 @@ const STYLES = `
   .note hr { border: none; border-top: 1px solid #e4e7eb; margin: 3mm 0; }
   .note mark { background: #fdf3d0; }
   .url { color: #2b6cb0; word-break: break-all; }
+  .caveat {
+    font-size: 9pt; color: #55606b; border-left: 3px solid #b7791f;
+    padding-left: 3mm; margin: 0 0 3mm;
+  }
+  .disclaimer {
+    margin-top: 8mm; padding-top: 3mm; border-top: 1px solid #d7dbe0;
+    font-size: 8.5pt; color: #55606b; page-break-inside: avoid;
+  }
+  .disclaimer h2 { font-size: 10pt; border: none; margin: 0 0 2mm; padding: 0; }
+  .disclaimer p { margin: 0 0 2mm; }
   footer { margin-top: 8mm; color: #8a939c; font-size: 8.5pt; border-top: 1px solid #e4e7eb; padding-top: 2mm; }
 `;
 
@@ -275,6 +289,7 @@ export function renderTripDocument(doc: TripDocument): string {
 
   if (doc.documents.length > 0) {
     parts.push("<h2>Documents &amp; advice</h2>");
+    parts.push(`<p class="caveat">${escapeHtml(DISCLAIMER_SHORT)}</p>`);
     for (const item of doc.documents) {
       parts.push(
         `<div class="doc ${item.tone}"><strong>${escapeHtml(item.label)}</strong>`,
@@ -392,6 +407,19 @@ export function renderTripDocument(doc: TripDocument): string {
       );
     }
     parts.push("</div>");
+  }
+
+  // Printed in full at the end: this document is the one that gets carried
+  // around and forwarded, long after the dashboard that produced it is shut.
+  if (doc.disclaimer) {
+    parts.push(
+      '<div class="disclaimer">',
+      "<h2>Important</h2>",
+      ...doc.disclaimer
+        .split("\n\n")
+        .map((para) => `<p>${escapeHtml(para)}</p>`),
+      "</div>",
+    );
   }
 
   parts.push(

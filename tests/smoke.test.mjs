@@ -1726,6 +1726,35 @@ test("a trip can visit several countries in order", () => {
   assert.deepEqual(m.tripCities({ country: "", city: "" }), []);
 });
 
+test("an arrival transfer comes before the check-in it delivers you to", () => {
+  const b = (o) => ({
+    kind: "activity", status: "booked", title: "", date: "2026-08-17", time: "",
+    endDate: "", endTime: "", returnDate: "", returnTime: "", from: "", to: "",
+    address: "", fromAddress: "", slot: "", cost: null,
+    file: { path: `${o.title}.md` }, ...o,
+  });
+  const arrival = m.dayEvents(
+    [
+      b({ kind: "flight", title: "AMS ⇄ DBV", time: "10:15", to: "DBV", returnDate: "2026-08-24" }),
+      b({ kind: "transport", title: "Airport transfer", time: "13:00", to: "Rausion" }),
+      b({ kind: "stay", title: "Rausion", endDate: "2026-08-24" }),
+    ],
+    "2026-08-17",
+  ).map((e) => e.title);
+  // You do not arrive at a hotel you have already arrived at.
+  assert.deepEqual(arrival, ["AMS ⇄ DBV", "Airport transfer", "Rausion"]);
+
+  // A bus that goes somewhere else keeps its place among the day by its time.
+  const midTrip = m.dayEvents(
+    [
+      b({ kind: "activity", title: "Old town walls", date: "2026-08-19", time: "09:00" }),
+      b({ kind: "transport", title: "Bus to Kotor", date: "2026-08-19", time: "18:00", to: "Kotor" }),
+    ],
+    "2026-08-19",
+  ).map((e) => e.title);
+  assert.deepEqual(midTrip, ["Old town walls", "Bus to Kotor"]);
+});
+
 test("a transfer records an address at both ends", () => {
   const draft = {
     kind: "transport", status: "booked", title: "Airport transfer",

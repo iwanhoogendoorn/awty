@@ -368,3 +368,20 @@
 .awty-doc-item.is-unknown .awty-doc-item-icon {
   color: var(--text-faint);
 }
+
+.awty-doc-caveat-strong {
+  color: var(--text-normal);
+  font-weight: var(--font-medium);
+  margin-bottom: 0.3em;
+}
+
+.awty-doc-caveat-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9em;
+  margin-top: 0.5em;
+}
+
+.awty-doc-caveat-links a {
+  font-size: var(--font-ui-smaller);
+}

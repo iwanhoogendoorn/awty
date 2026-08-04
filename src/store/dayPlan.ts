@@ -23,6 +23,8 @@ export interface DayEvent {
   file: TFile;
   kind: BookingKind;
   slot: DaySlot | "";
+  /** Where a journey ends, so an arrival transfer can be spotted. */
+  destination: string;
   /**
    * The part of the day this belongs to. Times alone cannot order a day: a
    * check-out rarely has one, and sorting it to the end put it after the flight
@@ -61,8 +63,13 @@ const SLOT_TIME: Record<string, string> = {
   evening: "19:00",
 };
 
+/** When a hotel lets you in, absent anything better. Only used for ordering. */
+const NOMINAL_CHECK_IN = "15:00";
+
 function effectiveTime(event: DayEvent): string {
-  return event.time || SLOT_TIME[event.slot] || "99:99";
+  if (event.time) return event.time;
+  if (event.kind === "stay" && event.detail === "Check in") return NOMINAL_CHECK_IN;
+  return SLOT_TIME[event.slot] || "99:99";
 }
 
 /**
@@ -78,7 +85,13 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
   const icon = def?.icon ?? "ticket";
   const cost = booking.cost ? formatMoney(booking.cost) : "";
   const slot = (booking.slot ?? "") as DaySlot | "";
-  const base = { icon, file: booking.file, kind: booking.kind, slot };
+  const base = {
+    icon,
+    file: booking.file,
+    kind: booking.kind,
+    slot,
+    destination: booking.to,
+  };
   const out: DayEvent[] = [];
 
   if (booking.kind === "stay") {
@@ -155,8 +168,24 @@ export function ongoingFor(booking: Booking, date: string): Ongoing | null {
 
 /** Everything happening on one date, in the order it happens. */
 export function dayEvents(bookings: Booking[], date: string): DayEvent[] {
-  return bookings
-    .flatMap((b) => eventsFor(b, date))
+  const events = bookings.flatMap((b) => eventsFor(b, date));
+
+  // A transfer that ends where you are checking in today happens before that
+  // check-in, whatever its band would otherwise say — you do not arrive at a
+  // hotel you have already arrived at.
+  const arrivingAt = new Set(
+    events
+      .filter((e) => e.kind === "stay" && e.detail === "Check in")
+      .map((e) => e.title.trim().toLowerCase()),
+  );
+  for (const event of events) {
+    if (event.kind !== "transport") continue;
+    if (arrivingAt.has(event.destination.trim().toLowerCase())) {
+      event.band = BAND.CheckIn;
+    }
+  }
+
+  return events
     .sort(
       (a, b) =>
         a.band - b.band ||

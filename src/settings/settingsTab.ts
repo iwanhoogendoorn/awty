@@ -1,5 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting, setIcon } from "obsidian";
 import { TRAVEL_MODES } from "../travel/types";
+import { DISCLAIMER_FULL, OFFICIAL_SOURCES } from "../data/disclaimer";
 import type AwtyPlugin from "../main";
 import type { SubNoteId, TripKind } from "../types";
 import {
@@ -855,6 +856,19 @@ export class AwtySettingTab extends PluginSettingTab {
       group.content,
       "Flights are filled in from your own booking confirmation — paste it, or drop the calendar invite, anywhere in the flight wizard. Automatic look-up by flight number is not offered: Amadeus retired its self-service portal in July 2026, and nothing else free and self-serve answers it over HTTPS.",
     );
+
+    // The full text lives here, and nowhere else states it differently.
+    const legal = group.content.createDiv({ cls: "awty-disclaimer" });
+    legal.createDiv({ cls: "awty-disclaimer-title", text: "Disclaimer" });
+    for (const para of DISCLAIMER_FULL.split("\n\n")) {
+      legal.createDiv({ text: para });
+    }
+    const links = legal.createDiv({ cls: "awty-doc-caveat-links" });
+    for (const source of OFFICIAL_SOURCES) {
+      const link = links.createEl("a", { text: source.label, href: source.url });
+      link.setAttribute("target", "_blank");
+      link.setAttribute("rel", "noopener");
+    }
 
     const facts: [string, string][] = [
       ["Trips", String(this.plugin.store.getTrips().length)],

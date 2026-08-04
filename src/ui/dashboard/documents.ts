@@ -5,6 +5,7 @@ import { checkVisa, exceedsAllowance } from "../../travel/visa";
 import { ADVICE_MEANING, adviceUrlFor, isStale } from "../../travel/advice";
 import { tripCountries } from "../../types";
 import { ENTRY_EXTRAS_VERIFIED, entryExtrasChecked, entryExtrasFor } from "../../data/entryExtras";
+import { DISCLAIMER_COVERAGE, DISCLAIMER_SHORT, OFFICIAL_SOURCES } from "../../data/disclaimer";
 import { daysBetween } from "../../util/dates";
 
 /**
@@ -40,10 +41,18 @@ export function renderDocuments(parent: HTMLElement, ctx: DashboardContext): voi
     renderAdvice(parent, ctx, country);
   }
 
-  parent.createDiv({
-    cls: "awty-doc-caveat",
-    text: `Guidance only — entry rules change without notice, and the arrival-card list was last checked on ${ENTRY_EXTRAS_VERIFIED}. Always confirm with the embassy or the official site before you book.`,
+  const caveat = parent.createDiv({ cls: "awty-doc-caveat" });
+  caveat.createDiv({ cls: "awty-doc-caveat-strong", text: DISCLAIMER_SHORT });
+  caveat.createDiv({
+    text: `${DISCLAIMER_COVERAGE} The arrival-card list was last checked on ${ENTRY_EXTRAS_VERIFIED}.`,
   });
+
+  const links = caveat.createDiv({ cls: "awty-doc-caveat-links" });
+  for (const source of OFFICIAL_SOURCES) {
+    const link = links.createEl("a", { text: source.label, href: source.url });
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener");
+  }
 }
 
 function renderVisa(parent: HTMLElement, ctx: DashboardContext, country: string): void {

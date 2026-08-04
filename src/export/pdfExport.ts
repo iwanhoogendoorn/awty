@@ -8,6 +8,7 @@ import { fileFromLink, totalsByCategory } from "../bookings/bookingStore";
 import { checkVisa } from "../travel/visa";
 import { ADVICE_MEANING } from "../travel/adviceData";
 import { entryExtrasChecked, entryExtrasFor } from "../data/entryExtras";
+import { DISCLAIMER_FULL } from "../data/disclaimer";
 import { formatMoney, formatTotals, sumMoney } from "../util/money";
 import {
   datesInRange,
@@ -386,6 +387,7 @@ export async function buildTripDocument(
     days,
     costs,
     packing,
+    disclaimer: DISCLAIMER_FULL,
     travel,
     restaurants,
     notes,
