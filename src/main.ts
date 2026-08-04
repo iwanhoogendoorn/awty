@@ -44,7 +44,14 @@ import {
 import { travelTable } from "./ui/dashboard/gettingAround";
 import { groupByOrigin, itineraryPairs } from "./travel/routePlan";
 import { ensureFoodSpot } from "./food/foodSpot";
-import { MY_MAPS_URL, tripKml, tripMapNote, type MapPlace } from "./export/mapsExport";
+import {
+  MY_MAPS_URL,
+  tripKml,
+  tripLinksText,
+  tripMapNote,
+  type MapPlace,
+} from "./export/mapsExport";
+import { dayEvents } from "./store/dayPlan";
 import { datesInRange, formatDateRange } from "./util/dates";
 import { formatMoney } from "./util/money";
 import { joinPath, sanitizeName } from "./util/paths";
@@ -631,17 +638,31 @@ export default class AwtyPlugin extends Plugin {
     // The companion note is the one that helps on a phone: tap a place, tap
     // Save. Google's lists are built by hand and no link creates one, so the
     // most that can be done is remove the searching.
+    // A route per day, in the order the timeline puts them: one tap gives
+    // turn-by-turn directions through that day in the Maps app.
+    const live = this.bookings.getBookings(trip).filter((b) => b.status !== "cancelled");
+    const byPath = new Map(places.map((p) => [p.name.toLowerCase(), p]));
+    const days: { label: string; places: MapPlace[] }[] = [];
+    for (const [index, date] of datesInRange(trip.startDate, trip.endDate, 90).entries()) {
+      const stops = dayEvents(live, date)
+        .map((e) => byPath.get(e.title.toLowerCase()))
+        .filter((p): p is MapPlace => p !== undefined);
+      if (stops.length >= 2) days.push({ label: `Day ${index + 1} · ${date}`, places: stops });
+    }
+
     const notePath = joinPath(trip.folderPath, `${sanitizeName(trip.title)} places.md`);
-    const note = tripMapNote(trip.title, places, MY_MAPS_URL);
+    const note = tripMapNote(trip.title, places, MY_MAPS_URL, days);
     const existingNote = this.app.vault.getAbstractFileByPath(notePath);
     if (existingNote instanceof TFile) await this.app.vault.modify(existingNote, note);
     else await this.app.vault.create(notePath, note);
 
-    await navigator.clipboard.writeText(MY_MAPS_URL).catch(() => undefined);
+    // The links themselves, not a URL to a website: this is the thing you
+    // message to yourself so the places open in the Maps app on the phone.
+    await navigator.clipboard.writeText(tripLinksText(trip.title, places)).catch(() => undefined);
     new Notice(
-      `${places.length} places. Import "${name}" into Google My Maps (link copied) for the whole ` +
-        `trip on one map, or open the new "places" note on your phone and tap each one to save it ` +
-        `to a Google list.`,
+      `${places.length} places. The links are on your clipboard — message them to yourself and ` +
+        `tap each one on the phone to save it to a Google list. The note and "${name}" are in the ` +
+        `trip folder.`,
       15000,
     );
     await this.openInWorkspace(

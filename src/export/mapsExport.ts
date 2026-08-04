@@ -112,7 +112,12 @@ export function tripKml(title: string, places: MapPlace[]): string {
  * open this note on the phone, tap a place, tap Save. That turns typing each
  * name into two taps, and the list it builds is the shareable kind.
  */
-export function tripMapNote(title: string, places: MapPlace[], mapsUrl: string): string {
+export function tripMapNote(
+  title: string,
+  places: MapPlace[],
+  mapsUrl: string,
+  days: { label: string; places: MapPlace[] }[] = [],
+): string {
   // The same filter the KML applies, so the note and the map agree on what a
   // place is: a name is not somewhere you can go.
   const usable = places.filter((p) => p.location.trim() || p.address.trim());
@@ -120,15 +125,29 @@ export function tripMapNote(title: string, places: MapPlace[], mapsUrl: string):
   const out = [
     `# ${title} — places`,
     "",
-    "Tap a place to open it in Google Maps, then **Save** it to a list. Google",
-    "builds lists by hand — nothing can create one for you — but this is the",
-    "list to work through, and it takes two taps each.",
+    "Every link here opens the Google Maps app on a phone. Tap one, then",
+    "**Save** to put it in a list — Google builds lists by hand, so this is the",
+    "list to work through, two taps each.",
     "",
-    `For the whole trip on one map instead, import \`${title} map.kml\` into`,
-    `[Google My Maps](${mapsUrl}) — it then appears under Saved → Maps in the`,
-    "Google Maps app, and can be shared like any list.",
+    "Not on your phone? Use **Copy links** on the dashboard and message the",
+    "block to yourself; the links work from any app that makes them tappable.",
+    "",
+    `Or import \`${title} map.kml\` into [Google My Maps](${mapsUrl}) for the whole`,
+    "trip as one map. It shows under **You → Maps** in the Google Maps app, but",
+    "as a view of the map, not a list you can navigate from.",
     "",
   ];
+
+  if (days.length > 0) {
+    out.push("## Routes by day", "");
+    for (const day of days) {
+      const link = directionsLink(day.places);
+      if (!link) continue;
+      const names = day.places.map((p) => p.name).join(" → ");
+      out.push(`- [${day.label}](${link}) — ${names}`);
+    }
+    out.push("");
+  }
 
   for (const group of groups) {
     out.push(`## ${group}`, "");
@@ -184,4 +203,25 @@ export function directionsLink(places: MapPlace[], mode = "driving"): string | n
   ].filter(Boolean);
 
   return `https://www.google.com/maps/dir/?${params.join("&")}`;
+}
+
+/**
+ * The same links as plain text, for messaging to yourself.
+ *
+ * Obsidian on the phone is the tidy route, but not everyone syncs their vault
+ * to it. Pasted into any chat, these become tappable and open the Maps app.
+ */
+export function tripLinksText(title: string, places: MapPlace[]): string {
+  const usable = places.filter((p) => p.location.trim() || p.address.trim());
+  const groups = [...new Set(usable.map((p) => p.group))];
+  const out = [`${title} — places`, ""];
+
+  for (const group of groups) {
+    out.push(`${group}:`);
+    for (const place of usable.filter((p) => p.group === group)) {
+      out.push(`${place.name} — ${placeLink(place)}`);
+    }
+    out.push("");
+  }
+  return out.join("\n").trimEnd();
 }

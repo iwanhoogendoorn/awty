@@ -49,7 +49,7 @@ export { customSections, customParts, weaveKept, sectionText } from "./src/booki
 export { bookingBody, expenseBody } from "./src/bookings/noteBody.ts";
 export { budgetPlanTable, budgetLinesTable } from "./src/bookings/budgetTables.ts";
 export { readLegacyFoodTable } from "./src/bookings/legacyFood.ts";
-export { tripKml, tripMapNote, directionsLink, placeLink, MAX_WAYPOINTS, MY_MAPS_URL } from "./src/export/mapsExport.ts";
+export { tripKml, tripMapNote, tripLinksText, directionsLink, placeLink, MAX_WAYPOINTS, MY_MAPS_URL } from "./src/export/mapsExport.ts";
 export { looksLikeMoreJourneys } from "./src/bookings/legs.ts";
 export { zoneForAirport, utcToLocal, localiseLegs } from "./src/flights/localTime.ts";
 export { linkTarget } from "./src/bookings/linkTarget.ts";
@@ -1603,6 +1603,22 @@ test("a trip's places export as a map file", () => {
   assert.match(note, /## Airport\n\n- \[Dubrovnik \(DBV\)\]\(https:\/\/www\.google\.com\/maps\/search/);
   assert.match(note, /\[Rausion\]\([^)]+\) — Kranjčevića 25 · 17 – 24 Aug · €1,456/);
   assert.ok(!note.includes("No idea"), "unplaceable places are left out of both");
+
+  // A route per day: one tap for directions through it in the Maps app.
+  const withDays = m.tripMapNote("Dubrovnik", places, m.MY_MAPS_URL, [
+    { label: "Day 1 · 2026-08-17", places: [places[0], places[1]] },
+    { label: "Day 2 · 2026-08-18", places: [places[1]] },
+  ]);
+  assert.match(withDays, /## Routes by day/);
+  assert.match(withDays, /\[Day 1 · 2026-08-17\]\(https:\/\/www\.google\.com\/maps\/dir/);
+  assert.ok(!withDays.includes("Day 2"), "one stop is not a route");
+
+  // The messageable version: pasted into a chat, each line is tappable.
+  const text = m.tripLinksText("Dubrovnik", places);
+  assert.match(text, /^Dubrovnik — places/);
+  assert.match(text, /Rausion — https:\/\/www\.google\.com\/maps\/search/);
+  assert.ok(!text.includes("["), "plain text, so chat apps linkify it");
+  assert.ok(!text.includes("No idea"));
 });
 
 test("a table booked before this change is not thrown away", () => {
