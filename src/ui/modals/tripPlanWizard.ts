@@ -197,6 +197,24 @@ export class TripPlanWizard extends Modal {
         applies: has("food"),
       },
       {
+        key: "getting-around",
+        title: "Getting around",
+        detail: "How far the hotel is from the airport, your activities and the restaurants.",
+        icon: "route",
+        done: plugin.travelPlaces.has(trip.folderPath),
+        summary: !plugin.travel.isConfigured()
+          ? "Needs a Google API key in settings"
+          : plugin.travelPlaces.has(trip.folderPath)
+            ? "Distances worked out"
+            : "Not calculated yet",
+        action: () =>
+          plugin.travel.isConfigured()
+            ? void plugin.computeTravelTimes(trip, () => this.render())
+            : plugin.openSettings(),
+        actionLabel: plugin.travel.isConfigured() ? "Calculate" : "Settings",
+        applies: stays.length > 0,
+      },
+      {
         key: "budget",
         title: "Budget",
         detail: "What you plan the trip to cost, against what it does.",

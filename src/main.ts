@@ -502,6 +502,25 @@ export default class TravelPlannerPlugin extends Plugin {
     return file ? this.store.getTripForFile(file) : null;
   }
 
+  /**
+   * Opens this plugin's settings tab.
+   *
+   * `app.setting` is real but not in the public typings, so this is
+   * feature-detected and degrades to telling you where to look.
+   */
+  openSettings(): void {
+    const setting = (this.app as unknown as {
+      setting?: { open?: () => void; openTabById?: (id: string) => void };
+    }).setting;
+
+    if (setting?.open && setting.openTabById) {
+      setting.open();
+      setting.openTabById(this.manifest.id);
+      return;
+    }
+    new Notice("Open Settings → Community plugins → Travel Planner.");
+  }
+
   isFoodSpotAvailable(): boolean {
     const plugins = (this.app as unknown as AppWithPlugins).plugins;
     return plugins?.enabledPlugins?.has(FOODSPOT_PLUGIN_ID) ?? false;

@@ -2085,42 +2085,59 @@ function renderGettingAround(parent, ctx) {
   const { trip, plugin } = ctx;
   if (!trip) return;
   const travel = plugin.travel;
-  if (!travel.isConfigured()) {
-    if (!plugin.settings.travelTimesEnabled) return;
-    sectionTitle(parent, "Getting around");
-    parent.createDiv({
-      cls: "tp-dash-hint",
-      text: "Add a Google API key in Travel Planner settings to see travel times."
-    });
-    return;
-  }
   const places = plugin.travelPlaces.get(trip.folderPath);
+  const origin = places?.hotels[0];
+  const configured = travel.isConfigured();
+  sectionTitle(
+    parent,
+    origin ? `Getting around \xB7 from ${origin.label}` : "Getting around",
+    configured ? {
+      label: places ? "Refresh" : "Calculate",
+      icon: places ? "refresh-cw" : "route",
+      onClick: () => void plugin.computeTravelTimes(trip, ctx.refresh, Boolean(places))
+    } : { label: "Settings", icon: "settings", onClick: () => plugin.openSettings() }
+  );
+  if (!plugin.settings.travelTimesEnabled) {
+    renderNotice(
+      parent,
+      "Travel times are switched off.",
+      "Turn them on in settings to see how far the hotel is from the airport, your activities and your restaurants. They use the Google Maps APIs and bill your own account."
+    );
+    return;
+  }
+  if (!configured) {
+    renderNotice(
+      parent,
+      "No Google API key set.",
+      "Add one under Settings \u2192 Travel Planner \u2192 Travel times. Geocoding API and Distance Matrix API need enabling on that project."
+    );
+    return;
+  }
+  const stays = plugin.bookings.getBookings(trip).filter((b) => b.kind === "stay");
+  if (stays.length === 0) {
+    renderNotice(
+      parent,
+      "Nowhere to measure from yet.",
+      "Distances are worked out from your accommodation \u2014 add where you are staying first."
+    );
+    return;
+  }
   if (!places) {
-    sectionTitle(parent, "Getting around", {
-      label: "Calculate",
-      icon: "route",
-      onClick: () => void plugin.computeTravelTimes(trip, ctx.refresh)
-    });
-    parent.createDiv({
-      cls: "tp-dash-hint",
-      text: "Work out how far the hotel is from the airport, your activities and your restaurants."
-    });
+    renderNotice(
+      parent,
+      "Not calculated yet.",
+      "Calculate works out the driving and public transport time from your accommodation to the airport, each activity and every Food Spot restaurant in this city."
+    );
     return;
   }
-  const origin = places.hotels[0];
   if (!origin) {
-    sectionTitle(parent, "Getting around");
-    parent.createDiv({
-      cls: "tp-dash-hint",
-      text: "Add an accommodation booking \u2014 distances are measured from where you're staying."
-    });
+    renderNotice(
+      parent,
+      "Could not place your accommodation.",
+      "Add a street address to the booking so it can be found on a map, then calculate again."
+    );
     return;
   }
-  sectionTitle(parent, `Getting around \xB7 from ${origin.label}`, {
-    label: "Refresh",
-    icon: "refresh-cw",
-    onClick: () => void plugin.computeTravelTimes(trip, ctx.refresh, true)
-  });
   const modes = plugin.settings.travelModes;
   const groups = [
     { title: "Airport", items: places.airports },
@@ -2135,19 +2152,28 @@ function renderGettingAround(parent, ctx) {
     rendered += 1;
     parent.createDiv({ cls: "tp-around-group", text: group.title });
     const list3 = parent.createDiv({ cls: "tp-around-list" });
-    const sorted = [...group.items].sort((a, b) => shortest(legs.get(a.id)) - shortest(legs.get(b.id)));
+    const sorted = [...group.items].sort(
+      (a, b) => shortest(legs.get(a.id)) - shortest(legs.get(b.id))
+    );
     for (const place of sorted) {
       const placeLegs = legs.get(place.id);
-      if (!placeLegs) continue;
-      renderRow(list3, place, placeLegs, ctx);
+      if (placeLegs) renderRow(list3, place, placeLegs, ctx);
     }
   }
   if (rendered === 0) {
-    parent.createDiv({
-      cls: "tp-dash-hint",
-      text: "No routes found yet. Try Refresh, or check that the addresses on your bookings are specific enough to find."
-    });
+    renderNotice(
+      parent,
+      "No routes found.",
+      "Try Refresh, or check that the addresses on your bookings are specific enough to find on a map."
+    );
   }
+}
+function renderNotice(parent, title, detail) {
+  const box = parent.createDiv({ cls: "tp-around-notice" });
+  (0, import_obsidian6.setIcon)(box.createDiv({ cls: "tp-around-notice-icon" }), "route");
+  const text = box.createDiv();
+  text.createDiv({ cls: "tp-around-notice-title", text: title });
+  text.createDiv({ cls: "tp-around-notice-detail", text: detail });
 }
 function shortest(legs) {
   if (!legs || legs.length === 0) return Number.MAX_SAFE_INTEGER;
@@ -5940,6 +5966,17 @@ var TripPlanWizard = class extends import_obsidian27.Modal {
         applies: has("food")
       },
       {
+        key: "getting-around",
+        title: "Getting around",
+        detail: "How far the hotel is from the airport, your activities and the restaurants.",
+        icon: "route",
+        done: plugin.travelPlaces.has(trip.folderPath),
+        summary: !plugin.travel.isConfigured() ? "Needs a Google API key in settings" : plugin.travelPlaces.has(trip.folderPath) ? "Distances worked out" : "Not calculated yet",
+        action: () => plugin.travel.isConfigured() ? void plugin.computeTravelTimes(trip, () => this.render()) : plugin.openSettings(),
+        actionLabel: plugin.travel.isConfigured() ? "Calculate" : "Settings",
+        applies: stays.length > 0
+      },
+      {
         key: "budget",
         title: "Budget",
         detail: "What you plan the trip to cost, against what it does.",
@@ -9186,6 +9223,21 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
   currentTrip() {
     const file = this.app.workspace.getActiveFile();
     return file ? this.store.getTripForFile(file) : null;
+  }
+  /**
+   * Opens this plugin's settings tab.
+   *
+   * `app.setting` is real but not in the public typings, so this is
+   * feature-detected and degrades to telling you where to look.
+   */
+  openSettings() {
+    const setting = this.app.setting;
+    if (setting?.open && setting.openTabById) {
+      setting.open();
+      setting.openTabById(this.manifest.id);
+      return;
+    }
+    new import_obsidian37.Notice("Open Settings \u2192 Community plugins \u2192 Travel Planner.");
   }
   isFoodSpotAvailable() {
     const plugins = this.app.plugins;

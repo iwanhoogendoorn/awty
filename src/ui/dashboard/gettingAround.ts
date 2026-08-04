@@ -19,45 +19,68 @@ export function renderGettingAround(parent: HTMLElement, ctx: DashboardContext):
   if (!trip) return;
 
   const travel = plugin.travel;
-  if (!travel.isConfigured()) {
-    if (!plugin.settings.travelTimesEnabled) return;
-    sectionTitle(parent, "Getting around");
-    parent.createDiv({
-      cls: "tp-dash-hint",
-      text: "Add a Google API key in Travel Planner settings to see travel times.",
-    });
-    return;
-  }
-
   const places = plugin.travelPlaces.get(trip.folderPath);
+  const origin = places?.hotels[0];
+
+  // The section always appears. Rendering nothing when the feature was off left
+  // no way to discover it existed at all.
+  const configured = travel.isConfigured();
+  sectionTitle(
+    parent,
+    origin ? `Getting around · from ${origin.label}` : "Getting around",
+    configured
+      ? {
+          label: places ? "Refresh" : "Calculate",
+          icon: places ? "refresh-cw" : "route",
+          onClick: () => void plugin.computeTravelTimes(trip, ctx.refresh, Boolean(places)),
+        }
+      : { label: "Settings", icon: "settings", onClick: () => plugin.openSettings() },
+  );
+
+  if (!plugin.settings.travelTimesEnabled) {
+    renderNotice(
+      parent,
+      "Travel times are switched off.",
+      "Turn them on in settings to see how far the hotel is from the airport, your activities and your restaurants. They use the Google Maps APIs and bill your own account.",
+    );
+    return;
+  }
+  if (!configured) {
+    renderNotice(
+      parent,
+      "No Google API key set.",
+      "Add one under Settings → Travel Planner → Travel times. Geocoding API and Distance Matrix API need enabling on that project.",
+    );
+    return;
+  }
+
+  const stays = plugin.bookings.getBookings(trip).filter((b) => b.kind === "stay");
+  if (stays.length === 0) {
+    renderNotice(
+      parent,
+      "Nowhere to measure from yet.",
+      "Distances are worked out from your accommodation — add where you are staying first.",
+    );
+    return;
+  }
+
   if (!places) {
-    sectionTitle(parent, "Getting around", {
-      label: "Calculate",
-      icon: "route",
-      onClick: () => void plugin.computeTravelTimes(trip, ctx.refresh),
-    });
-    parent.createDiv({
-      cls: "tp-dash-hint",
-      text: "Work out how far the hotel is from the airport, your activities and your restaurants.",
-    });
+    renderNotice(
+      parent,
+      "Not calculated yet.",
+      "Calculate works out the driving and public transport time from your accommodation to the airport, each activity and every Food Spot restaurant in this city.",
+    );
     return;
   }
 
-  const origin = places.hotels[0];
   if (!origin) {
-    sectionTitle(parent, "Getting around");
-    parent.createDiv({
-      cls: "tp-dash-hint",
-      text: "Add an accommodation booking — distances are measured from where you're staying.",
-    });
+    renderNotice(
+      parent,
+      "Could not place your accommodation.",
+      "Add a street address to the booking so it can be found on a map, then calculate again.",
+    );
     return;
   }
-
-  sectionTitle(parent, `Getting around · from ${origin.label}`, {
-    label: "Refresh",
-    icon: "refresh-cw",
-    onClick: () => void plugin.computeTravelTimes(trip, ctx.refresh, true),
-  });
 
   const modes = plugin.settings.travelModes;
   const groups: { title: string; items: Place[] }[] = [
@@ -77,21 +100,31 @@ export function renderGettingAround(parent: HTMLElement, ctx: DashboardContext):
     const list = parent.createDiv({ cls: "tp-around-list" });
 
     // Nearest first — that is the question being asked.
-    const sorted = [...group.items].sort((a, b) => shortest(legs.get(a.id)) - shortest(legs.get(b.id)));
-
+    const sorted = [...group.items].sort(
+      (a, b) => shortest(legs.get(a.id)) - shortest(legs.get(b.id)),
+    );
     for (const place of sorted) {
       const placeLegs = legs.get(place.id);
-      if (!placeLegs) continue;
-      renderRow(list, place, placeLegs, ctx);
+      if (placeLegs) renderRow(list, place, placeLegs, ctx);
     }
   }
 
   if (rendered === 0) {
-    parent.createDiv({
-      cls: "tp-dash-hint",
-      text: "No routes found yet. Try Refresh, or check that the addresses on your bookings are specific enough to find.",
-    });
+    renderNotice(
+      parent,
+      "No routes found.",
+      "Try Refresh, or check that the addresses on your bookings are specific enough to find on a map.",
+    );
   }
+}
+
+/** Says what is missing and what to do about it, rather than showing nothing. */
+function renderNotice(parent: HTMLElement, title: string, detail: string): void {
+  const box = parent.createDiv({ cls: "tp-around-notice" });
+  setIcon(box.createDiv({ cls: "tp-around-notice-icon" }), "route");
+  const text = box.createDiv();
+  text.createDiv({ cls: "tp-around-notice-title", text: title });
+  text.createDiv({ cls: "tp-around-notice-detail", text: detail });
 }
 
 function shortest(legs: TravelLeg[] | undefined): number {

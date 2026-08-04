@@ -2989,3 +2989,35 @@
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
 }
+
+/* Says what is missing, rather than the section vanishing entirely. */
+.tp-around-notice {
+  display: flex;
+  gap: 0.6em;
+  padding: 0.7em 0.9em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.tp-around-notice-icon {
+  display: flex;
+  flex: none;
+  color: var(--text-faint);
+  padding-top: 0.1em;
+}
+
+.tp-around-notice-icon .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.tp-around-notice-title {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+}
+
+.tp-around-notice-detail {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  line-height: 1.45;
+}
