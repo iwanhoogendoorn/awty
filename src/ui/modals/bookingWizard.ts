@@ -1,11 +1,18 @@
 import { App, ButtonComponent, Modal, Notice, Setting, setIcon } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
-import type { BookingKind, BookingStatus, CostCategory } from "../../bookings/types";
+import type { Booking, BookingKind, BookingStatus, CostCategory } from "../../bookings/types";
 import { BOOKING_KINDS, BOOKING_STATUSES, allCategories } from "../../bookings/types";
 import { countAttachmentsNamed, type BookingDraft } from "../../bookings/bookingWriter";
 import type { AwtySettings, Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
-import { AirlineSuggest, AirportSuggest, CitySuggest, FoodSpotSuggest } from "../components/suggest";
+import {
+  AirlineSuggest,
+  AirportSuggest,
+  CitySuggest,
+  EndpointSuggest,
+  FoodSpotSuggest,
+} from "../components/suggest";
+import { tripEndpoints, transferShortcuts, type Endpoint } from "../../bookings/tripEndpoints";
 import { LegsField } from "../components/legsField";
 import { airportFromLabel } from "../components/suggest";
 import { parseConfirmation, type ParsedConfirmation } from "../../flights/parseConfirmation";
@@ -64,8 +71,9 @@ const FIELDS: Record<BookingKind, FieldSpec[]> = {
   transport: [
     { key: "operator", label: "Carrier", placeholder: "FlixBus" },
     { key: "title", label: "Service", placeholder: "Bus 402" },
-    { key: "from", label: "From", placeholder: "Dubrovnik bus station" },
-    { key: "to", label: "To", placeholder: "Kotor" },
+    { key: "from", label: "From", placeholder: "Dubrovnik Airport (DBV)" },
+    { key: "to", label: "To", placeholder: "Rausion Luxury Apartments" },
+    { key: "address", label: "Address", placeholder: "Where it drops you" },
     { key: "seat", label: "Seat", placeholder: "12" },
     { key: "reference", label: "Booking reference", placeholder: "ABC123" },
   ],
@@ -121,6 +129,8 @@ export class BookingWizard extends Modal {
     private initial?: Partial<BookingDraft>,
     /** Offered only when editing: removes the booking entirely. */
     private onDelete?: () => void,
+    /** This trip's other bookings, which a transfer travels between. */
+    private tripBookings?: () => Booking[],
   ) {
     super(app);
     const start = isValidISODate(trip.startDate) ? trip.startDate : todayISO();
@@ -257,11 +267,13 @@ export class BookingWizard extends Modal {
       this.renderStatusAndNotes();
       return;
     }
+    if (this.draft.kind === "transport") this.renderTransferShortcuts();
+
     for (const spec of FIELDS[this.draft.kind]) {
       // Anything with a known set of answers gets a picker; only genuinely
       // free-form fields stay as text boxes.
       if ((spec.key === "from" || spec.key === "to") && this.draft.kind === "transport") {
-        this.renderCityField(spec);
+        this.renderEndpointField(spec);
         continue;
       }
       if (spec.key === "title" && this.draft.kind === "restaurant") {
@@ -641,6 +653,73 @@ export class BookingWizard extends Modal {
         },
       );
     });
+  }
+
+  /** This trip's places, for the transfer pickers and the shortcuts. */
+  private endpoints(): Endpoint[] {
+    return tripEndpoints(this.tripBookings?.() ?? [], (booking) =>
+      String(this.app.metadataCache.getFileCache(booking.file)?.frontmatter?.location ?? ""),
+    );
+  }
+
+  /**
+   * A transfer's end, which is usually somewhere the trip already knows.
+   *
+   * Picking one brings its address and coordinates, so the transfer has a
+   * position and a travel time without anything being typed twice or geocoded.
+   */
+  private renderEndpointField(spec: FieldSpec): void {
+    new Setting(this.bodyEl).setName(spec.label).addText((t) => {
+      t.setPlaceholder(spec.placeholder);
+      t.setValue(this.draft[spec.key]);
+      t.onChange((v) => (this.draft[spec.key] = v.trim()));
+      new EndpointSuggest(
+        this.app,
+        t.inputEl,
+        () =>
+          this.endpoints().map((e) => ({
+            label: e.label,
+            hint: e.kind,
+            address: e.address,
+            location: e.location,
+          })),
+        () => this.trip.country,
+        (hit) => {
+          this.draft[spec.key] = hit.label;
+          // The address describes where the transfer leaves you, so only the
+          // destination brings one.
+          if (spec.key === "to") {
+            if (hit.address) this.draft.address = hit.address;
+            if (hit.location) this.knownLocation = hit.location;
+          }
+          this.renderBody();
+        },
+      );
+    });
+  }
+
+  /** One click for the transfers every trip has. */
+  private renderTransferShortcuts(): void {
+    const shortcuts = transferShortcuts(this.endpoints());
+    if (shortcuts.length === 0) return;
+
+    const setting = new Setting(this.bodyEl)
+      .setName("Common transfers")
+      .setDesc("Fills both ends from this trip's own bookings.");
+    setting.settingEl.addClass("awty-setting-stack");
+    const row = setting.controlEl.createDiv({ cls: "awty-chip-row" });
+
+    for (const shortcut of shortcuts) {
+      const chip = row.createEl("button", { cls: "awty-chip" });
+      chip.setText(shortcut.label);
+      chip.addEventListener("click", () => {
+        this.draft.from = shortcut.from.label;
+        this.draft.to = shortcut.to.label;
+        if (shortcut.to.address) this.draft.address = shortcut.to.address;
+        if (shortcut.to.location) this.knownLocation = shortcut.to.location;
+        this.renderBody();
+      });
+    }
   }
 
   private renderCityField(spec: FieldSpec): void {

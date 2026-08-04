@@ -305,3 +305,72 @@ export class FoodSpotSuggest extends AbstractInputSuggest<FoodSpotEntry> {
     this.close();
   }
 }
+
+/** An endpoint suggestion: somewhere on this trip, an airport, or a city. */
+export interface EndpointHit {
+  label: string;
+  hint: string;
+  address: string;
+  location: string;
+}
+
+/**
+ * Where a transfer starts or ends.
+ *
+ * Offering only city names made "airport to hotel" impossible to express, so
+ * this leads with the places the trip already has — their addresses and
+ * coordinates come along — then airports, then cities. Free text still stands:
+ * a pick-up point is not always something the plugin knows about.
+ */
+export class EndpointSuggest extends AbstractInputSuggest<EndpointHit> {
+  constructor(
+    app: App,
+    input: HTMLInputElement,
+    private getEndpoints: () => EndpointHit[],
+    private getCountry: () => string,
+    private onPick: (hit: EndpointHit) => void,
+  ) {
+    super(app, input);
+  }
+
+  protected getSuggestions(query: string): EndpointHit[] {
+    const needle = fold(query.trim());
+    const mine = this.getEndpoints().filter((e) => !needle || fold(e.label).includes(needle));
+
+    const airports = rank(
+      AIRPORTS.map((a) => `${a.c} (${a.i})`),
+      query,
+      8,
+    ).map((label: string) => ({ label, hint: "airport", address: "", location: "" }));
+
+    const country = this.getCountry();
+    const cities = rank(CITIES[country] ?? [], query, 8).map((label: string) => ({
+      label,
+      hint: country,
+      address: "",
+      location: "",
+    }));
+
+    const seen = new Set<string>();
+    return [...mine, ...airports, ...cities]
+      .filter((hit) => {
+        const key = fold(hit.label);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 25);
+  }
+
+  renderSuggestion(hit: EndpointHit, el: HTMLElement): void {
+    el.setText(hit.label);
+    const hint = hit.address || hit.hint;
+    if (hint) el.createSpan({ cls: "awty-suggest-hint", text: hint });
+  }
+
+  selectSuggestion(hit: EndpointHit): void {
+    this.setValue(hit.label);
+    this.onPick(hit);
+    this.close();
+  }
+}

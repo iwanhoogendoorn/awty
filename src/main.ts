@@ -502,6 +502,7 @@ export default class AwtyPlugin extends Plugin {
       },
       existing ? await draftFromBooking(this.app, existing) : undefined,
       existing ? () => this.deleteItem(trip, existing.file, existing.title) : undefined,
+      () => this.bookings.getBookings(trip),
     ).open();
   }
 

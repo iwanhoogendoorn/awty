@@ -49,6 +49,7 @@ export { customSections, customParts, weaveKept, sectionText } from "./src/booki
 export { bookingBody, expenseBody } from "./src/bookings/noteBody.ts";
 export { budgetPlanTable, budgetLinesTable } from "./src/bookings/budgetTables.ts";
 export { readLegacyFoodTable } from "./src/bookings/legacyFood.ts";
+export { tripEndpoints, transferShortcuts } from "./src/bookings/tripEndpoints.ts";
 export { tripKml, tripMapNote, tripLinksText, directionsLink, placeLink, MAX_WAYPOINTS, MY_MAPS_URL } from "./src/export/mapsExport.ts";
 export { looksLikeMoreJourneys } from "./src/bookings/legs.ts";
 export { zoneForAirport, utcToLocal, localiseLegs } from "./src/flights/localTime.ts";
@@ -1652,6 +1653,45 @@ test("a table booked before this change is not thrown away", () => {
 
   // The empty template is not a booking either.
   assert.deepEqual(m.readLegacyFoodTable("## Booked\n\n_Nothing booked yet._"), []);
+});
+
+test("a transfer can start at the airport and end at the hotel", () => {
+  // From and To were city pickers, so "airport to hotel" could not be said —
+  // and no address ever reached the booking, leaving the transfer unplaceable.
+  const b = (o) => ({
+    kind: "activity", status: "booked", title: "", date: "2026-08-17", time: "",
+    endDate: "", endTime: "", returnDate: "", returnTime: "", from: "", to: "",
+    address: "", slot: "", cost: null, file: { path: `${o.title ?? o.to}.md` }, ...o,
+  });
+  const bookings = [
+    b({ kind: "flight", title: "AMS ⇄ DBV", from: "Amsterdam (AMS)", to: "Dubrovnik (DBV)" }),
+    b({ kind: "stay", title: "Rausion", address: "Kranjčevića 25" }),
+    b({ kind: "restaurant", title: "Nautika", address: "Brsalje ul. 3" }),
+    b({ kind: "activity", title: "Cancelled thing", status: "cancelled" }),
+  ];
+  const locationOf = (bk) => (bk.title === "Rausion" ? "42.65,18.08" : "");
+  const ends = m.tripEndpoints(bookings, locationOf);
+
+  // A flight offers the airports it touches, not its route as one string.
+  assert.ok(ends.some((e) => e.label === "Dubrovnik (DBV)" && e.kind === "airport"));
+  assert.ok(ends.some((e) => e.label === "Amsterdam (AMS)"));
+  assert.ok(!ends.some((e) => e.label === "AMS ⇄ DBV"));
+  // A stay brings its address and coordinates along.
+  const stay = ends.find((e) => e.kind === "stay");
+  assert.equal(stay.address, "Kranjčevića 25");
+  assert.equal(stay.location, "42.65,18.08");
+  assert.ok(!ends.some((e) => e.label === "Cancelled thing"), "cancelled is not a destination");
+
+  const shortcuts = m.transferShortcuts(ends);
+  assert.deepEqual(
+    shortcuts.map((sc) => sc.label),
+    ["Airport → stay", "Stay → airport"],
+  );
+  assert.equal(shortcuts[0].from.label, "Dubrovnik (DBV)");
+  assert.equal(shortcuts[0].to.address, "Kranjčevića 25", "so the transfer lands somewhere real");
+
+  // Nothing to travel between offers nothing, rather than half a shortcut.
+  assert.deepEqual(m.transferShortcuts(m.tripEndpoints([b({ kind: "stay", title: "Only" })], () => "")), []);
 });
 
 test("a restaurant is a booking like any other", () => {
