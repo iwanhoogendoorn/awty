@@ -152,9 +152,14 @@ export class TravelService {
       const coord = await this.coordForBooking(booking, trip);
       if (!coord) continue;
 
+      // A flight's place is the airport it lands at; labelling it with the
+      // whole route read as though AMS⇄DBV were 21 km from the apartment.
+      const label =
+        booking.kind === "flight" ? booking.to || booking.from || booking.title : booking.title;
+
       const place: Place = {
         id: booking.file.path,
-        label: booking.title,
+        label,
         kind:
           booking.kind === "stay"
             ? "hotel"

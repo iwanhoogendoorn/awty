@@ -2979,6 +2979,17 @@
   line-height: 1.45;
 }
 
+/* A mode with no route: visible and struck, not silently absent. */
+.tp-around-chip.is-none {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.tp-around-chip.is-flight {
+  background: color-mix(in srgb, var(--color-purple, var(--color-blue)) 18%, transparent);
+  color: var(--color-purple, var(--color-blue));
+}
+
 
 /* === 60-settings.css === */
 /* ==========================================================================

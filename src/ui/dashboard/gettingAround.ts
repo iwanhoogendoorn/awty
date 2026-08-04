@@ -4,6 +4,14 @@ import { sectionTitle } from "./common";
 import type { Place, TravelLeg, TravelMode } from "../../travel/types";
 import { TRAVEL_MODES, formatDistance, formatDuration } from "../../travel/types";
 import type { TripPlaces } from "../../travel/travelService";
+import type { FlightLeg } from "../../bookings/legs";
+import {
+  TIGHT_CONNECTION_MINUTES,
+  formatLayover,
+  layoverMinutes,
+  routeTitle,
+  totalJourneyMinutes,
+} from "../../bookings/legs";
 
 const MODE_ICON = new Map(TRAVEL_MODES.map((m) => [m.id, m.icon]));
 
@@ -82,11 +90,14 @@ export function renderGettingAround(parent: HTMLElement, ctx: DashboardContext):
     return;
   }
 
+  renderFlights(parent, ctx);
+
   const modes = plugin.settings.travelModes;
   const groups: { title: string; items: Place[] }[] = [
-    { title: "Airport", items: places.airports },
-    { title: "Activities", items: places.activities },
-    { title: "Restaurants", items: places.restaurants },
+    // Named as the transfer it is: on arrival you travel airport to hotel.
+    { title: `Airport transfer · to ${origin.label}`, items: places.airports },
+    { title: `Activities · from ${origin.label}`, items: places.activities },
+    { title: `Restaurants · from ${origin.label}`, items: places.restaurants },
   ];
 
   let rendered = 0;
@@ -105,7 +116,7 @@ export function renderGettingAround(parent: HTMLElement, ctx: DashboardContext):
     );
     for (const place of sorted) {
       const placeLegs = legs.get(place.id);
-      if (placeLegs) renderRow(list, place, placeLegs, ctx);
+      if (placeLegs) renderRow(list, place, placeLegs, modes, ctx);
     }
   }
 
@@ -136,6 +147,7 @@ function renderRow(
   parent: HTMLElement,
   place: Place,
   legs: TravelLeg[],
+  modes: TravelMode[],
   ctx: DashboardContext,
 ): void {
   const row = parent.createDiv({ cls: "tp-around-row" });
@@ -151,19 +163,128 @@ function renderRow(
   }
 
   const times = row.createDiv({ cls: "tp-around-times" });
-  for (const leg of legs) {
-    const chip = times.createDiv({ cls: `tp-around-chip is-${leg.mode}` });
-    setIcon(chip.createSpan({ cls: "tp-around-chip-icon" }), MODE_ICON.get(leg.mode) ?? "route");
-    chip.createSpan({ text: formatDuration(leg.durationSeconds) });
+  for (const mode of modes) {
+    const leg = legs.find((l) => l.mode === mode);
+    const label = TRAVEL_MODES.find((m) => m.id === mode)?.label ?? mode;
+
+    // A mode with no route gets a struck-through chip rather than vanishing:
+    // "no bus goes there" and "the plugin forgot" look identical otherwise.
+    const chip = times.createDiv({ cls: `tp-around-chip is-${mode}${leg ? "" : " is-none"}` });
+    setIcon(chip.createSpan({ cls: "tp-around-chip-icon" }), MODE_ICON.get(mode) ?? "route");
+    chip.createSpan({ text: leg ? formatDuration(leg.durationSeconds) : "none" });
     chip.setAttribute(
       "aria-label",
-      `${TRAVEL_MODES.find((m) => m.id === leg.mode)?.label ?? leg.mode}: ${formatDistance(leg.distanceMeters)}`,
+      leg
+        ? `${label}: ${formatDistance(leg.distanceMeters)}`
+        : `${label}: no route found`,
     );
+    chip.setAttribute("title", leg ? `${label} · ${formatDistance(leg.distanceMeters)}` : `No ${label.toLowerCase()} route found`);
   }
 
   if (place.file) {
     row.addClass("is-clickable");
     row.addEventListener("click", () => ctx.openFile(place.file!));
+  }
+}
+
+/**
+ * The flights themselves — total journey, stops and layovers.
+ *
+ * Read from the legs already on the booking, so this needs no API at all. The
+ * ground transfer to the airport is only half of "how long does getting there
+ * take"; the flight is the other half.
+ */
+function renderFlights(parent: HTMLElement, ctx: DashboardContext): void {
+  const { trip, plugin, app } = ctx;
+  if (!trip) return;
+
+  const flights = plugin.bookings
+    .getBookings(trip)
+    .filter((b) => b.kind === "flight" && b.status !== "cancelled");
+  if (flights.length === 0) return;
+
+  const readLegs = (value: unknown): FlightLeg[] =>
+    Array.isArray(value)
+      ? value.map((raw) => {
+          const leg = raw as Record<string, string>;
+          return {
+            operator: leg?.airline ?? "",
+            number: leg?.flight ?? "",
+            from: leg?.from ?? "",
+            to: leg?.to ?? "",
+            date: leg?.date ?? "",
+            depTime: leg?.departs ?? "",
+            arrDate: leg?.arrives_on ?? leg?.date ?? "",
+            arrTime: leg?.arrives ?? "",
+          };
+        })
+      : [];
+
+  parent.createDiv({ cls: "tp-around-group", text: "Flights" });
+  const list = parent.createDiv({ cls: "tp-around-list" });
+
+  for (const flight of flights) {
+    const fm = app.metadataCache.getFileCache(flight.file)?.frontmatter;
+    const outbound = readLegs(fm?.legs);
+    const inbound = readLegs(fm?.return_legs);
+
+    const directions: { label: string; legs: FlightLeg[]; fallbackTime: string }[] = [
+      { label: "Outbound", legs: outbound, fallbackTime: flight.time },
+      { label: "Return", legs: inbound, fallbackTime: flight.returnTime },
+    ];
+
+    for (const direction of directions) {
+      // A direct flight has no legs recorded; fall back to the booking itself.
+      const legs =
+        direction.legs.length > 0
+          ? direction.legs
+          : direction.label === "Outbound"
+            ? [
+                {
+                  operator: flight.operator,
+                  number: flight.title,
+                  from: flight.from,
+                  to: flight.to,
+                  date: flight.date,
+                  depTime: flight.time,
+                  arrDate: flight.endDate,
+                  arrTime: flight.endTime,
+                },
+              ]
+            : [];
+      if (legs.length === 0) continue;
+
+      const row = list.createDiv({ cls: "tp-around-row is-clickable" });
+      const text = row.createDiv({ cls: "tp-around-text" });
+      text.createDiv({
+        cls: "tp-around-name",
+        text: `${direction.label} · ${routeTitle(legs) || flight.title}`,
+      });
+
+      const stops = legs.length - 1;
+      const bits: string[] = [
+        legs[0].date && legs[0].depTime ? `${legs[0].date} ${legs[0].depTime}` : legs[0].date,
+        stops === 0 ? "direct" : `${stops} stop${stops === 1 ? "" : "s"}`,
+      ].filter(Boolean);
+
+      for (let i = 1; i < legs.length; i += 1) {
+        const gap = layoverMinutes(legs[i - 1], legs[i]);
+        if (gap === null) continue;
+        bits.push(
+          `${formatLayover(gap)} in ${legs[i - 1].to || "transit"}${gap < TIGHT_CONNECTION_MINUTES ? " (tight)" : ""}`,
+        );
+      }
+      text.createDiv({ cls: "tp-around-dist", text: bits.join(" · ") });
+
+      const total = totalJourneyMinutes(legs);
+      const times = row.createDiv({ cls: "tp-around-times" });
+      const chip = times.createDiv({ cls: "tp-around-chip is-flight" });
+      setIcon(chip.createSpan({ cls: "tp-around-chip-icon" }), "plane");
+      chip.createSpan({ text: total === null ? "—" : formatLayover(total) });
+      chip.setAttribute("title", "Total journey, including time on the ground");
+
+      row.addEventListener("click", () => ctx.openFile(flight.file));
+    }
   }
 }
 

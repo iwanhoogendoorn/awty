@@ -2138,11 +2138,13 @@ function renderGettingAround(parent, ctx) {
     );
     return;
   }
+  renderFlights(parent, ctx);
   const modes = plugin.settings.travelModes;
   const groups = [
-    { title: "Airport", items: places.airports },
-    { title: "Activities", items: places.activities },
-    { title: "Restaurants", items: places.restaurants }
+    // Named as the transfer it is: on arrival you travel airport to hotel.
+    { title: `Airport transfer \xB7 to ${origin.label}`, items: places.airports },
+    { title: `Activities \xB7 from ${origin.label}`, items: places.activities },
+    { title: `Restaurants \xB7 from ${origin.label}`, items: places.restaurants }
   ];
   let rendered = 0;
   for (const group of groups) {
@@ -2157,7 +2159,7 @@ function renderGettingAround(parent, ctx) {
     );
     for (const place of sorted) {
       const placeLegs = legs.get(place.id);
-      if (placeLegs) renderRow(list3, place, placeLegs, ctx);
+      if (placeLegs) renderRow(list3, place, placeLegs, modes, ctx);
     }
   }
   if (rendered === 0) {
@@ -2179,7 +2181,7 @@ function shortest(legs) {
   if (!legs || legs.length === 0) return Number.MAX_SAFE_INTEGER;
   return Math.min(...legs.map((l) => l.durationSeconds));
 }
-function renderRow(parent, place, legs, ctx) {
+function renderRow(parent, place, legs, modes, ctx) {
   const row2 = parent.createDiv({ cls: "tp-around-row" });
   const text = row2.createDiv({ cls: "tp-around-text" });
   text.createDiv({ cls: "tp-around-name", text: place.label });
@@ -2190,18 +2192,92 @@ function renderRow(parent, place, legs, ctx) {
     text.createDiv({ cls: "tp-around-dist", text: formatDistance(reference.distanceMeters) });
   }
   const times2 = row2.createDiv({ cls: "tp-around-times" });
-  for (const leg of legs) {
-    const chip = times2.createDiv({ cls: `tp-around-chip is-${leg.mode}` });
-    (0, import_obsidian6.setIcon)(chip.createSpan({ cls: "tp-around-chip-icon" }), MODE_ICON.get(leg.mode) ?? "route");
-    chip.createSpan({ text: formatDuration2(leg.durationSeconds) });
+  for (const mode of modes) {
+    const leg = legs.find((l) => l.mode === mode);
+    const label = TRAVEL_MODES.find((m) => m.id === mode)?.label ?? mode;
+    const chip = times2.createDiv({ cls: `tp-around-chip is-${mode}${leg ? "" : " is-none"}` });
+    (0, import_obsidian6.setIcon)(chip.createSpan({ cls: "tp-around-chip-icon" }), MODE_ICON.get(mode) ?? "route");
+    chip.createSpan({ text: leg ? formatDuration2(leg.durationSeconds) : "none" });
     chip.setAttribute(
       "aria-label",
-      `${TRAVEL_MODES.find((m) => m.id === leg.mode)?.label ?? leg.mode}: ${formatDistance(leg.distanceMeters)}`
+      leg ? `${label}: ${formatDistance(leg.distanceMeters)}` : `${label}: no route found`
     );
+    chip.setAttribute("title", leg ? `${label} \xB7 ${formatDistance(leg.distanceMeters)}` : `No ${label.toLowerCase()} route found`);
   }
   if (place.file) {
     row2.addClass("is-clickable");
     row2.addEventListener("click", () => ctx.openFile(place.file));
+  }
+}
+function renderFlights(parent, ctx) {
+  const { trip, plugin, app } = ctx;
+  if (!trip) return;
+  const flights = plugin.bookings.getBookings(trip).filter((b) => b.kind === "flight" && b.status !== "cancelled");
+  if (flights.length === 0) return;
+  const readLegs = (value) => Array.isArray(value) ? value.map((raw) => {
+    const leg = raw;
+    return {
+      operator: leg?.airline ?? "",
+      number: leg?.flight ?? "",
+      from: leg?.from ?? "",
+      to: leg?.to ?? "",
+      date: leg?.date ?? "",
+      depTime: leg?.departs ?? "",
+      arrDate: leg?.arrives_on ?? leg?.date ?? "",
+      arrTime: leg?.arrives ?? ""
+    };
+  }) : [];
+  parent.createDiv({ cls: "tp-around-group", text: "Flights" });
+  const list3 = parent.createDiv({ cls: "tp-around-list" });
+  for (const flight of flights) {
+    const fm = app.metadataCache.getFileCache(flight.file)?.frontmatter;
+    const outbound = readLegs(fm?.legs);
+    const inbound = readLegs(fm?.return_legs);
+    const directions = [
+      { label: "Outbound", legs: outbound, fallbackTime: flight.time },
+      { label: "Return", legs: inbound, fallbackTime: flight.returnTime }
+    ];
+    for (const direction of directions) {
+      const legs = direction.legs.length > 0 ? direction.legs : direction.label === "Outbound" ? [
+        {
+          operator: flight.operator,
+          number: flight.title,
+          from: flight.from,
+          to: flight.to,
+          date: flight.date,
+          depTime: flight.time,
+          arrDate: flight.endDate,
+          arrTime: flight.endTime
+        }
+      ] : [];
+      if (legs.length === 0) continue;
+      const row2 = list3.createDiv({ cls: "tp-around-row is-clickable" });
+      const text = row2.createDiv({ cls: "tp-around-text" });
+      text.createDiv({
+        cls: "tp-around-name",
+        text: `${direction.label} \xB7 ${routeTitle(legs) || flight.title}`
+      });
+      const stops = legs.length - 1;
+      const bits = [
+        legs[0].date && legs[0].depTime ? `${legs[0].date} ${legs[0].depTime}` : legs[0].date,
+        stops === 0 ? "direct" : `${stops} stop${stops === 1 ? "" : "s"}`
+      ].filter(Boolean);
+      for (let i = 1; i < legs.length; i += 1) {
+        const gap = layoverMinutes(legs[i - 1], legs[i]);
+        if (gap === null) continue;
+        bits.push(
+          `${formatLayover(gap)} in ${legs[i - 1].to || "transit"}${gap < TIGHT_CONNECTION_MINUTES ? " (tight)" : ""}`
+        );
+      }
+      text.createDiv({ cls: "tp-around-dist", text: bits.join(" \xB7 ") });
+      const total = totalJourneyMinutes(legs);
+      const times2 = row2.createDiv({ cls: "tp-around-times" });
+      const chip = times2.createDiv({ cls: "tp-around-chip is-flight" });
+      (0, import_obsidian6.setIcon)(chip.createSpan({ cls: "tp-around-chip-icon" }), "plane");
+      chip.createSpan({ text: total === null ? "\u2014" : formatLayover(total) });
+      chip.setAttribute("title", "Total journey, including time on the ground");
+      row2.addEventListener("click", () => ctx.openFile(flight.file));
+    }
   }
 }
 function travelTable(origin, destinations, legs, modes) {
@@ -6260,9 +6336,10 @@ var TravelService = class {
       if (booking.status === "cancelled") continue;
       const coord = await this.coordForBooking(booking, trip);
       if (!coord) continue;
+      const label = booking.kind === "flight" ? booking.to || booking.from || booking.title : booking.title;
       const place = {
         id: booking.file.path,
-        label: booking.title,
+        label,
         kind: booking.kind === "stay" ? "hotel" : booking.kind === "flight" ? "airport" : booking.kind === "transport" ? "station" : "activity",
         coord,
         file: booking.file
