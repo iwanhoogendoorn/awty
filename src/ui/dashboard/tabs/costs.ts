@@ -1,6 +1,6 @@
 import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { bar, emptyState, renderToolbar, sectionTitle, statTiles, noTripState } from "../common";
+import { bar, editItem, emptyState, renderToolbar, sectionTitle, statTiles, noTripState } from "../common";
 import { totalsByCategory } from "../../../bookings/bookingStore";
 import { allCategories } from "../../../bookings/types";
 import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/money";
@@ -122,7 +122,10 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
           .join(" · "),
       });
       row.createDiv({ cls: "tp-cost-amount", text: formatMoney(line.money) });
-      row.addEventListener("click", () => ctx.openFile(line.file));
+      row.addEventListener("click", () => {
+        if (!editItem(ctx, line.file)) ctx.openFile(line.file);
+      });
+      row.setAttribute("title", "Click to edit");
     }
   }
 }

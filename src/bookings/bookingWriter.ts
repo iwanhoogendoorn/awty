@@ -5,6 +5,9 @@ import type { TravelPlannerSettings, Trip } from "../types";
 import { joinPath, sanitizeName } from "../util/paths";
 import { airportFromLabel } from "../ui/components/suggest";
 import { legsToFrontmatter, layoverMinutes, formatLayover, type FlightLeg } from "./legs";
+import { readLegs as legsFromFrontmatter } from "./flightSummary";
+import type { Booking } from "./types";
+import { customSections, sectionText } from "./noteSections";
 
 export interface BookingDraft {
   kind: BookingKind;
@@ -189,6 +192,130 @@ function bookingBody(draft: BookingDraft, attachmentLinks: string[]): string {
   return out.join("\n");
 }
 
+
+/** Frontmatter keys the booking form owns; cleared fields must actually clear. */
+const BOOKING_KEYS = [
+  "end_date", "time", "end_time", "cost", "currency", "reference", "from", "to",
+  "address", "operator", "seat", "legs", "return_legs", "attachments", "location",
+];
+
+function writeBookingFrontmatter(
+  app: App,
+  fm: Record<string, unknown>,
+  trip: Trip,
+  path: string,
+  draft: BookingDraft,
+  links: string[],
+): void {
+  for (const key of BOOKING_KEYS) delete fm[key];
+
+  fm.type = "booking";
+  fm.booking_kind = draft.kind;
+  fm.status = draft.status;
+  fm.title = draft.title;
+  // Recorded explicitly so the store never has to guess the owning trip from
+  // the folder depth.
+  fm.trip_folder = trip.folderPath;
+  fm.trip = app.fileManager.generateMarkdownLink(trip.file, path);
+  fm.date = draft.date;
+  if (draft.endDate && draft.endDate !== draft.date) fm.end_date = draft.endDate;
+  if (draft.time) fm.time = draft.time;
+  if (draft.endTime) fm.end_time = draft.endTime;
+  if (draft.amount !== null) {
+    fm.cost = draft.amount;
+    fm.currency = draft.currency;
+  }
+  fm.category = draft.category;
+  // An airport picked from the list already knows where it is, so travel
+  // times can skip the billed geocoding call entirely.
+  const airport = airportFromLabel(draft.to) ?? airportFromLabel(draft.from);
+  if (draft.kind === "flight" && airport) fm.location = `${airport.a},${airport.o}`;
+  if (draft.reference) fm.reference = draft.reference;
+  if (draft.from) fm.from = draft.from;
+  if (draft.to) fm.to = draft.to;
+  if (draft.address) fm.address = draft.address;
+  if (draft.operator) fm.operator = draft.operator;
+  if (draft.seat) fm.seat = draft.seat;
+  // Stored even for a direct flight: without it the outbound arrival has to
+  // be inferred from the booking's end, which on a return ticket is when you
+  // land back home — an outbound "journey" of seven days.
+  if (draft.legs.length > 0) fm.legs = legsToFrontmatter(draft.legs);
+  if (draft.returnLegs.length > 0) fm.return_legs = legsToFrontmatter(draft.returnLegs);
+  if (links.length) fm.attachments = links;
+}
+
+/**
+ * Saves changes to an existing booking.
+ *
+ * Editing used to mean opening the note and retyping frontmatter by hand, which
+ * is exactly the thing the dashboard exists to avoid.
+ */
+export async function updateBooking(
+  app: App,
+  trip: Trip,
+  file: TFile,
+  draft: BookingDraft,
+): Promise<TFile> {
+  const links = linksFor(app, draft.attachments, file.path);
+  const kept = customSections(await app.vault.read(file));
+
+  await app.fileManager.processFrontMatter(file, (fm) => {
+    writeBookingFrontmatter(app, fm, trip, file.path, draft, links);
+  });
+
+  const head = await app.vault.read(file);
+  const front = head.startsWith("---") ? head.slice(0, head.indexOf("\n---", 3) + 4) : "";
+  const body = [bookingBody(draft, links), kept].filter(Boolean).join("\n\n");
+  await app.vault.modify(file, `${front.trimEnd()}\n\n${body}\n`);
+
+  // A renamed booking keeps its links: renameFile rewrites every reference.
+  const wanted = sanitizeName(draft.title || "Booking");
+  if (wanted && wanted !== file.basename) {
+    const target = uniquePath(app, file.parent?.path ?? "", wanted);
+    await app.fileManager.renameFile(file, target);
+  }
+  return file;
+}
+
+/**
+ * Turns a saved booking back into a draft the form can edit.
+ *
+ * Legs come from frontmatter, and the hand-written Notes section from the body,
+ * so reopening the form shows exactly what the note says rather than a blank
+ * that would overwrite it on save.
+ */
+export async function draftFromBooking(
+  app: App,
+  booking: Booking,
+): Promise<Partial<BookingDraft>> {
+  const fm = app.metadataCache.getFileCache(booking.file)?.frontmatter;
+  // The notes live in the body, not in frontmatter. Reopening the form with an
+  // empty box would wipe them on save.
+  const notes = sectionText(await app.vault.cachedRead(booking.file), "Notes");
+  return {
+    kind: booking.kind,
+    status: booking.status,
+    title: booking.title,
+    date: booking.date,
+    endDate: booking.endDate || booking.date,
+    time: booking.time,
+    endTime: booking.endTime,
+    amount: booking.cost ? booking.cost.amount : null,
+    currency: booking.cost?.currency,
+    category: booking.category,
+    reference: booking.reference,
+    from: booking.from,
+    to: booking.to,
+    address: booking.address,
+    operator: booking.operator,
+    seat: booking.seat,
+    notes: booking.notes || notes,
+    attachments: booking.attachments,
+    legs: legsFromFrontmatter(fm?.legs),
+    returnLegs: legsFromFrontmatter(fm?.return_legs),
+  };
+}
+
 export async function createBooking(
   app: App,
   settings: TravelPlannerSettings,
@@ -206,39 +333,7 @@ export async function createBooking(
   const links = linksFor(app, draft.attachments, path);
 
   await app.fileManager.processFrontMatter(file, (fm) => {
-    fm.type = "booking";
-    fm.booking_kind = draft.kind;
-    fm.status = draft.status;
-    fm.title = draft.title;
-    // Recorded explicitly so the store never has to guess the owning trip from
-    // the folder depth.
-    fm.trip_folder = trip.folderPath;
-    fm.trip = app.fileManager.generateMarkdownLink(trip.file, path);
-    fm.date = draft.date;
-    if (draft.endDate && draft.endDate !== draft.date) fm.end_date = draft.endDate;
-    if (draft.time) fm.time = draft.time;
-    if (draft.endTime) fm.end_time = draft.endTime;
-    if (draft.amount !== null) {
-      fm.cost = draft.amount;
-      fm.currency = draft.currency;
-    }
-    fm.category = draft.category;
-    // An airport picked from the list already knows where it is, so travel
-    // times can skip the billed geocoding call entirely.
-    const airport = airportFromLabel(draft.to) ?? airportFromLabel(draft.from);
-    if (draft.kind === "flight" && airport) fm.location = `${airport.a},${airport.o}`;
-    if (draft.reference) fm.reference = draft.reference;
-    if (draft.from) fm.from = draft.from;
-    if (draft.to) fm.to = draft.to;
-    if (draft.address) fm.address = draft.address;
-    if (draft.operator) fm.operator = draft.operator;
-    if (draft.seat) fm.seat = draft.seat;
-    // Stored even for a direct flight: without it the outbound arrival has to
-    // be inferred from the booking's end, which on a return ticket is when you
-    // land back home — an outbound "journey" of seven days.
-    if (draft.legs.length > 0) fm.legs = legsToFrontmatter(draft.legs);
-    if (draft.returnLegs.length > 0) fm.return_legs = legsToFrontmatter(draft.returnLegs);
-    if (links.length) fm.attachments = links;
+    writeBookingFrontmatter(app, fm, trip, path, draft, links);
   });
 
   const head = await app.vault.read(file);
@@ -282,6 +377,50 @@ export async function createExpense(
 
   const head = await app.vault.read(file);
   await app.vault.modify(file, `${head.trimEnd()}\n\n${body.join("\n")}`);
+  return file;
+}
+
+/** Saves changes to an existing expense. */
+export async function updateExpense(
+  app: App,
+  trip: Trip,
+  file: TFile,
+  draft: ExpenseDraft,
+): Promise<TFile> {
+  const links = linksFor(app, draft.attachments, file.path);
+  const kept = customSections(await app.vault.read(file));
+
+  await app.fileManager.processFrontMatter(file, (fm) => {
+    for (const key of ["paid_by", "attachments"]) delete fm[key];
+    fm.type = "expense";
+    fm.description = draft.description;
+    fm.trip_folder = trip.folderPath;
+    fm.trip = app.fileManager.generateMarkdownLink(trip.file, file.path);
+    fm.date = draft.date;
+    fm.amount = draft.amount;
+    fm.currency = draft.currency;
+    fm.category = draft.category;
+    if (draft.paidBy) fm.paid_by = draft.paidBy;
+    if (links.length) fm.attachments = links;
+  });
+
+  const head = await app.vault.read(file);
+  const front = head.startsWith("---") ? head.slice(0, head.indexOf("\n---", 3) + 4) : "";
+  const body = [`# ${draft.description}`, ""];
+  if (links.length) {
+    body.push("## Receipt", "");
+    for (const link of links) body.push(isImage(link) ? `!${link}` : `- ${link}`);
+    body.push("");
+  }
+  await app.vault.modify(
+    file,
+    `${front.trimEnd()}\n\n${[body.join("\n"), kept].filter(Boolean).join("\n\n")}\n`,
+  );
+
+  const wanted = sanitizeName(`${draft.date} ${draft.description}`.trim() || "Expense");
+  if (wanted && wanted !== file.basename) {
+    await app.fileManager.renameFile(file, uniquePath(app, file.parent?.path ?? "", wanted));
+  }
   return file;
 }
 

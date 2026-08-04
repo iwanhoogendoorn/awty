@@ -1,6 +1,6 @@
 import { Menu, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { emptyState, renderToolbar, sectionTitle, noTripState } from "../common";
+import { editItem, emptyState, renderToolbar, sectionTitle, noTripState } from "../common";
 import type { Booking, BookingKind } from "../../../bookings/types";
 import { BOOKING_KINDS, BOOKING_STATUSES } from "../../../bookings/types";
 import { formatMoney } from "../../../util/money";
@@ -89,12 +89,22 @@ function renderRow(parent: HTMLElement, booking: Booking, ctx: DashboardContext)
   const pill = right.createDiv({ cls: `tp-status-pill is-${booking.status}` });
   pill.setText(status?.label ?? booking.status);
 
-  row.addEventListener("click", () => ctx.openFile(booking.file));
+  // Clicking a booking opens the form that made it. Opening the raw note was
+  // the only route to changing anything, which meant editing frontmatter.
+  row.addEventListener("click", () => {
+    if (!editItem(ctx, booking.file)) ctx.openFile(booking.file);
+  });
   row.addEventListener("contextmenu", (evt) => {
     evt.preventDefault();
     const menu = new Menu();
     menu.addItem((i) =>
-      i.setTitle("Open").setIcon("file-text").onClick(() => ctx.openFile(booking.file)),
+      i
+        .setTitle("Edit…")
+        .setIcon("pencil")
+        .onClick(() => ctx.plugin.openBookingWizard(ctx.trip!, booking.kind, booking)),
+    );
+    menu.addItem((i) =>
+      i.setTitle("Open note").setIcon("file-text").onClick(() => ctx.openFile(booking.file)),
     );
     menu.addItem((i) =>
       i

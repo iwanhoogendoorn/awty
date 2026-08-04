@@ -1,7 +1,7 @@
 import { Notice, setIcon } from "obsidian";
 import type { DashboardContext } from "./common";
 import { formatDayLabel } from "../../util/dates";
-import { sectionTitle } from "./common";
+import { editItem, sectionTitle } from "./common";
 import type { Place, TravelLeg, TravelMode } from "../../travel/types";
 import { TRAVEL_MODES, formatDistance, formatDuration } from "../../travel/types";
 import type { TripPlaces } from "../../travel/travelService";
@@ -199,7 +199,9 @@ function renderRow(
 
   if (place.file) {
     row.addClass("is-clickable");
-    row.addEventListener("click", () => ctx.openFile(place.file!));
+    row.addEventListener("click", () => {
+      if (!editItem(ctx, place.file!)) ctx.openFile(place.file!);
+    });
   }
 }
 

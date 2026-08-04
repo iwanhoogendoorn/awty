@@ -45,6 +45,7 @@ export { dayEvents, ongoingOn, BAND } from "./src/store/dayPlan.ts";
 export { itineraryPairs, groupByOrigin } from "./src/travel/routePlan.ts";
 export { readLegs, summariseFlight } from "./src/bookings/flightSummary.ts";
 export { renderMarkdown, stripFrontmatter } from "./src/export/markdown.ts";
+export { customSections, sectionText } from "./src/bookings/noteSections.ts";
 `;
 
 const outfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tp-test-")), "bundle.mjs");
@@ -1248,6 +1249,45 @@ test("inline code is not re-read as markup, and numbers survive", () => {
   const html = m.renderMarkdown("Meet in 5 minutes at `**the gate**`");
   assert.match(html, /Meet in 5 minutes/);
   assert.match(html, /<code>\*\*the gate\*\*<\/code>/);
+});
+
+// --------------------------------------------------------------- editing
+
+const BOOKING_NOTE = [
+  "# Rausion Luxury Apartments",
+  "",
+  "| | |",
+  "|---|---|",
+  "| **Status** | booked |",
+  "",
+  "## Notes",
+  "",
+  "Ask for the top-floor flat.",
+  "",
+  "## Door code",
+  "",
+  "4821, then #",
+  "",
+  "## Attachments",
+  "",
+  "- [[confirmation.pdf]]",
+].join("\n");
+
+test("editing a booking keeps what you wrote by hand", () => {
+  // The form regenerates the sections it owns. Anything else was typed by a
+  // person and must survive being saved over.
+  const kept = m.customSections(BOOKING_NOTE);
+  assert.match(kept, /## Door code/);
+  assert.match(kept, /4821, then #/);
+  assert.ok(!kept.includes("Ask for the top-floor flat"), "Notes is regenerated, not duplicated");
+  assert.ok(!kept.includes("confirmation.pdf"), "Attachments is regenerated, not duplicated");
+});
+
+test("reopening the form shows the notes that are in the note", () => {
+  // They live in the body, not frontmatter; an empty box would wipe them.
+  assert.equal(m.sectionText(BOOKING_NOTE, "Notes"), "Ask for the top-floor flat.");
+  assert.equal(m.sectionText(BOOKING_NOTE, "Door code"), "4821, then #");
+  assert.equal(m.sectionText(BOOKING_NOTE, "Nothing here"), "");
 });
 
 console.log(`\n${passed} tests passed`);

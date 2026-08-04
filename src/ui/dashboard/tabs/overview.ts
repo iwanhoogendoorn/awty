@@ -3,7 +3,8 @@ import type { DashboardContext } from "../common";
 import { bar, emptyState, readiness, sectionTitle, stateMark, statTiles, noTripState } from "../common";
 import { renderGettingAround } from "../gettingAround";
 import { renderDocuments } from "../documents";
-import { BOOKING_KINDS } from "../../../bookings/types";
+import { BOOKING_KINDS, type BookingKind } from "../../../bookings/types";
+import type { SubNoteId } from "../../../types";
 import { totalsByCategory } from "../../../bookings/bookingStore";
 import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/money";
 import {
@@ -12,6 +13,43 @@ import {
   formatDuration,
   todayISO,
 } from "../../../util/dates";
+
+interface NoteItem {
+  label: string;
+  icon: string;
+  open: () => void;
+}
+
+/**
+ * The things a note is a list of, so each one can be opened in the form that
+ * made it. A note card knows how many bookings it holds; until now that number
+ * was all it would tell you.
+ */
+function itemsFor(id: SubNoteId | null, ctx: DashboardContext): NoteItem[] {
+  const { trip, plugin } = ctx;
+  if (!trip || !id) return [];
+
+  const bookingsOfKind = (kinds: BookingKind[]): NoteItem[] =>
+    plugin.bookings
+      .getBookings(trip)
+      .filter((b) => kinds.includes(b.kind))
+      .map((booking) => ({
+        label: [booking.date, booking.title].filter(Boolean).join(" · "),
+        icon: BOOKING_KINDS.find((k) => k.id === booking.kind)?.icon ?? "ticket",
+        open: () => void plugin.openBookingWizard(trip, booking.kind, booking),
+      }));
+
+  if (id === "accommodation") return bookingsOfKind(["stay"]);
+  if (id === "transport") return bookingsOfKind(["flight", "transport"]);
+  if (id === "budget") {
+    return plugin.bookings.getExpenses(trip).map((expense) => ({
+      label: [expense.date, expense.description].filter(Boolean).join(" · "),
+      icon: "receipt",
+      open: () => plugin.openExpenseModal(trip, expense),
+    }));
+  }
+  return [];
+}
 
 /**
  * The trip's own notes, openable from the dashboard.
@@ -64,6 +102,25 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
       fill.addEventListener("click", (evt) => {
         evt.stopPropagation();
         plugin.openNoteWizard(trip, sub.id!);
+      });
+    }
+
+    // What is already in the note, editable without going through frontmatter.
+    // "Add" and "Open" alone left no way to change what was already there.
+    const existing = itemsFor(sub.id, ctx);
+    if (existing.length > 0) {
+      const edit = actions.createEl("button", { cls: "tp-note-btn" });
+      setIcon(edit.createSpan(), "pencil");
+      edit.createSpan({ text: "Edit" });
+      edit.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        const menu = new Menu();
+        for (const item of existing) {
+          menu.addItem((i) =>
+            i.setTitle(item.label).setIcon(item.icon).onClick(() => item.open()),
+          );
+        }
+        menu.showAtMouseEvent(evt);
       });
     }
 

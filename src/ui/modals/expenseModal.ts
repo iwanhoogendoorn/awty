@@ -24,6 +24,8 @@ export class ExpenseModal extends Modal {
     private trip: Trip,
     currency: string,
     private onSubmit: (draft: ExpenseDraft, files: File[]) => Promise<void>,
+    /** Present when an existing expense is being changed rather than logged. */
+    private initial?: Partial<ExpenseDraft>,
   ) {
     super(app);
     const today = todayISO();
@@ -37,7 +39,12 @@ export class ExpenseModal extends Modal {
       category: "Food & drink",
       paidBy: "",
       attachments: [],
+      ...initial,
     };
+  }
+
+  private get editing(): boolean {
+    return this.initial !== undefined;
   }
 
   onOpen(): void {
@@ -45,11 +52,15 @@ export class ExpenseModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
-    contentEl.createEl("h2", { text: "Log an expense", cls: "tp-modal-title" });
+    contentEl.createEl("h2", {
+      text: this.editing ? "Edit expense" : "Log an expense",
+      cls: "tp-modal-title",
+    });
     contentEl.createDiv({ cls: "tp-wizard-sub", text: this.trip.title });
 
     new Setting(contentEl).setName("What was it?").addText((t) => {
       t.setPlaceholder("Dinner at Proto");
+      t.setValue(this.draft.description);
       t.onChange((v) => (this.draft.description = v.trim()));
       window.setTimeout(() => t.inputEl.focus(), 0);
     });
@@ -58,6 +69,7 @@ export class ExpenseModal extends Modal {
       .setName("Amount")
       .addText((t) => {
         t.setPlaceholder("62,50");
+        if (this.draft.amount > 0) t.setValue(String(this.draft.amount));
         t.inputEl.inputMode = "decimal";
         t.onChange((v) => (this.draft.amount = parseAmount(v) ?? 0));
       })
@@ -84,6 +96,7 @@ export class ExpenseModal extends Modal {
 
     new Setting(contentEl).setName("Paid by").addText((t) => {
       t.setPlaceholder("Optional");
+      t.setValue(this.draft.paidBy);
       t.onChange((v) => (this.draft.paidBy = v.trim()));
     });
 
@@ -97,7 +110,10 @@ export class ExpenseModal extends Modal {
       .addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close()))
       .addButton((btn) => {
         this.saveBtn = btn;
-        btn.setButtonText("Save expense").setCta().onClick(() => void this.submit());
+        btn
+          .setButtonText(this.editing ? "Save changes" : "Save expense")
+          .setCta()
+          .onClick(() => void this.submit());
       });
   }
 
@@ -125,7 +141,7 @@ export class ExpenseModal extends Modal {
       new Notice(err instanceof Error ? err.message : "Could not save the expense.");
       console.error("[travel-planner]", err);
       this.submitting = false;
-      this.saveBtn?.setDisabled(false).setButtonText("Save expense");
+      this.saveBtn?.setDisabled(false).setButtonText(this.editing ? "Save changes" : "Save expense");
     }
   }
 

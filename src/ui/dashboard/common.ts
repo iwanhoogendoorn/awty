@@ -140,6 +140,32 @@ export function stateMark(state: "empty" | "started" | "complete"): {
   return { icon: "", label: "Not started" };
 }
 
+/**
+ * Opens the right editor for whatever note was clicked.
+ *
+ * Every list in the dashboard shows a mix of bookings and expenses, and each one
+ * used to open the raw note — leaving frontmatter as the only way to change
+ * anything. Returns false when the file is neither, so callers can fall back.
+ */
+export function editItem(ctx: DashboardContext, file: TFile): boolean {
+  const { trip, plugin } = ctx;
+  if (!trip) return false;
+
+  const booking = plugin.bookings.getBookings(trip).find((b) => b.file.path === file.path);
+  if (booking) {
+    void plugin.openBookingWizard(trip, booking.kind, booking);
+    return true;
+  }
+
+  const expense = plugin.bookings.getExpenses(trip).find((e) => e.file.path === file.path);
+  if (expense) {
+    plugin.openExpenseModal(trip, expense);
+    return true;
+  }
+  return false;
+}
+
+/** Readiness: how much of a trip's planning is actually filled in. */
 export function readiness(plugin: TravelPlannerPlugin, trip: Trip): { done: number; total: number; ratio: number } {
   const subNotes = plugin.store.getSubNotes(trip);
   let done = 0;

@@ -1754,6 +1754,85 @@ function legsToFrontmatter(legs) {
   });
 }
 
+// src/bookings/flightSummary.ts
+function readLegs(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((raw) => {
+    const leg = raw;
+    return {
+      operator: leg?.airline ?? "",
+      number: leg?.flight ?? "",
+      from: leg?.from ?? "",
+      to: leg?.to ?? "",
+      date: leg?.date ?? "",
+      depTime: leg?.departs ?? "",
+      arrDate: leg?.arrives_on ?? leg?.date ?? "",
+      arrTime: leg?.arrives ?? ""
+    };
+  });
+}
+function summariseFlight(legs) {
+  const stops = Math.max(legs.length - 1, 0);
+  const raw = totalJourneyMinutes(legs);
+  const totalMinutes = raw !== null && raw > 24 * 60 ? null : raw;
+  const layovers = [];
+  for (let i = 1; i < legs.length; i += 1) {
+    const gap = layoverMinutes(legs[i - 1], legs[i]);
+    if (gap === null) continue;
+    layovers.push(
+      `${formatLayover(gap)} in ${legs[i - 1].to || "transit"}${gap < TIGHT_CONNECTION_MINUTES ? " (tight)" : ""}`
+    );
+  }
+  const last = legs[legs.length - 1];
+  const arrival = last?.arrTime ?? "";
+  const label = [
+    totalMinutes === null ? "" : formatLayover(totalMinutes),
+    legs.length === 0 ? "" : stops === 0 ? "direct" : `${stops} stop${stops === 1 ? "" : "s"}`
+  ].filter(Boolean).join(" \xB7 ");
+  return { legs, stops, totalMinutes, label, layovers, arrival };
+}
+
+// src/bookings/noteSections.ts
+var OWNED_HEADINGS = ["notes", "attachments", "receipt", "outbound", "return", "itinerary"];
+function sectionText(content, heading) {
+  const lines2 = content.split("\n");
+  const wanted = heading.trim().toLowerCase();
+  const out = [];
+  let inside = false;
+  for (const line of lines2) {
+    const found = /^##\s+(.+?)\s*$/.exec(line);
+    if (found) {
+      inside = found[1].trim().toLowerCase() === wanted;
+      continue;
+    }
+    if (/^#\s/.test(line)) {
+      inside = false;
+      continue;
+    }
+    if (inside) out.push(line);
+  }
+  return out.join("\n").trim();
+}
+function customSections(content) {
+  const lines2 = content.split("\n");
+  const kept = [];
+  let keeping = false;
+  for (const line of lines2) {
+    const heading = /^##\s+(.+?)\s*$/.exec(line);
+    if (heading) {
+      keeping = !OWNED_HEADINGS.includes(heading[1].trim().toLowerCase());
+      if (keeping) kept.push(line);
+      continue;
+    }
+    if (/^#\s/.test(line)) {
+      keeping = false;
+      continue;
+    }
+    if (keeping) kept.push(line);
+  }
+  return kept.join("\n").trim();
+}
+
 // src/bookings/bookingWriter.ts
 async function ensureFolder(app, path) {
   const normalized = (0, import_obsidian4.normalizePath)(path);
@@ -1867,6 +1946,98 @@ function bookingBody(draft, attachmentLinks) {
   }
   return out.join("\n");
 }
+var BOOKING_KEYS = [
+  "end_date",
+  "time",
+  "end_time",
+  "cost",
+  "currency",
+  "reference",
+  "from",
+  "to",
+  "address",
+  "operator",
+  "seat",
+  "legs",
+  "return_legs",
+  "attachments",
+  "location"
+];
+function writeBookingFrontmatter(app, fm, trip, path, draft, links) {
+  for (const key of BOOKING_KEYS) delete fm[key];
+  fm.type = "booking";
+  fm.booking_kind = draft.kind;
+  fm.status = draft.status;
+  fm.title = draft.title;
+  fm.trip_folder = trip.folderPath;
+  fm.trip = app.fileManager.generateMarkdownLink(trip.file, path);
+  fm.date = draft.date;
+  if (draft.endDate && draft.endDate !== draft.date) fm.end_date = draft.endDate;
+  if (draft.time) fm.time = draft.time;
+  if (draft.endTime) fm.end_time = draft.endTime;
+  if (draft.amount !== null) {
+    fm.cost = draft.amount;
+    fm.currency = draft.currency;
+  }
+  fm.category = draft.category;
+  const airport = airportFromLabel(draft.to) ?? airportFromLabel(draft.from);
+  if (draft.kind === "flight" && airport) fm.location = `${airport.a},${airport.o}`;
+  if (draft.reference) fm.reference = draft.reference;
+  if (draft.from) fm.from = draft.from;
+  if (draft.to) fm.to = draft.to;
+  if (draft.address) fm.address = draft.address;
+  if (draft.operator) fm.operator = draft.operator;
+  if (draft.seat) fm.seat = draft.seat;
+  if (draft.legs.length > 0) fm.legs = legsToFrontmatter(draft.legs);
+  if (draft.returnLegs.length > 0) fm.return_legs = legsToFrontmatter(draft.returnLegs);
+  if (links.length) fm.attachments = links;
+}
+async function updateBooking(app, trip, file, draft) {
+  const links = linksFor(app, draft.attachments, file.path);
+  const kept = customSections(await app.vault.read(file));
+  await app.fileManager.processFrontMatter(file, (fm) => {
+    writeBookingFrontmatter(app, fm, trip, file.path, draft, links);
+  });
+  const head = await app.vault.read(file);
+  const front = head.startsWith("---") ? head.slice(0, head.indexOf("\n---", 3) + 4) : "";
+  const body = [bookingBody(draft, links), kept].filter(Boolean).join("\n\n");
+  await app.vault.modify(file, `${front.trimEnd()}
+
+${body}
+`);
+  const wanted = sanitizeName(draft.title || "Booking");
+  if (wanted && wanted !== file.basename) {
+    const target = uniquePath(app, file.parent?.path ?? "", wanted);
+    await app.fileManager.renameFile(file, target);
+  }
+  return file;
+}
+async function draftFromBooking(app, booking) {
+  const fm = app.metadataCache.getFileCache(booking.file)?.frontmatter;
+  const notes = sectionText(await app.vault.cachedRead(booking.file), "Notes");
+  return {
+    kind: booking.kind,
+    status: booking.status,
+    title: booking.title,
+    date: booking.date,
+    endDate: booking.endDate || booking.date,
+    time: booking.time,
+    endTime: booking.endTime,
+    amount: booking.cost ? booking.cost.amount : null,
+    currency: booking.cost?.currency,
+    category: booking.category,
+    reference: booking.reference,
+    from: booking.from,
+    to: booking.to,
+    address: booking.address,
+    operator: booking.operator,
+    seat: booking.seat,
+    notes: booking.notes || notes,
+    attachments: booking.attachments,
+    legs: readLegs(fm?.legs),
+    returnLegs: readLegs(fm?.return_legs)
+  };
+}
 async function createBooking(app, settings, trip, draft) {
   const folder = bookingsFolderFor(settings, trip);
   await ensureFolder(app, folder);
@@ -1876,32 +2047,7 @@ async function createBooking(app, settings, trip, draft) {
   const file = await app.vault.create(path, "");
   const links = linksFor(app, draft.attachments, path);
   await app.fileManager.processFrontMatter(file, (fm) => {
-    fm.type = "booking";
-    fm.booking_kind = draft.kind;
-    fm.status = draft.status;
-    fm.title = draft.title;
-    fm.trip_folder = trip.folderPath;
-    fm.trip = app.fileManager.generateMarkdownLink(trip.file, path);
-    fm.date = draft.date;
-    if (draft.endDate && draft.endDate !== draft.date) fm.end_date = draft.endDate;
-    if (draft.time) fm.time = draft.time;
-    if (draft.endTime) fm.end_time = draft.endTime;
-    if (draft.amount !== null) {
-      fm.cost = draft.amount;
-      fm.currency = draft.currency;
-    }
-    fm.category = draft.category;
-    const airport = airportFromLabel(draft.to) ?? airportFromLabel(draft.from);
-    if (draft.kind === "flight" && airport) fm.location = `${airport.a},${airport.o}`;
-    if (draft.reference) fm.reference = draft.reference;
-    if (draft.from) fm.from = draft.from;
-    if (draft.to) fm.to = draft.to;
-    if (draft.address) fm.address = draft.address;
-    if (draft.operator) fm.operator = draft.operator;
-    if (draft.seat) fm.seat = draft.seat;
-    if (draft.legs.length > 0) fm.legs = legsToFrontmatter(draft.legs);
-    if (draft.returnLegs.length > 0) fm.return_legs = legsToFrontmatter(draft.returnLegs);
-    if (links.length) fm.attachments = links;
+    writeBookingFrontmatter(app, fm, trip, path, draft, links);
   });
   const head = await app.vault.read(file);
   await app.vault.modify(file, `${head.trimEnd()}
@@ -1938,6 +2084,43 @@ async function createExpense(app, settings, trip, draft) {
   await app.vault.modify(file, `${head.trimEnd()}
 
 ${body.join("\n")}`);
+  return file;
+}
+async function updateExpense(app, trip, file, draft) {
+  const links = linksFor(app, draft.attachments, file.path);
+  const kept = customSections(await app.vault.read(file));
+  await app.fileManager.processFrontMatter(file, (fm) => {
+    for (const key of ["paid_by", "attachments"]) delete fm[key];
+    fm.type = "expense";
+    fm.description = draft.description;
+    fm.trip_folder = trip.folderPath;
+    fm.trip = app.fileManager.generateMarkdownLink(trip.file, file.path);
+    fm.date = draft.date;
+    fm.amount = draft.amount;
+    fm.currency = draft.currency;
+    fm.category = draft.category;
+    if (draft.paidBy) fm.paid_by = draft.paidBy;
+    if (links.length) fm.attachments = links;
+  });
+  const head = await app.vault.read(file);
+  const front = head.startsWith("---") ? head.slice(0, head.indexOf("\n---", 3) + 4) : "";
+  const body = [`# ${draft.description}`, ""];
+  if (links.length) {
+    body.push("## Receipt", "");
+    for (const link of links) body.push(isImage(link) ? `!${link}` : `- ${link}`);
+    body.push("");
+  }
+  await app.vault.modify(
+    file,
+    `${front.trimEnd()}
+
+${[body.join("\n"), kept].filter(Boolean).join("\n\n")}
+`
+  );
+  const wanted = sanitizeName(`${draft.date} ${draft.description}`.trim() || "Expense");
+  if (wanted && wanted !== file.basename) {
+    await app.fileManager.renameFile(file, uniquePath(app, file.parent?.path ?? "", wanted));
+  }
   return file;
 }
 async function assignBookingToDay(app, file, date, slot) {
@@ -2036,6 +2219,21 @@ function stateMark(state) {
   if (state === "started") return { icon: "", label: "In progress" };
   return { icon: "", label: "Not started" };
 }
+function editItem(ctx, file) {
+  const { trip, plugin } = ctx;
+  if (!trip) return false;
+  const booking = plugin.bookings.getBookings(trip).find((b) => b.file.path === file.path);
+  if (booking) {
+    void plugin.openBookingWizard(trip, booking.kind, booking);
+    return true;
+  }
+  const expense = plugin.bookings.getExpenses(trip).find((e) => e.file.path === file.path);
+  if (expense) {
+    plugin.openExpenseModal(trip, expense);
+    return true;
+  }
+  return false;
+}
 function readiness(plugin, trip) {
   const subNotes = plugin.store.getSubNotes(trip);
   let done = 0;
@@ -2093,44 +2291,6 @@ function formatDistance(meters) {
   if (meters < 1e3) return `${Math.round(meters / 10) * 10} m`;
   const km = meters / 1e3;
   return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
-}
-
-// src/bookings/flightSummary.ts
-function readLegs(value) {
-  if (!Array.isArray(value)) return [];
-  return value.map((raw) => {
-    const leg = raw;
-    return {
-      operator: leg?.airline ?? "",
-      number: leg?.flight ?? "",
-      from: leg?.from ?? "",
-      to: leg?.to ?? "",
-      date: leg?.date ?? "",
-      depTime: leg?.departs ?? "",
-      arrDate: leg?.arrives_on ?? leg?.date ?? "",
-      arrTime: leg?.arrives ?? ""
-    };
-  });
-}
-function summariseFlight(legs) {
-  const stops = Math.max(legs.length - 1, 0);
-  const raw = totalJourneyMinutes(legs);
-  const totalMinutes = raw !== null && raw > 24 * 60 ? null : raw;
-  const layovers = [];
-  for (let i = 1; i < legs.length; i += 1) {
-    const gap = layoverMinutes(legs[i - 1], legs[i]);
-    if (gap === null) continue;
-    layovers.push(
-      `${formatLayover(gap)} in ${legs[i - 1].to || "transit"}${gap < TIGHT_CONNECTION_MINUTES ? " (tight)" : ""}`
-    );
-  }
-  const last = legs[legs.length - 1];
-  const arrival = last?.arrTime ?? "";
-  const label = [
-    totalMinutes === null ? "" : formatLayover(totalMinutes),
-    legs.length === 0 ? "" : stops === 0 ? "direct" : `${stops} stop${stops === 1 ? "" : "s"}`
-  ].filter(Boolean).join(" \xB7 ");
-  return { legs, stops, totalMinutes, label, layovers, arrival };
 }
 
 // src/ui/modals/routeModal.ts
@@ -2769,7 +2929,9 @@ function renderRow(parent, place, legs, modes, ctx) {
   }
   if (place.file) {
     row2.addClass("is-clickable");
-    row2.addEventListener("click", () => ctx.openFile(place.file));
+    row2.addEventListener("click", () => {
+      if (!editItem(ctx, place.file)) ctx.openFile(place.file);
+    });
   }
 }
 function renderFlights(parent, ctx) {
@@ -3128,6 +3290,25 @@ function appendLink(row2, url) {
 }
 
 // src/ui/dashboard/tabs/overview.ts
+function itemsFor(id, ctx) {
+  const { trip, plugin } = ctx;
+  if (!trip || !id) return [];
+  const bookingsOfKind = (kinds) => plugin.bookings.getBookings(trip).filter((b) => kinds.includes(b.kind)).map((booking) => ({
+    label: [booking.date, booking.title].filter(Boolean).join(" \xB7 "),
+    icon: BOOKING_KINDS.find((k) => k.id === booking.kind)?.icon ?? "ticket",
+    open: () => void plugin.openBookingWizard(trip, booking.kind, booking)
+  }));
+  if (id === "accommodation") return bookingsOfKind(["stay"]);
+  if (id === "transport") return bookingsOfKind(["flight", "transport"]);
+  if (id === "budget") {
+    return plugin.bookings.getExpenses(trip).map((expense) => ({
+      label: [expense.date, expense.description].filter(Boolean).join(" \xB7 "),
+      icon: "receipt",
+      open: () => plugin.openExpenseModal(trip, expense)
+    }));
+  }
+  return [];
+}
 function renderTripNotes(parent, ctx) {
   const { trip, plugin } = ctx;
   if (!trip) return;
@@ -3165,6 +3346,22 @@ function renderTripNotes(parent, ctx) {
       fill.addEventListener("click", (evt) => {
         evt.stopPropagation();
         plugin.openNoteWizard(trip, sub.id);
+      });
+    }
+    const existing = itemsFor(sub.id, ctx);
+    if (existing.length > 0) {
+      const edit = actions.createEl("button", { cls: "tp-note-btn" });
+      (0, import_obsidian12.setIcon)(edit.createSpan(), "pencil");
+      edit.createSpan({ text: "Edit" });
+      edit.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        const menu = new import_obsidian12.Menu();
+        for (const item of existing) {
+          menu.addItem(
+            (i) => i.setTitle(item.label).setIcon(item.icon).onClick(() => item.open())
+          );
+        }
+        menu.showAtMouseEvent(evt);
       });
     }
     const open = actions.createEl("button", { cls: "tp-note-btn" });
@@ -3711,7 +3908,9 @@ function renderItinerary(parent, ctx) {
       const detail = [event.detail, flightDetail(event, ctx)].filter(Boolean).join(" \xB7 ");
       if (detail) text.createDiv({ cls: "tp-day-item-meta", text: detail });
       if (event.cost) item.createDiv({ cls: "tp-day-item-cost", text: event.cost });
-      item.addEventListener("click", () => ctx.openFile(event.file));
+      item.addEventListener("click", () => {
+        if (!editItem(ctx, event.file)) ctx.openFile(event.file);
+      });
       const next = events[position + 1];
       if (router && next) {
         router.hop(list3, router.placeFor(event.file), router.placeFor(next.file));
@@ -3835,12 +4034,17 @@ function renderRow2(parent, booking, ctx) {
   }
   const pill = right.createDiv({ cls: `tp-status-pill is-${booking.status}` });
   pill.setText(status?.label ?? booking.status);
-  row2.addEventListener("click", () => ctx.openFile(booking.file));
+  row2.addEventListener("click", () => {
+    if (!editItem(ctx, booking.file)) ctx.openFile(booking.file);
+  });
   row2.addEventListener("contextmenu", (evt) => {
     evt.preventDefault();
     const menu = new import_obsidian16.Menu();
     menu.addItem(
-      (i) => i.setTitle("Open").setIcon("file-text").onClick(() => ctx.openFile(booking.file))
+      (i) => i.setTitle("Edit\u2026").setIcon("pencil").onClick(() => ctx.plugin.openBookingWizard(ctx.trip, booking.kind, booking))
+    );
+    menu.addItem(
+      (i) => i.setTitle("Open note").setIcon("file-text").onClick(() => ctx.openFile(booking.file))
     );
     menu.addItem(
       (i) => i.setTitle("Open in new tab").setIcon("plus-square").onClick(() => ctx.openFile(booking.file, true))
@@ -3948,7 +4152,10 @@ function renderCosts(parent, ctx) {
         text: [line.date, line.category, line.counted ? "" : "cancelled"].filter(Boolean).join(" \xB7 ")
       });
       row2.createDiv({ cls: "tp-cost-amount", text: formatMoney(line.money) });
-      row2.addEventListener("click", () => ctx.openFile(line.file));
+      row2.addEventListener("click", () => {
+        if (!editItem(ctx, line.file)) ctx.openFile(line.file);
+      });
+      row2.setAttribute("title", "Click to edit");
     }
   }
 }
@@ -4961,13 +5168,14 @@ var FIELDS = {
 var STEPS = ["Details", "When", "Cost", "Attachments"];
 var FLIGHT_STEPS = ["Flights", "Cost", "Attachments"];
 var BookingWizard = class extends import_obsidian23.Modal {
-  constructor(app, settings, trip, kind, currency, stars, onSubmit) {
+  constructor(app, settings, trip, kind, currency, stars, onSubmit, initial) {
     super(app);
     this.settings = settings;
     this.trip = trip;
     this.currency = currency;
     this.stars = stars;
     this.onSubmit = onSubmit;
+    this.initial = initial;
     this.step = 0;
     this.submitting = false;
     this.amountRaw = "";
@@ -5000,12 +5208,19 @@ var BookingWizard = class extends import_obsidian23.Modal {
       attachments: [],
       // The trip already knows where you are leaving from; no reason to ask twice.
       legs: kind === "flight" ? [{ ...emptyLeg(start), from: trip.originAirport }] : [],
-      returnLegs: []
+      returnLegs: [],
+      ...initial
     };
+    this.hasReturn = (this.draft.returnLegs?.length ?? 0) > 0;
+    if (this.draft.amount !== null) this.amountRaw = String(this.draft.amount);
   }
   /** Flights hold their dates on each leg, so they skip the separate When step. */
   get steps() {
     return this.draft.kind === "flight" ? FLIGHT_STEPS : STEPS;
+  }
+  /** True when this is changing something that already exists. */
+  get editing() {
+    return this.initial !== void 0;
   }
   onOpen() {
     keepOpenOnBackgroundClick(this);
@@ -5017,7 +5232,10 @@ var BookingWizard = class extends import_obsidian23.Modal {
     const head = contentEl.createDiv({ cls: "tp-wizard-head" });
     (0, import_obsidian23.setIcon)(head.createDiv({ cls: "tp-wizard-icon" }), def?.icon ?? "ticket");
     const headText = head.createDiv();
-    headText.createDiv({ cls: "tp-modal-title", text: `Add ${def?.label.toLowerCase() ?? "booking"}` });
+    headText.createDiv({
+      cls: "tp-modal-title",
+      text: `${this.editing ? "Edit" : "Add"} ${def?.label.toLowerCase() ?? "booking"}`
+    });
     headText.createDiv({
       cls: "tp-wizard-sub",
       text: `${this.trip.title} \xB7 ${formatDateRange(this.trip.startDate, this.trip.endDate)}`
@@ -5047,7 +5265,9 @@ var BookingWizard = class extends import_obsidian23.Modal {
     this.renderSteps();
     this.renderBody();
     this.backBtn.setDisabled(this.step === 0);
-    this.nextBtn.setButtonText(this.step === this.steps.length - 1 ? "Save booking" : "Next");
+    this.nextBtn.setButtonText(
+      this.step === this.steps.length - 1 ? this.editing ? "Save changes" : "Save booking" : "Next"
+    );
   }
   renderSteps() {
     this.stepsEl.empty();
@@ -5521,7 +5741,7 @@ var BookingWizard = class extends import_obsidian23.Modal {
       new import_obsidian23.Notice(err instanceof Error ? err.message : "Could not save the booking.");
       console.error("[travel-planner]", err);
       this.submitting = false;
-      this.nextBtn.setDisabled(false).setButtonText("Save booking");
+      this.nextBtn.setDisabled(false).setButtonText(this.editing ? "Save changes" : "Save booking");
     }
   }
   onClose() {
@@ -5536,11 +5756,12 @@ var BookingWizard = class extends import_obsidian23.Modal {
 // src/ui/modals/expenseModal.ts
 var import_obsidian24 = require("obsidian");
 var ExpenseModal = class extends import_obsidian24.Modal {
-  constructor(app, settings, trip, currency, onSubmit) {
+  constructor(app, settings, trip, currency, onSubmit, initial) {
     super(app);
     this.settings = settings;
     this.trip = trip;
     this.onSubmit = onSubmit;
+    this.initial = initial;
     this.submitting = false;
     this.saveBtn = null;
     const today = todayISO();
@@ -5552,23 +5773,32 @@ var ExpenseModal = class extends import_obsidian24.Modal {
       currency,
       category: "Food & drink",
       paidBy: "",
-      attachments: []
+      attachments: [],
+      ...initial
     };
+  }
+  get editing() {
+    return this.initial !== void 0;
   }
   onOpen() {
     keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
-    contentEl.createEl("h2", { text: "Log an expense", cls: "tp-modal-title" });
+    contentEl.createEl("h2", {
+      text: this.editing ? "Edit expense" : "Log an expense",
+      cls: "tp-modal-title"
+    });
     contentEl.createDiv({ cls: "tp-wizard-sub", text: this.trip.title });
     new import_obsidian24.Setting(contentEl).setName("What was it?").addText((t) => {
       t.setPlaceholder("Dinner at Proto");
+      t.setValue(this.draft.description);
       t.onChange((v) => this.draft.description = v.trim());
       window.setTimeout(() => t.inputEl.focus(), 0);
     });
     new import_obsidian24.Setting(contentEl).setName("Amount").addText((t) => {
       t.setPlaceholder("62,50");
+      if (this.draft.amount > 0) t.setValue(String(this.draft.amount));
       t.inputEl.inputMode = "decimal";
       t.onChange((v) => this.draft.amount = parseAmount(v) ?? 0);
     }).addDropdown((dd) => {
@@ -5591,6 +5821,7 @@ var ExpenseModal = class extends import_obsidian24.Modal {
     });
     new import_obsidian24.Setting(contentEl).setName("Paid by").addText((t) => {
       t.setPlaceholder("Optional");
+      t.setValue(this.draft.paidBy);
       t.onChange((v) => this.draft.paidBy = v.trim());
     });
     this.attachments = new AttachmentField(contentEl, {
@@ -5600,7 +5831,7 @@ var ExpenseModal = class extends import_obsidian24.Modal {
     });
     new import_obsidian24.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton((btn) => {
       this.saveBtn = btn;
-      btn.setButtonText("Save expense").setCta().onClick(() => void this.submit());
+      btn.setButtonText(this.editing ? "Save changes" : "Save expense").setCta().onClick(() => void this.submit());
     });
   }
   async submit() {
@@ -5626,7 +5857,7 @@ var ExpenseModal = class extends import_obsidian24.Modal {
       new import_obsidian24.Notice(err instanceof Error ? err.message : "Could not save the expense.");
       console.error("[travel-planner]", err);
       this.submitting = false;
-      this.saveBtn?.setDisabled(false).setButtonText("Save expense");
+      this.saveBtn?.setDisabled(false).setButtonText(this.editing ? "Save changes" : "Save expense");
     }
   }
   onClose() {
@@ -10118,7 +10349,13 @@ var TravelPlannerPlugin = class extends import_obsidian38.Plugin {
     const trips = this.store.getTrips();
     return trips.find((t) => t.status === "current") ?? trips.find((t) => t.status === "upcoming") ?? trips[0] ?? null;
   }
-  openBookingWizard(trip, kind) {
+  /**
+   * The booking form, for a new booking or an existing one.
+   *
+   * Changing a booking used to mean opening its note and retyping frontmatter,
+   * which is the exact thing the dashboard exists to avoid.
+   */
+  async openBookingWizard(trip, kind, existing) {
     new BookingWizard(
       this.app,
       this.settings,
@@ -10141,26 +10378,49 @@ var TravelPlannerPlugin = class extends import_obsidian38.Plugin {
         }
       },
       async (draft, files) => {
-        const paths = await importAttachments(this.app, this.settings, trip, files);
-        const file = await createBooking(this.app, this.settings, trip, {
-          ...draft,
-          attachments: paths
-        });
+        const added = await importAttachments(this.app, this.settings, trip, files);
+        const attachments = [...draft.attachments, ...added];
+        if (existing) {
+          await updateBooking(this.app, trip, existing.file, { ...draft, attachments });
+        } else {
+          await createBooking(this.app, this.settings, trip, { ...draft, attachments });
+        }
         this.bookings.invalidate();
         this.store.invalidate();
         await syncBookingNotes(this.app, trip, this.bookings.getBookings(trip));
-        new import_obsidian38.Notice(`Added \u201C${draft.title}\u201D.`);
-      }
+        new import_obsidian38.Notice(existing ? `Updated \u201C${draft.title}\u201D.` : `Added \u201C${draft.title}\u201D.`);
+      },
+      existing ? await draftFromBooking(this.app, existing) : void 0
     ).open();
   }
-  openExpenseModal(trip) {
-    new ExpenseModal(this.app, this.settings, trip, this.bookings.getCurrency(trip), async (draft, files) => {
-      const paths = await importAttachments(this.app, this.settings, trip, files);
-      await createExpense(this.app, this.settings, trip, { ...draft, attachments: paths });
-      this.bookings.invalidate();
-      this.store.invalidate();
-      new import_obsidian38.Notice(`Logged \u201C${draft.description}\u201D.`);
-    }).open();
+  openExpenseModal(trip, existing) {
+    new ExpenseModal(
+      this.app,
+      this.settings,
+      trip,
+      this.bookings.getCurrency(trip),
+      async (draft, files) => {
+        const added = await importAttachments(this.app, this.settings, trip, files);
+        const attachments = [...draft.attachments, ...added];
+        if (existing) {
+          await updateExpense(this.app, trip, existing.file, { ...draft, attachments });
+        } else {
+          await createExpense(this.app, this.settings, trip, { ...draft, attachments });
+        }
+        this.bookings.invalidate();
+        this.store.invalidate();
+        new import_obsidian38.Notice(existing ? `Updated \u201C${draft.description}\u201D.` : `Logged \u201C${draft.description}\u201D.`);
+      },
+      existing ? {
+        date: existing.date,
+        description: existing.description,
+        amount: existing.amount.amount,
+        currency: existing.amount.currency,
+        category: existing.category,
+        paidBy: existing.paidBy,
+        attachments: existing.attachments
+      } : void 0
+    ).open();
   }
   /** Cached advice for a country, without touching the network. */
   peekAdvice(country) {

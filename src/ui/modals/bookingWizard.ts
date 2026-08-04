@@ -99,6 +99,8 @@ export class BookingWizard extends Modal {
       toggle: (kind: StarKind, v: string) => Promise<void>;
     },
     private onSubmit: (draft: BookingDraft, files: File[]) => Promise<void>,
+    /** Present when an existing booking is being changed rather than created. */
+    private initial?: Partial<BookingDraft>,
   ) {
     super(app);
     const start = isValidISODate(trip.startDate) ? trip.startDate : todayISO();
@@ -124,7 +126,15 @@ export class BookingWizard extends Modal {
       // The trip already knows where you are leaving from; no reason to ask twice.
     legs: kind === "flight" ? [{ ...emptyLeg(start), from: trip.originAirport }] : [],
       returnLegs: [],
+      ...initial,
     };
+    this.hasReturn = (this.draft.returnLegs?.length ?? 0) > 0;
+    if (this.draft.amount !== null) this.amountRaw = String(this.draft.amount);
+  }
+
+  /** True when this is changing something that already exists. */
+  private get editing(): boolean {
+    return this.initial !== undefined;
   }
 
   onOpen(): void {
@@ -138,7 +148,10 @@ export class BookingWizard extends Modal {
     const head = contentEl.createDiv({ cls: "tp-wizard-head" });
     setIcon(head.createDiv({ cls: "tp-wizard-icon" }), def?.icon ?? "ticket");
     const headText = head.createDiv();
-    headText.createDiv({ cls: "tp-modal-title", text: `Add ${def?.label.toLowerCase() ?? "booking"}` });
+    headText.createDiv({
+      cls: "tp-modal-title",
+      text: `${this.editing ? "Edit" : "Add"} ${def?.label.toLowerCase() ?? "booking"}`,
+    });
     headText.createDiv({
       cls: "tp-wizard-sub",
       text: `${this.trip.title} · ${formatDateRange(this.trip.startDate, this.trip.endDate)}`,
@@ -180,7 +193,9 @@ export class BookingWizard extends Modal {
     this.renderSteps();
     this.renderBody();
     this.backBtn.setDisabled(this.step === 0);
-    this.nextBtn.setButtonText(this.step === this.steps.length - 1 ? "Save booking" : "Next");
+    this.nextBtn.setButtonText(
+      this.step === this.steps.length - 1 ? (this.editing ? "Save changes" : "Save booking") : "Next",
+    );
   }
 
   private renderSteps(): void {
@@ -750,7 +765,7 @@ export class BookingWizard extends Modal {
       new Notice(err instanceof Error ? err.message : "Could not save the booking.");
       console.error("[travel-planner]", err);
       this.submitting = false;
-      this.nextBtn.setDisabled(false).setButtonText("Save booking");
+      this.nextBtn.setDisabled(false).setButtonText(this.editing ? "Save changes" : "Save booking");
     }
   }
 

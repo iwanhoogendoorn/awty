@@ -15,10 +15,13 @@ import {
 import { TripStore } from "./store/tripStore";
 import { ProgressCache } from "./store/noteProgress";
 import { BookingStore, totalsByCategory } from "./bookings/bookingStore";
-import type { BookingKind } from "./bookings/types";
+import type { Booking, BookingKind, Expense } from "./bookings/types";
 import {
   createBooking,
   createExpense,
+  draftFromBooking,
+  updateBooking,
+  updateExpense,
   importAttachments,
   saveBudget,
 } from "./bookings/bookingWriter";
@@ -341,7 +344,13 @@ export default class TravelPlannerPlugin extends Plugin {
     return trips.find((t) => t.status === "current") ?? trips.find((t) => t.status === "upcoming") ?? trips[0] ?? null;
   }
 
-  openBookingWizard(trip: Trip, kind: BookingKind): void {
+  /**
+   * The booking form, for a new booking or an existing one.
+   *
+   * Changing a booking used to mean opening its note and retyping frontmatter,
+   * which is the exact thing the dashboard exists to avoid.
+   */
+  async openBookingWizard(trip: Trip, kind: BookingKind, existing?: Booking): Promise<void> {
     new BookingWizard(
       this.app,
       this.settings,
@@ -368,28 +377,52 @@ export default class TravelPlannerPlugin extends Plugin {
       async (draft, files) => {
         // Attachments are copied only once the wizard is actually submitted, so
         // an abandoned form leaves nothing behind.
-        const paths = await importAttachments(this.app, this.settings, trip, files);
-        const file = await createBooking(this.app, this.settings, trip, {
-          ...draft,
-          attachments: paths,
-        });
+        const added = await importAttachments(this.app, this.settings, trip, files);
+        const attachments = [...draft.attachments, ...added];
+        if (existing) {
+          await updateBooking(this.app, trip, existing.file, { ...draft, attachments });
+        } else {
+          await createBooking(this.app, this.settings, trip, { ...draft, attachments });
+        }
         this.bookings.invalidate();
         this.store.invalidate();
         await syncBookingNotes(this.app, trip, this.bookings.getBookings(trip));
-        new Notice(`Added “${draft.title}”.`);
-        void file;
+        new Notice(existing ? `Updated “${draft.title}”.` : `Added “${draft.title}”.`);
       },
+      existing ? await draftFromBooking(this.app, existing) : undefined,
     ).open();
   }
 
-  openExpenseModal(trip: Trip): void {
-    new ExpenseModal(this.app, this.settings, trip, this.bookings.getCurrency(trip), async (draft, files) => {
-      const paths = await importAttachments(this.app, this.settings, trip, files);
-      await createExpense(this.app, this.settings, trip, { ...draft, attachments: paths });
-      this.bookings.invalidate();
-      this.store.invalidate();
-      new Notice(`Logged “${draft.description}”.`);
-    }).open();
+  openExpenseModal(trip: Trip, existing?: Expense): void {
+    new ExpenseModal(
+      this.app,
+      this.settings,
+      trip,
+      this.bookings.getCurrency(trip),
+      async (draft, files) => {
+        const added = await importAttachments(this.app, this.settings, trip, files);
+        const attachments = [...draft.attachments, ...added];
+        if (existing) {
+          await updateExpense(this.app, trip, existing.file, { ...draft, attachments });
+        } else {
+          await createExpense(this.app, this.settings, trip, { ...draft, attachments });
+        }
+        this.bookings.invalidate();
+        this.store.invalidate();
+        new Notice(existing ? `Updated “${draft.description}”.` : `Logged “${draft.description}”.`);
+      },
+      existing
+        ? {
+            date: existing.date,
+            description: existing.description,
+            amount: existing.amount.amount,
+            currency: existing.amount.currency,
+            category: existing.category,
+            paidBy: existing.paidBy,
+            attachments: existing.attachments,
+          }
+        : undefined,
+    ).open();
   }
 
   /** Cached advice for a country, without touching the network. */

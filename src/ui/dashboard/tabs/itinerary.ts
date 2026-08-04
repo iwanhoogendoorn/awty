@@ -1,6 +1,6 @@
 import { TFile, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { emptyState, sectionTitle, noTripState } from "../common";
+import { editItem, emptyState, sectionTitle, noTripState } from "../common";
 import type { Booking } from "../../../bookings/types";
 import type { DayEvent } from "../../../store/dayPlan";
 import { BAND, dayEvents, ongoingOn } from "../../../store/dayPlan";
@@ -101,7 +101,9 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
       if (detail) text.createDiv({ cls: "tp-day-item-meta", text: detail });
 
       if (event.cost) item.createDiv({ cls: "tp-day-item-cost", text: event.cost });
-      item.addEventListener("click", () => ctx.openFile(event.file));
+      item.addEventListener("click", () => {
+        if (!editItem(ctx, event.file)) ctx.openFile(event.file);
+      });
 
       // Drawn between the two items it joins, not stacked below the day: a
       // pile of times at the bottom said nothing about which hop each was.
