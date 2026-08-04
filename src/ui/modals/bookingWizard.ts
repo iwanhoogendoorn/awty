@@ -9,8 +9,10 @@ import { AirlineSuggest, AirportSuggest, CitySuggest } from "../components/sugge
 import { LegsField } from "../components/legsField";
 import { airportFromLabel } from "../components/suggest";
 import { parseConfirmation, type ParsedConfirmation } from "../../flights/parseConfirmation";
+import { localiseLegs } from "../../flights/localTime";
 import {
   emptyLeg,
+  looksLikeMoreJourneys,
   routeTitle,
   splitJourney,
   totalJourneyMinutes,
@@ -369,7 +371,21 @@ export class BookingWizard extends Modal {
   }
 
   private applyParsed(parsed: ParsedConfirmation): void {
-    const { outbound, back } = splitJourney(parsed.legs);
+    // UTC calendar times become each airport's local time before anything
+    // else: conversion can move a leg across midnight, which changes the
+    // ordering and the split. Unknown airports leave everything in UTC with
+    // the warning intact — mixing two clocks in one table is worse.
+    let legs = parsed.legs;
+    let converted = false;
+    if (parsed.utcTimes) {
+      const local = localiseLegs(parsed.legs);
+      if (local) {
+        legs = local;
+        converted = true;
+      }
+    }
+
+    const { outbound, back } = splitJourney(legs);
     const sorted = [...outbound, ...back];
 
     this.draft.legs = outbound;
@@ -389,9 +405,24 @@ export class BookingWizard extends Modal {
       parsed.amount !== null ? formatMoney({ amount: parsed.amount, currency: this.draft.currency }) : "",
     ].filter(Boolean);
 
+    const multi = looksLikeMoreJourneys(legs);
     this.readSummary = `Read ${detail.join(" · ")}${
       parsed.source === "ics" ? " from the calendar invite" : ""
-    }${parsed.utcTimes ? " — times are UTC in that calendar, so check them" : ""}`;
+    }${
+      parsed.utcTimes
+        ? converted
+          ? " — converted from UTC to local airport time"
+          : " — times are UTC in that calendar, so check them"
+        : ""
+    }${
+      multi ? " — this looks like more than two journeys; check the legs, a booking holds one out and one back" : ""
+    }`;
+    if (multi) {
+      new Notice(
+        "This ticket looks like more than two journeys. A booking holds one outbound and one return — check the legs before saving.",
+        10000,
+      );
+    }
 
     new Notice(
       parsed.source === "ics"

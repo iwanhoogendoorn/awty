@@ -156,3 +156,32 @@ export function splitJourney(legs: FlightLeg[]): { outbound: FlightLeg[]; back: 
 
   return { outbound: sorted.slice(0, pivot), back: sorted.slice(pivot) };
 }
+
+/** A leg sequence with a gap in place, or one that lands somewhere twice. */
+function hasInternalBreak(legs: FlightLeg[]): boolean {
+  if (legs.length < 2) return false;
+  const code = (v: string): string => v.trim().toUpperCase();
+  const landed = new Set<string>();
+  for (let i = 0; i < legs.length; i += 1) {
+    if (i > 0 && code(legs[i].from) !== code(legs[i - 1].to)) return true;
+    // No single journey lands at the same airport twice: a second landing is
+    // a second journey folded into this one.
+    const to = code(legs[i].to);
+    if (landed.has(to)) return true;
+    landed.add(to);
+  }
+  return false;
+}
+
+/**
+ * Whether a parsed ticket holds more than an outbound and a return.
+ *
+ * A booking stores exactly those two, so a third journey has nowhere to go —
+ * it gets mangled into whichever half it lands in. That cannot be fixed
+ * without a different data model, but it can be said out loud instead of
+ * saved silently wrong.
+ */
+export function looksLikeMoreJourneys(legs: FlightLeg[]): boolean {
+  const { outbound, back } = splitJourney(legs);
+  return hasInternalBreak(outbound) || hasInternalBreak(back);
+}

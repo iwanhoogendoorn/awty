@@ -174,11 +174,18 @@ export function renderPackingPlan(plan: PackingPlan): string {
  * gathers it back, grouped by the heading it was written under, so the rebuild
  * can put it where it was.
  */
+/** A run of hand-written lines, tied to the tick box it was written under. */
+export interface AnchoredProse {
+  /** Lowercased label of the item above it, or null for the section's top. */
+  anchor: string | null;
+  lines: string[];
+}
+
 export interface PackingExtras {
   /** Lines above the first heading. */
   preamble: string[];
-  /** Heading title -> the non-task lines written under it. */
-  bySection: Map<string, string[]>;
+  /** Heading title -> the prose written under it, in order, with anchors. */
+  bySection: Map<string, AnchoredProse[]>;
 }
 
 /** The generated callout, which is rewritten and must not accumulate. */
@@ -187,6 +194,9 @@ const GENERATED_CALLOUT = /^>\s*(\d+ days? —|Quantities )/;
 export function readPackingExtras(content: string): PackingExtras {
   const extras: PackingExtras = { preamble: [], bySection: new Map() };
   let section: string | null = null;
+  // The tick box a prose line sits under. Re-emitting all prose below all
+  // items moved an instruction written beside one item to the section's end.
+  let anchor: string | null = null;
   let fence: { char: string; length: number } | null = null;
 
   // The frontmatter is preserved separately by the writer. Reading it as
@@ -211,23 +221,40 @@ export function readPackingExtras(content: string): PackingExtras {
       const heading = /^##\s+(.+)$/.exec(line);
       if (heading) {
         section = heading[1].trim();
+        anchor = null;
         if (!extras.bySection.has(section)) extras.bySection.set(section, []);
         continue;
       }
-      if (/^[-*]\s+\[( |x|X)\]\s+/.test(line)) continue;
+      const task = /^[-*]\s+\[( |x|X)\]\s+(.*)$/.exec(line);
+      if (task) {
+        anchor = task[2].replace(/\s*×\s*\d+$/, "").trim().toLowerCase() || anchor;
+        continue;
+      }
       if (GENERATED_CALLOUT.test(line)) continue;
     }
     push(raw);
   }
 
   function push(raw: string): void {
-    const bucket = section === null ? extras.preamble : extras.bySection.get(section)!;
-    bucket.push(raw);
+    if (section === null) {
+      extras.preamble.push(raw);
+      return;
+    }
+    const runs = extras.bySection.get(section)!;
+    const last = runs[runs.length - 1];
+    if (last && last.anchor === anchor) last.lines.push(raw);
+    else runs.push({ anchor, lines: [raw] });
   }
 
   // Trailing blank lines are formatting, not content.
   trim(extras.preamble);
-  for (const lines of extras.bySection.values()) trim(lines);
+  for (const runs of extras.bySection.values()) {
+    for (const run of runs) trim(run.lines);
+    // A run that was only blank lines says nothing.
+    for (let i = runs.length - 1; i >= 0; i -= 1) {
+      if (runs[i].lines.length === 0) runs.splice(i, 1);
+    }
+  }
   return extras;
 }
 

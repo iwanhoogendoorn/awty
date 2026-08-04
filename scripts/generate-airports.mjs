@@ -9,6 +9,7 @@
  * Run with: npm run gen:airports
  */
 import fs from "fs";
+import tzlookup from "tz-lookup";
 import path from "path";
 import { fileURLToPath } from "url";
 import pkg from "@nwpr/airport-codes";
@@ -43,6 +44,9 @@ for (const a of raw) {
     // Six decimals is roughly 10 cm; more is noise and bytes.
     a: Number(lat.toFixed(5)),
     o: Number(lng.toFixed(5)),
+    // IANA zone, so a UTC calendar time can become the local wall time a
+    // boarding pass shows. From coordinates: the source data has no zones.
+    z: tzlookup(lat, lng),
   });
 }
 
@@ -53,8 +57,8 @@ const header = `// GENERATED FILE — do not edit by hand.\n// Run \`npm run gen
 fs.writeFileSync(
   path.join(ROOT, "src", "data", "airports.ts"),
   header +
-    `\n/** Compact keys: i=IATA, c=city, n=name, y=country, a=latitude, o=longitude. */\n` +
-    `export interface AirportRecord {\n  i: string;\n  c: string;\n  n: string;\n  y: string;\n  a: number;\n  o: number;\n}\n\n` +
+    `\n/** Compact keys: i=IATA, c=city, n=name, y=country, a=lat, o=lng, z=IANA zone. */\n` +
+    `export interface AirportRecord {\n  i: string;\n  c: string;\n  n: string;\n  y: string;\n  a: number;\n  o: number;\n  z: string;\n}\n\n` +
     `export const AIRPORTS: readonly AirportRecord[] = ${JSON.stringify(out)};\n`,
 );
 

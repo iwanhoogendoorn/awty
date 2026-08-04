@@ -2,7 +2,7 @@ import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { Trip } from "../../types";
 import { kindDef } from "../../types";
-import { readPackingExtras, buildPackingPlan } from "../../store/packing";
+import { readPackingExtras, buildPackingPlan, type AnchoredProse } from "../../store/packing";
 import { ensureSubNote, subNoteFile } from "../../store/sectionWriter";
 import { daysBetween } from "../../util/dates";
 
@@ -306,19 +306,37 @@ export class PackingModal extends Modal {
       const sections = [...new Set(included.map((r) => r.section))];
       for (const section of sections) {
         out.push(`## ${section}`);
+        const runs = extras.bySection.get(section) ?? [];
+        const emitted = new Set<AnchoredProse>();
+        const emit = (run: AnchoredProse) => {
+          out.push("", ...run.lines, "");
+          emitted.add(run);
+        };
+
+        // Prose written at the section's top goes back at the top.
+        for (const run of runs) if (run.anchor === null) emit(run);
+
+        // Each item, followed by whatever was written directly under it —
+        // gathering all prose at the section's end moved an instruction away
+        // from the item it was about.
         for (const row of included.filter((r) => r.section === section)) {
           const qty = this.quantityFor(row);
           out.push(`- [${row.packed ? "x" : " "}] ${row.label}${qty !== null ? ` ×${qty}` : ""}`);
+          const key = row.label.trim().toLowerCase();
+          for (const run of runs) if (run.anchor === key) emit(run);
         }
-        const written = extras.bySection.get(section);
-        if (written?.length) out.push("", ...written);
+
+        // Prose anchored to an item that is gone still belongs to the section.
+        for (const run of runs) if (!emitted.has(run)) emit(run);
         out.push("");
       }
 
-      // A heading whose items were all excluded still keeps its prose.
-      for (const [section, written] of extras.bySection) {
-        if (sections.includes(section) || written.length === 0) continue;
-        out.push(`## ${section}`, "", ...written, "");
+      // A hand-written heading keeps its place even with every item unticked
+      // or no items at all — vanishing headings read as lost notes.
+      for (const [section, runs] of extras.bySection) {
+        if (sections.includes(section)) continue;
+        out.push(`## ${section}`, "");
+        for (const run of runs) out.push(...run.lines, "");
       }
 
       // Frontmatter is preserved; only the body below it is rewritten.

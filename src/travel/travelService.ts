@@ -281,6 +281,8 @@ export class TravelService {
     when?: Date,
     /** Ask again for pairs already recorded as having no route. */
     retryDeadEnds = false,
+    /** Refetch every pair, cached or not — the Refresh button's meaning. */
+    refetch = false,
   ): Promise<Map<string, TravelLeg[]>> {
     const key = this.requireKey();
     const on = isoOf(when);
@@ -289,6 +291,7 @@ export class TravelService {
     for (const mode of modes) {
       const missing = destinations.filter((d) => {
         if (coordKey(d.coord) === coordKey(origin.coord)) return false;
+        if (refetch) return true;
         const cached = this.readCache(origin.coord, d.coord, mode, on);
         // A button offering to look something up has to actually look it up.
         if (retryDeadEnds && cached.known && cached.leg === null) return true;

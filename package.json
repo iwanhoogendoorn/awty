@@ -1,7 +1,7 @@
 {
   "name": "awty",
   "version": "2.0.0",
-  "description": "Travel Planner \u2014 plan holidays, day trips, concerts and events as markdown notes in Obsidian",
+  "description": "Travel Planner — plan holidays, day trips, concerts and events as markdown notes in Obsidian",
   "main": "awty/main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
@@ -20,6 +20,7 @@
   "author": "Iwan Hoogendoorn",
   "license": "MIT",
   "devDependencies": {
+    "@nwpr/airport-codes": "^3.0.3",
     "@types/node": "^20.11.0",
     "all-the-cities": "^3.1.0",
     "builtin-modules": "^3.3.0",
@@ -27,6 +28,6 @@
     "obsidian": "latest",
     "tslib": "^2.6.2",
     "typescript": "^5.4.5",
-    "@nwpr/airport-codes": "^3.0.3"
+    "tz-lookup": "^6.1.25"
   }
 }

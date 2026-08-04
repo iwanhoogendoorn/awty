@@ -65,7 +65,16 @@ export class AwtySettingTab extends PluginSettingTab {
       await this.plugin.saveSettings();
     } catch (err) {
       console.error("[awty] could not save settings", err);
-      new Notice("AWTY: could not save that setting — it will revert when Obsidian restarts.", 8000);
+      // The control already mutated the live object, so showing the change
+      // while the disk still has the old value is a lie that surfaces at the
+      // next restart. Reload what disk actually holds and repaint.
+      new Notice("AWTY: could not save that setting — reverted.", 8000);
+      try {
+        await this.plugin.loadSettings();
+      } catch {
+        // Disk unreadable too; the live object is the best truth available.
+      }
+      this.renderBody();
     }
   }
 

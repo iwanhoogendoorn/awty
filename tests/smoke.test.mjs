@@ -46,6 +46,9 @@ export { itineraryPairs, groupByOrigin } from "./src/travel/routePlan.ts";
 export { readLegs, summariseFlight } from "./src/bookings/flightSummary.ts";
 export { renderMarkdown, stripFrontmatter } from "./src/export/markdown.ts";
 export { customSections, customParts, weaveKept, sectionText } from "./src/bookings/noteSections.ts";
+export { bookingBody, expenseBody } from "./src/bookings/noteBody.ts";
+export { looksLikeMoreJourneys } from "./src/bookings/legs.ts";
+export { zoneForAirport, utcToLocal, localiseLegs } from "./src/flights/localTime.ts";
 export { linkTarget } from "./src/bookings/linkTarget.ts";
 `;
 
@@ -1356,6 +1359,47 @@ test("a confirmation total is read in either notation", () => {
   assert.equal(read("Total: EUR 1.234,56").amount, 1234.56);
 });
 
+test("a UTC calendar time becomes the airport's wall clock", () => {
+  // 08:15Z out of Amsterdam in August is 10:15 at the gate; storing it raw
+  // was only ever warned about, because the airports carried no zones.
+  assert.equal(m.zoneForAirport("Amsterdam (AMS)"), "Europe/Amsterdam");
+  assert.equal(m.zoneForAirport("DBV"), "Europe/Zagreb");
+  assert.equal(m.zoneForAirport("Nowhere (XXX)"), null);
+
+  assert.deepEqual(m.utcToLocal("2026-08-17", "08:15", "Europe/Amsterdam"), {
+    date: "2026-08-17",
+    time: "10:15",
+  });
+  // Winter is a different offset — the zone database decides, not a constant.
+  assert.deepEqual(m.utcToLocal("2026-01-17", "08:15", "Europe/Amsterdam"), {
+    date: "2026-01-17",
+    time: "09:15",
+  });
+  // Conversion can cross midnight, which is why it runs before the split.
+  assert.deepEqual(m.utcToLocal("2026-08-17", "23:30", "Europe/Amsterdam"), {
+    date: "2026-08-18",
+    time: "01:30",
+  });
+
+  const legs = m.localiseLegs([
+    {
+      operator: "KL", number: "KL1885", from: "Amsterdam (AMS)", to: "Dubrovnik (DBV)",
+      date: "2026-08-17", depTime: "08:15", arrDate: "2026-08-17", arrTime: "10:35",
+    },
+  ]);
+  assert.equal(legs[0].depTime, "10:15", "departure in Amsterdam time");
+  assert.equal(legs[0].arrTime, "12:35", "arrival in Dubrovnik time");
+
+  // One unknown airport keeps the whole journey in UTC: all or nothing.
+  const mixed = m.localiseLegs([
+    {
+      operator: "ZZ", number: "1", from: "XXX", to: "Dubrovnik (DBV)",
+      date: "2026-08-17", depTime: "08:15", arrDate: "2026-08-17", arrTime: "10:35",
+    },
+  ]);
+  assert.equal(mixed, null);
+});
+
 test("a UTC calendar time is flagged rather than passed off as local", () => {
   const ics = [
     "BEGIN:VCALENDAR", "BEGIN:VEVENT",
@@ -1554,10 +1598,23 @@ test("saving the packing list does not delete the prose around it", () => {
   ].join("\n");
   const extras = m.readPackingExtras(note);
   assert.deepEqual(extras.preamble, ["Everything goes in the blue case."]);
-  assert.deepEqual(extras.bySection.get("Documents"), ["Zaara keeps the EHIC cards."]);
+  // Prose remembers which item it was written under, so a save can put it
+  // back beside that item instead of dumping it at the section's end.
+  assert.deepEqual(extras.bySection.get("Documents"), [
+    { anchor: "passport / id", lines: ["Zaara keeps the EHIC cards."] },
+  ]);
   assert.deepEqual(extras.bySection.get("Clothing"), []);
   // The generated callout is rewritten every save and must not pile up.
   assert.ok(!extras.preamble.join(" ").includes("Quantities calculated"));
+
+  // Prose above any item anchors to the section top; quantities strip.
+  const anchored = m.readPackingExtras(
+    ["## Clothing", "Pack light.", "- [ ] T-shirts ×5", "Roll, don't fold.", "- [ ] Socks ×8"].join("\n"),
+  );
+  assert.deepEqual(anchored.bySection.get("Clothing"), [
+    { anchor: null, lines: ["Pack light."] },
+    { anchor: "t-shirts", lines: ["Roll, don't fold."] },
+  ]);
 });
 
 test("a note that opens with a horizontal rule keeps its first paragraph", () => {
@@ -1573,6 +1630,84 @@ test("a note that opens with a horizontal rule keeps its first paragraph", () =>
   assert.equal(m.stripFrontmatter("---\ntype: trip\n---\nA\n\n---\n\nB"), "A\n\n---\n\nB");
   assert.equal(m.stripFrontmatter("---\ntags:\n  - a\n---\nBody"), "Body");
   assert.equal(m.stripFrontmatter("---\r\ntype: trip\r\n---\r\nBody"), "Body", "CRLF");
+});
+
+test("a real booking save cycle is lossless and stable", () => {
+  // The exact composition updateBooking performs, with the real generated
+  // body — not a hand-mocked one. Every note-destroying bug in this plugin's
+  // history lived in this loop.
+  const draft = {
+    kind: "stay", status: "booked", title: "Rausion Luxury Apartments",
+    date: "2026-08-17", endDate: "2026-08-24", time: "15:00", endTime: "10:00",
+    amount: 1456, currency: "EUR", category: "Accommodation",
+    reference: "BK123", from: "", to: "", address: "Kranjčevića 25, Dubrovnik",
+    operator: "", seat: "", notes: "Ask for the top floor.",
+    attachments: [], legs: [], returnLegs: [],
+  };
+  const links = ["![[receipt.pdf]]"];
+  const save = (note) => m.weaveKept(m.bookingBody(draft, links), m.customParts(note));
+
+  let note = save("");
+  // The user now writes in every place available.
+  note = note
+    .replace("| **Reference** | BK123 |", "| **Reference** | BK123 |\n\nGate code is 4821#.")
+    .concat("\n\n## Taxi numbers\n\n- Blue: +385 20 970\n");
+
+  for (let i = 0; i < 3; i += 1) note = save(note);
+
+  assert.match(note, /Gate code is 4821#\./);
+  assert.match(note, /## Taxi numbers\n\n- Blue: \+385 20 970/);
+  assert.equal(m.sectionText(note, "Notes"), "Ask for the top floor.");
+  assert.ok(note.indexOf("Gate code") < note.indexOf("## Notes"), "prose stays above the sections");
+  assert.equal(note, save(note), "a fourth save changes nothing");
+  assert.equal((note.match(/## Taxi numbers/g) ?? []).length, 1, "sections do not duplicate");
+
+  // The expense cycle too — the note kind that generates no details table.
+  // The table goes under the user's own heading: content typed inside an
+  // owned section like ## Receipt is regenerated away by contract.
+  const esave = (n) => m.weaveKept(m.expenseBody("Dinner at Proto", ["![[bill.jpg]]"]), m.customParts(n));
+  let expense = esave("").replace(
+    "## Receipt",
+    "| Split | Amount |\n|---|---|\n| Iwan | 40 |\n\n## Receipt",
+  ) + "\n\n## Who owes what\n\n- Zaara: 20\n";
+  for (let i = 0; i < 3; i += 1) expense = esave(expense);
+  assert.match(expense, /\| Iwan \| 40 \|/, "a table above the sections survives");
+  assert.match(expense, /## Who owes what\n\n- Zaara: 20/);
+  assert.equal(expense, esave(expense));
+});
+
+test("a ticket with a third journey is called out, two journeys are not", () => {
+  const leg = (f, t, d, dep, arr) => ({
+    operator: "KL", number: "KL1", from: f, to: t, date: d, depTime: dep, arrDate: d, arrTime: arr,
+  });
+  assert.equal(
+    m.looksLikeMoreJourneys([
+      leg("AMS", "LHR", "2026-08-17", "08:00", "09:00"),
+      leg("LHR", "AMS", "2026-08-19", "17:00", "19:00"),
+      leg("AMS", "DBV", "2026-08-21", "10:00", "12:20"),
+      leg("DBV", "AMS", "2026-08-28", "13:00", "15:20"),
+    ]),
+    true,
+    "two returns on one ticket cannot fit one booking",
+  );
+  assert.equal(
+    m.looksLikeMoreJourneys([
+      leg("AMS", "VIE", "2026-08-17", "10:15", "11:55"),
+      leg("VIE", "DBV", "2026-08-17", "12:40", "13:50"),
+      leg("DBV", "VIE", "2026-08-24", "14:20", "15:30"),
+      leg("VIE", "AMS", "2026-08-24", "16:40", "18:20"),
+    ]),
+    false,
+    "a connecting return is one out and one back",
+  );
+  assert.equal(
+    m.looksLikeMoreJourneys([
+      leg("AMS", "JFK", "2026-08-17", "10:00", "13:00"),
+      leg("BOS", "RTM", "2026-08-24", "18:00", "06:00"),
+    ]),
+    false,
+    "an open jaw still fits: one out, one back",
+  );
 });
 
 test("prose under the details table survives any number of edits", () => {

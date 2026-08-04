@@ -459,13 +459,13 @@ export default class AwtyPlugin extends Plugin {
         } else {
           await createBooking(this.app, this.settings, trip, { ...draft, attachments });
         }
+        // An address, a venue or a date just changed, so the places resolved
+        // for this trip are no longer what the notes say. Dropped before the
+        // stores notify, or a synchronous listener repaints "distances worked
+        // out" from places that no longer exist.
+        this.travelPlaces.delete(trip.folderPath);
         this.bookings.invalidate();
         this.store.invalidate();
-        // An address, a venue or a date just changed, so the places resolved
-        // for this trip are no longer what the notes say. Leaving them marked
-        // current let the wizard claim distances were worked out and let
-        // "write travel times" write the old ones into the notes.
-        this.travelPlaces.delete(trip.folderPath);
         await syncBookingNotes(this.app, trip, this.bookings.getBookings(trip));
         new Notice(existing ? `Updated “${draft.title}”.` : `Added “${draft.title}”.`);
       },
@@ -677,9 +677,10 @@ export default class AwtyPlugin extends Plugin {
     TripModal.forEdit(this.app, this.settings, trip, async (draft) => {
       await updateTrip(this.app, this.settings, trip, draft);
       new Notice(`Updated “${draft.title}”.`);
-      this.store.invalidate();
       // The city or the dates may have moved; the resolved places have not.
+      // Dropped before the store notifies, so no listener repaints from them.
       this.travelPlaces.delete(trip.folderPath);
+      this.store.invalidate();
     }).open();
   }
 
@@ -795,10 +796,10 @@ export default class AwtyPlugin extends Plugin {
 
     const notice = new Notice("Working out travel times…", 0);
     try {
-      // Scoped to this trip. clearLegs() empties the cache for every trip, so
-      // refreshing one destroyed routes for all the others — and did it before
-      // knowing whether this refresh would even succeed.
-      if (force) await this.travel.forgetTrip(trip);
+      // Refresh means "fetch these again", not "delete first and hope".
+      // Forgetting the trip up front destroyed routes touching any coordinate
+      // it shared with other trips — the same airport, the same restaurants —
+      // and did it before knowing whether the refresh would even succeed.
 
       const places = await this.travel.placesFor(trip, this.bookings.getBookings(trip));
       this.travelPlaces.set(trip.folderPath, places);
@@ -820,7 +821,7 @@ export default class AwtyPlugin extends Plugin {
       }
 
       const when = this.travel.departureTimeFor(trip);
-      await this.travel.fetchLegs(origin, destinations, this.settings.travelModes, when);
+      await this.travel.fetchLegs(origin, destinations, this.settings.travelModes, when, false, force);
 
       // And the hops the timeline draws between one event and the next, which
       // rarely start at the hotel: airport to hotel on arrival, activity to
@@ -833,7 +834,7 @@ export default class AwtyPlugin extends Plugin {
         origin,
       );
       for (const group of groupByOrigin(pairs)) {
-        await this.travel.fetchLegs(group.from, group.to, this.settings.travelModes, when);
+        await this.travel.fetchLegs(group.from, group.to, this.settings.travelModes, when, false, force);
       }
 
       notice.hide();
