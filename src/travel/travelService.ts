@@ -170,6 +170,12 @@ export class TravelService {
                 : "activity",
         coord,
         file: booking.file,
+        // A flight's place is the airport it lands at, so the transfer to the
+        // hotel happens on the outbound date, not the return. No time: the
+        // booking's own time is the departure from home, and its end is the
+        // return arrival on a return ticket — neither is when you land.
+        date: booking.date,
+        time: booking.kind === "flight" ? "" : booking.time,
       };
 
       if (place.kind === "hotel") places.hotels.push(place);

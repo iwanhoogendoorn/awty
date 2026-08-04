@@ -128,6 +128,24 @@ export function monthName(iso: string): string {
   return date ? MONTH_NAMES[date.getUTCMonth()] : "";
 }
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Mon" for an ISO date, or "" if it isn't one. */
+export function weekdayName(iso: string): string {
+  const date = parseISO(iso);
+  return date ? WEEKDAYS[date.getUTCDay()] : "";
+}
+
+/**
+ * "Mon 17 Aug" — the day of the week matters when you are reading a plan, and
+ * the year is already established by the trip around it.
+ */
+export function formatDayLabel(iso: string): string {
+  const date = parseISO(iso);
+  if (!date) return "";
+  return `${WEEKDAYS[date.getUTCDay()]} ${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]}`;
+}
+
 export function yearOf(iso: string): string {
   const date = parseISO(iso);
   return date ? String(date.getUTCFullYear()) : "";

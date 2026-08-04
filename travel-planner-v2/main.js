@@ -240,6 +240,12 @@ function monthName(iso) {
   const date = parseISO(iso);
   return date ? MONTH_NAMES[date.getUTCMonth()] : "";
 }
+var WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+function formatDayLabel(iso) {
+  const date = parseISO(iso);
+  if (!date) return "";
+  return `${WEEKDAYS[date.getUTCDay()]} ${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]}`;
+}
 function yearOf(iso) {
   const date = parseISO(iso);
   return date ? String(date.getUTCFullYear()) : "";
@@ -2154,8 +2160,9 @@ function renderGettingAround(parent, ctx) {
     rendered += 1;
     parent.createDiv({ cls: "tp-around-group", text: group.title });
     const list3 = parent.createDiv({ cls: "tp-around-list" });
+    const dated = group.items.every((p) => Boolean(p.date));
     const sorted = [...group.items].sort(
-      (a, b) => shortest(legs.get(a.id)) - shortest(legs.get(b.id))
+      (a, b) => dated ? (a.date ?? "").localeCompare(b.date ?? "") || (a.time ?? "").localeCompare(b.time ?? "") : shortest(legs.get(a.id)) - shortest(legs.get(b.id))
     );
     for (const place of sorted) {
       const placeLegs = legs.get(place.id);
@@ -2188,9 +2195,11 @@ function renderRow(parent, place, legs, modes, ctx) {
   const walking = legs.find((l) => l.mode === "walking");
   const driving = legs.find((l) => l.mode === "driving");
   const reference = walking ?? driving ?? legs[0];
-  if (reference) {
-    text.createDiv({ cls: "tp-around-dist", text: formatDistance(reference.distanceMeters) });
-  }
+  const meta = [
+    reference ? formatDistance(reference.distanceMeters) : "",
+    place.date ? [formatDayLabel(place.date), place.time].filter(Boolean).join(" ") : ""
+  ].filter(Boolean);
+  if (meta.length) text.createDiv({ cls: "tp-around-dist", text: meta.join(" \xB7 ") });
   const times2 = row2.createDiv({ cls: "tp-around-times" });
   for (const mode of modes) {
     const leg = legs.find((l) => l.mode === mode);
@@ -3010,7 +3019,7 @@ function renderTrips(parent, ctx, onSelect) {
 
 // src/ui/dashboard/tabs/itinerary.ts
 var import_obsidian12 = require("obsidian");
-var WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+var WEEKDAYS2 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 function eventsFor(booking, date) {
   const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
   const icon = def?.icon ?? "ticket";
@@ -3106,6 +3115,7 @@ function renderItinerary(parent, ctx) {
     const link = open.createEl("a", { text: "Open the itinerary note" });
     link.addEventListener("click", () => ctx.openFile(itineraryNote.file));
   }
+  const router = makeRouter(ctx);
   const timeline = parent.createDiv({ cls: "tp-timeline" });
   for (const [index, date] of days.entries()) {
     const parsed = parseISO(date);
@@ -3116,7 +3126,7 @@ function renderItinerary(parent, ctx) {
     });
     const marker = row2.createDiv({ cls: "tp-day-marker" });
     marker.createDiv({ cls: "tp-day-num", text: parsed ? String(parsed.getUTCDate()) : "?" });
-    marker.createDiv({ cls: "tp-day-dow", text: parsed ? WEEKDAYS[parsed.getUTCDay()] : "" });
+    marker.createDiv({ cls: "tp-day-dow", text: parsed ? WEEKDAYS2[parsed.getUTCDay()] : "" });
     const body = row2.createDiv({ cls: "tp-day-body" });
     const head = body.createDiv({ cls: "tp-day-head" });
     head.createSpan({ cls: "tp-day-label", text: `Day ${index + 1}` });
@@ -3136,7 +3146,10 @@ function renderItinerary(parent, ctx) {
       continue;
     }
     const list3 = body.createDiv({ cls: "tp-day-items" });
-    for (const event of events) {
+    if (router && ongoing.length > 0) {
+      router.hop(list3, router.base, router.placeFor(events[0].file), router.base?.label);
+    }
+    for (const [position, event] of events.entries()) {
       const item = list3.createDiv({ cls: "tp-day-item" });
       item.createDiv({ cls: "tp-day-item-time", text: event.time || "\u2014" });
       (0, import_obsidian12.setIcon)(item.createDiv({ cls: "tp-day-item-icon" }), event.icon);
@@ -3145,33 +3158,43 @@ function renderItinerary(parent, ctx) {
       if (event.detail) text.createDiv({ cls: "tp-day-item-meta", text: event.detail });
       if (event.cost) item.createDiv({ cls: "tp-day-item-cost", text: event.cost });
       item.addEventListener("click", () => ctx.openFile(event.file));
+      const next = events[position + 1];
+      if (router && next) {
+        router.hop(list3, router.placeFor(event.file), router.placeFor(next.file));
+      }
     }
-    renderLegs(body, events, ctx);
   }
 }
-function renderLegs(body, events, ctx) {
+function makeRouter(ctx) {
   const { trip, plugin } = ctx;
-  if (!trip || events.length < 2) return;
+  if (!trip) return null;
   const places = plugin.travelPlaces.get(trip.folderPath);
-  if (!places) return;
-  const all = [...places.hotels, ...places.airports, ...places.activities];
+  if (!places) return null;
+  const all = [...places.hotels, ...places.airports, ...places.activities, ...places.restaurants];
   const byPath = new Map(all.filter((p) => p.file).map((p) => [p.file.path, p]));
   const modes = plugin.settings.travelModes;
-  for (let i = 0; i < events.length - 1; i += 1) {
-    const from = byPath.get(events[i].file.path);
-    const to = byPath.get(events[i + 1].file.path);
-    if (!from || !to || from.id === to.id) continue;
-    const legs = plugin.travel.peekLegs(from, [to], modes).get(to.id);
-    if (!legs || legs.length === 0) continue;
-    const row2 = body.createDiv({ cls: "tp-leg" });
-    (0, import_obsidian12.setIcon)(row2.createSpan({ cls: "tp-leg-icon" }), "move-right");
-    row2.createSpan({
-      cls: "tp-leg-text",
-      text: legs.map(
-        (leg) => `${TRAVEL_MODES.find((m) => m.id === leg.mode)?.label ?? leg.mode} ${formatDuration2(leg.durationSeconds)}`
-      ).join(" \xB7 ")
-    });
-  }
+  return {
+    base: places.hotels[0],
+    placeFor: (file) => byPath.get(file.path),
+    hop(parent, from, to, fromLabel) {
+      if (!from || !to || from.id === to.id) return;
+      const legs = plugin.travel.peekLegs(from, [to], modes).get(to.id);
+      if (!legs || legs.length === 0) return;
+      const reference = legs.find((l) => l.mode === "walking") ?? legs[0];
+      const row2 = parent.createDiv({ cls: "tp-leg" });
+      (0, import_obsidian12.setIcon)(row2.createSpan({ cls: "tp-leg-icon" }), "move-right");
+      row2.createSpan({
+        cls: "tp-leg-text",
+        text: [
+          fromLabel ? `from ${fromLabel}` : "",
+          formatDistance(reference.distanceMeters),
+          ...legs.map(
+            (leg) => `${TRAVEL_MODES.find((m) => m.id === leg.mode)?.label ?? leg.mode} ${formatDuration2(leg.durationSeconds)}`
+          )
+        ].filter(Boolean).join(" \xB7 ")
+      });
+    }
+  };
 }
 
 // src/ui/dashboard/tabs/bookings.ts
@@ -6403,7 +6426,13 @@ var TravelService = class {
         label,
         kind: booking.kind === "stay" ? "hotel" : booking.kind === "flight" ? "airport" : booking.kind === "transport" ? "station" : "activity",
         coord,
-        file: booking.file
+        file: booking.file,
+        // A flight's place is the airport it lands at, so the transfer to the
+        // hotel happens on the outbound date, not the return. No time: the
+        // booking's own time is the departure from home, and its end is the
+        // return arrival on a return ticket — neither is when you land.
+        date: booking.date,
+        time: booking.kind === "flight" ? "" : booking.time
       };
       if (place.kind === "hotel") places.hotels.push(place);
       else if (place.kind === "airport") places.airports.push(place);
@@ -6771,7 +6800,7 @@ function renderTripDocument(doc) {
 }
 
 // src/export/pdfExport.ts
-var WEEKDAYS2 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+var WEEKDAYS3 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 var IMAGE_RE2 = /\.(png|jpe?g|gif|webp)$/i;
 var MAX_IMAGE_BYTES = 2e6;
 function mimeFor(extension) {
@@ -6883,7 +6912,7 @@ async function buildTripDocument(plugin, trip) {
     return {
       date,
       label: `Day ${index + 1}`,
-      weekday: parsed ? `${WEEKDAYS2[parsed.getUTCDay()]} ${parsed.getUTCDate()} ${monthName(date)}` : date,
+      weekday: parsed ? `${WEEKDAYS3[parsed.getUTCDay()]} ${parsed.getUTCDate()} ${monthName(date)}` : date,
       items,
       staying: staying ? `Staying at ${staying.title}` : ""
     };
@@ -7931,10 +7960,10 @@ var import_obsidian33 = require("obsidian");
 
 // src/ui/components/dateRange.ts
 var DURATIONS = [1, 2, 3, 4, 5, 7, 10, 14, 21];
-var WEEKDAYS3 = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+var WEEKDAYS4 = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 function weekday(iso) {
   const date = parseISO(iso);
-  return date ? WEEKDAYS3[date.getUTCDay()] : "";
+  return date ? WEEKDAYS4[date.getUTCDay()] : "";
 }
 var DateRangeField = class {
   constructor(container, initial, onChange) {

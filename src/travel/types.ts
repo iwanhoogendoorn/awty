@@ -23,6 +23,10 @@ export interface Place {
   kind: PlaceKind;
   coord: Coord;
   file?: TFile;
+  /** ISO date this place is visited, when it came from a dated booking. */
+  date?: string;
+  /** "HH:MM", when the booking records one. */
+  time?: string;
 }
 
 export interface TravelLeg {

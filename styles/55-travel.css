@@ -97,6 +97,12 @@
   color: var(--text-faint);
 }
 
+/* Sits between two timeline items, indented past the time column so it lines
+   up with the titles it joins. */
+.tp-day-items .tp-leg {
+  padding: 0.3em 0 0.3em 4.6em;
+}
+
 .tp-leg-icon {
   display: flex;
 }

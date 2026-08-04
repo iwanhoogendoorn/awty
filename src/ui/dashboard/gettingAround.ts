@@ -1,5 +1,6 @@
 import { Notice, setIcon } from "obsidian";
 import type { DashboardContext } from "./common";
+import { formatDayLabel } from "../../util/dates";
 import { sectionTitle } from "./common";
 import type { Place, TravelLeg, TravelMode } from "../../travel/types";
 import { TRAVEL_MODES, formatDistance, formatDuration } from "../../travel/types";
@@ -110,9 +111,14 @@ export function renderGettingAround(parent: HTMLElement, ctx: DashboardContext):
     parent.createDiv({ cls: "tp-around-group", text: group.title });
     const list = parent.createDiv({ cls: "tp-around-list" });
 
-    // Nearest first — that is the question being asked.
-    const sorted = [...group.items].sort(
-      (a, b) => shortest(legs.get(a.id)) - shortest(legs.get(b.id)),
+    // Chronological when everything is dated — that is the order you will do
+    // them in. Nearest first otherwise, which is the question a list of
+    // undated places (restaurants) is really asking.
+    const dated = group.items.every((p) => Boolean(p.date));
+    const sorted = [...group.items].sort((a, b) =>
+      dated
+        ? (a.date ?? "").localeCompare(b.date ?? "") || (a.time ?? "").localeCompare(b.time ?? "")
+        : shortest(legs.get(a.id)) - shortest(legs.get(b.id)),
     );
     for (const place of sorted) {
       const placeLegs = legs.get(place.id);
@@ -158,9 +164,14 @@ function renderRow(
   const walking = legs.find((l) => l.mode === "walking");
   const driving = legs.find((l) => l.mode === "driving");
   const reference = walking ?? driving ?? legs[0];
-  if (reference) {
-    text.createDiv({ cls: "tp-around-dist", text: formatDistance(reference.distanceMeters) });
-  }
+
+  // When it happens, next to how far it is: a 45-minute bus ride matters
+  // differently on the day you land than on a free afternoon.
+  const meta = [
+    reference ? formatDistance(reference.distanceMeters) : "",
+    place.date ? [formatDayLabel(place.date), place.time].filter(Boolean).join(" ") : "",
+  ].filter(Boolean);
+  if (meta.length) text.createDiv({ cls: "tp-around-dist", text: meta.join(" · ") });
 
   const times = row.createDiv({ cls: "tp-around-times" });
   for (const mode of modes) {

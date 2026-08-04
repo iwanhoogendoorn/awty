@@ -5,7 +5,12 @@ import type { Booking } from "../../../bookings/types";
 import { BOOKING_KINDS } from "../../../bookings/types";
 import { formatMoney } from "../../../util/money";
 import { datesInRange, monthName, parseISO, todayISO } from "../../../util/dates";
-import { TRAVEL_MODES, formatDuration as formatTravelDuration } from "../../../travel/types";
+import type { Place } from "../../../travel/types";
+import {
+  TRAVEL_MODES,
+  formatDistance,
+  formatDuration as formatTravelDuration,
+} from "../../../travel/types";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -141,6 +146,7 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
     link.addEventListener("click", () => ctx.openFile(itineraryNote.file));
   }
 
+  const router = makeRouter(ctx);
   const timeline = parent.createDiv({ cls: "tp-timeline" });
 
   for (const [index, date] of days.entries()) {
@@ -183,7 +189,14 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
     }
 
     const list = body.createDiv({ cls: "tp-day-items" });
-    for (const event of events) {
+
+    // You wake up where you slept, so the first hop of a day is from the hotel
+    // — unless the day starts by arriving at it.
+    if (router && ongoing.length > 0) {
+      router.hop(list, router.base, router.placeFor(events[0].file), router.base?.label);
+    }
+
+    for (const [position, event] of events.entries()) {
       const item = list.createDiv({ cls: "tp-day-item" });
       item.createDiv({ cls: "tp-day-item-time", text: event.time || "—" });
       setIcon(item.createDiv({ cls: "tp-day-item-icon" }), event.icon);
@@ -194,45 +207,63 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
 
       if (event.cost) item.createDiv({ cls: "tp-day-item-cost", text: event.cost });
       item.addEventListener("click", () => ctx.openFile(event.file));
-    }
 
-    renderLegs(body, events, ctx);
+      // Drawn between the two items it joins, not stacked below the day: a
+      // pile of times at the bottom said nothing about which hop each was.
+      const next = events[position + 1];
+      if (router && next) {
+        router.hop(list, router.placeFor(event.file), router.placeFor(next.file));
+      }
+    }
   }
 }
 
 /**
- * Travel between consecutive events on a day, drawn from the cache only — the
+ * Travel between the places of one day, drawn from the cache only — the
  * timeline never triggers a billed lookup on its own.
  */
-function renderLegs(body: HTMLElement, events: DayEvent[], ctx: DashboardContext): void {
+interface DayRouter {
+  base: Place | undefined;
+  placeFor(file: TFile): Place | undefined;
+  hop(parent: HTMLElement, from: Place | undefined, to: Place | undefined, fromLabel?: string): void;
+}
+
+function makeRouter(ctx: DashboardContext): DayRouter | null {
   const { trip, plugin } = ctx;
-  if (!trip || events.length < 2) return;
+  if (!trip) return null;
 
   const places = plugin.travelPlaces.get(trip.folderPath);
-  if (!places) return;
+  if (!places) return null;
 
-  const all = [...places.hotels, ...places.airports, ...places.activities];
+  const all = [...places.hotels, ...places.airports, ...places.activities, ...places.restaurants];
   const byPath = new Map(all.filter((p) => p.file).map((p) => [p.file!.path, p]));
   const modes = plugin.settings.travelModes;
 
-  for (let i = 0; i < events.length - 1; i += 1) {
-    const from = byPath.get(events[i].file.path);
-    const to = byPath.get(events[i + 1].file.path);
-    if (!from || !to || from.id === to.id) continue;
+  return {
+    base: places.hotels[0],
+    placeFor: (file) => byPath.get(file.path),
+    hop(parent, from, to, fromLabel) {
+      if (!from || !to || from.id === to.id) return;
 
-    const legs = plugin.travel.peekLegs(from, [to], modes).get(to.id);
-    if (!legs || legs.length === 0) continue;
+      const legs = plugin.travel.peekLegs(from, [to], modes).get(to.id);
+      if (!legs || legs.length === 0) return;
 
-    const row = body.createDiv({ cls: "tp-leg" });
-    setIcon(row.createSpan({ cls: "tp-leg-icon" }), "move-right");
-    row.createSpan({
-      cls: "tp-leg-text",
-      text: legs
-        .map(
-          (leg) =>
-            `${TRAVEL_MODES.find((m) => m.id === leg.mode)?.label ?? leg.mode} ${formatTravelDuration(leg.durationSeconds)}`,
-        )
-        .join(" · "),
-    });
-  }
+      const reference = legs.find((l) => l.mode === "walking") ?? legs[0];
+      const row = parent.createDiv({ cls: "tp-leg" });
+      setIcon(row.createSpan({ cls: "tp-leg-icon" }), "move-right");
+      row.createSpan({
+        cls: "tp-leg-text",
+        text: [
+          fromLabel ? `from ${fromLabel}` : "",
+          formatDistance(reference.distanceMeters),
+          ...legs.map(
+            (leg) =>
+              `${TRAVEL_MODES.find((m) => m.id === leg.mode)?.label ?? leg.mode} ${formatTravelDuration(leg.durationSeconds)}`,
+          ),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      });
+    },
+  };
 }
