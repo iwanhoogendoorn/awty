@@ -48,6 +48,7 @@ export { renderMarkdown, stripFrontmatter } from "./src/export/markdown.ts";
 export { customSections, customParts, weaveKept, sectionText } from "./src/bookings/noteSections.ts";
 export { bookingBody, expenseBody } from "./src/bookings/noteBody.ts";
 export { budgetPlanTable, budgetLinesTable } from "./src/bookings/budgetTables.ts";
+export { readLegacyFoodTable } from "./src/bookings/legacyFood.ts";
 export { looksLikeMoreJourneys } from "./src/bookings/legs.ts";
 export { zoneForAirport, utcToLocal, localiseLegs } from "./src/flights/localTime.ts";
 export { linkTarget } from "./src/bookings/linkTarget.ts";
@@ -1562,6 +1563,39 @@ test("setting a budget makes the Budget note say so", () => {
 
   // Nothing set and nothing costed stays honestly empty.
   assert.equal(m.analyseNote("budget", `# Budget\n\n## Planned\n\n${m.budgetPlanTable(new Map(), [], "EUR")}\n`).state, "empty");
+});
+
+test("a table booked before this change is not thrown away", () => {
+  // The Booked section is generated now. A row typed into it by hand would be
+  // overwritten by the first sync, so it is read out and made a booking.
+  const note = [
+    "---", "type: food", "---", "",
+    "# Food — Dubrovnik", "",
+    "## Want to try", "", "```foodspot", "city: Dubrovnik", "```", "",
+    "## Booked", "",
+    "| Date       | Time  | Place                       | Booked by | Notes |",
+    "| ---------- | ----- | --------------------------- | --------- | ----- |",
+    "| 2026-08-19 | 20:00 | Test Rstaurant in Dubrovnik | Iwan      | Window seat |",
+    "", "## Notes", "", "not a row",
+  ].join("\n");
+  const rows = m.readLegacyFoodTable(note);
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0], {
+    date: "2026-08-19", time: "20:00", place: "Test Rstaurant in Dubrovnik",
+    bookedBy: "Iwan", notes: "Window seat",
+  });
+
+  // A section the plugin generated is already bookings; nothing to migrate.
+  const generated = [
+    "## Booked", "", "_Generated from your bookings — edit a booking to change a row._", "",
+    "| When | Time | Booking | Where | Reference | Cost | Status |",
+    "|---|---|---|---|---|---|---|",
+    "| 2026-08-19 |  | [[Nautika]] |  |  | €120 | booked |",
+  ].join("\n");
+  assert.deepEqual(m.readLegacyFoodTable(generated), []);
+
+  // The empty template is not a booking either.
+  assert.deepEqual(m.readLegacyFoodTable("## Booked\n\n_Nothing booked yet._"), []);
 });
 
 test("a restaurant is a booking like any other", () => {

@@ -6,6 +6,9 @@ import { replaceSection, subNoteFile } from "../store/sectionWriter";
 import { formatMoney } from "../util/money";
 import { parseLegTable } from "./legTable";
 import { legsToFrontmatter } from "./legs";
+import { readLegacyFoodTable } from "./legacyFood";
+import { createBooking } from "./bookingWriter";
+import type { AwtySettings } from "../types";
 
 /**
  * Keeps the sub-notes in step with the bookings.
@@ -54,6 +57,14 @@ export async function syncBookingNotes(
     if (!file) continue;
 
     const relevant = bookings.filter((b) => spec.kinds.includes(b.kind));
+
+    // With nothing to write, leave a section alone unless it is already ours.
+    // Generating over the top of it destroyed rows typed by hand.
+    if (relevant.length === 0) {
+      const current = await app.vault.read(file);
+      if (readLegacyFoodTable(current).length > 0 && spec.id === "food") continue;
+    }
+
     const body =
       relevant.length === 0
         ? "_Nothing booked yet. Use the wizard to add one._"
@@ -84,6 +95,57 @@ export async function syncBookingNotes(
       await replaceSection(app, file, "Expenses", budgetLinesTable(budget.lines));
     }
   }
+}
+
+/**
+ * Turns hand-typed Booked rows into restaurant bookings.
+ *
+ * The Food note's Booked section is generated now. Anything typed there before
+ * restaurants were bookings would be overwritten by the first sync, so it is
+ * migrated once, quietly, on load — and then owned by the same machinery as
+ * every other booking.
+ */
+export async function migrateFoodTables(
+  app: App,
+  settings: AwtySettings,
+  trips: Trip[],
+): Promise<number> {
+  let migrated = 0;
+
+  for (const trip of trips) {
+    const file = subNoteFile(app, trip, "food");
+    if (!file) continue;
+
+    const rows = readLegacyFoodTable(await app.vault.read(file));
+    if (rows.length === 0) continue;
+
+    for (const row of rows) {
+      await createBooking(app, settings, trip, {
+        kind: "restaurant",
+        status: "booked",
+        title: row.place,
+        date: row.date || trip.startDate,
+        endDate: row.date || trip.startDate,
+        time: row.time,
+        endTime: "",
+        amount: null,
+        currency: "",
+        category: "Food & drink",
+        reference: "",
+        from: "",
+        to: "",
+        address: "",
+        operator: row.bookedBy,
+        seat: "",
+        notes: row.notes,
+        attachments: [],
+        legs: [],
+        returnLegs: [],
+      });
+      migrated += 1;
+    }
+  }
+  return migrated;
 }
 
 /**

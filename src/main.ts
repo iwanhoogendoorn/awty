@@ -33,7 +33,7 @@ import { BudgetModal } from "./ui/modals/budgetModal";
 import { PackingModal } from "./ui/modals/packingModal";
 import { EventDetailsModal } from "./ui/modals/eventDetailsModal";
 import { TripPlanWizard } from "./ui/modals/tripPlanWizard";
-import { backfillFlightLegs, syncBookingNotes } from "./bookings/bookingSync";
+import { backfillFlightLegs, migrateFoodTables, syncBookingNotes } from "./bookings/bookingSync";
 import {
   TravelService,
   TravelUnavailable,
@@ -234,6 +234,23 @@ export default class AwtyPlugin extends Plugin {
     // Repairs flights saved before a direct flight stored its legs. Deferred
     // so it never delays opening the vault.
     this.app.workspace.onLayoutReady(() => {
+      // Tables typed before restaurants were bookings become bookings, or the
+      // first sync of the Food note would generate over the top of them.
+      void migrateFoodTables(this.app, this.settings, this.store.getTrips())
+        .then((migrated) => {
+          if (migrated === 0) return;
+          this.bookings.invalidate();
+          this.store.invalidate();
+          this.progress.clear();
+          this.refreshViews();
+          console.info(`[awty] moved ${migrated} table booking(s) into bookings`);
+          new Notice(
+            `AWTY: moved ${migrated} booked table${migrated === 1 ? "" : "s"} into editable bookings.`,
+            8000,
+          );
+        })
+        .catch((err) => console.error("[awty] could not migrate table bookings", err));
+
       void backfillFlightLegs(this.app, this.settings)
         .then((repaired) => {
           if (repaired === 0) return;
