@@ -9,8 +9,6 @@ import { AirlineSuggest, AirportSuggest, CitySuggest } from "../components/sugge
 import { LegsField } from "../components/legsField";
 import { airportFromLabel } from "../components/suggest";
 import { parseConfirmation, type ParsedConfirmation } from "../../flights/parseConfirmation";
-import { lookupFlight, searchFlights } from "../../flights/providers";
-import { FlightOfferModal } from "./flightOfferModal";
 import { emptyLeg, routeTitle, totalJourneyMinutes, formatLayover, type FlightLeg } from "../../bookings/legs";
 import { COMMON_CURRENCIES, formatMoney, parseAmount } from "../../util/money";
 import { formatDateRange, isValidISODate, todayISO } from "../../util/dates";
@@ -256,13 +254,6 @@ export class BookingWizard extends Modal {
     paste.createSpan({ text: "Paste a confirmation" });
     paste.addEventListener("click", () => this.openPasteBox());
 
-    if (this.hasAmadeus()) {
-      const search = tools.createEl("button", { cls: "tp-dash-add" });
-      search.type = "button";
-      setIcon(search.createSpan(), "search");
-      search.createSpan({ text: "Search flights" });
-      search.addEventListener("click", () => this.searchFares());
-    }
   }
 
   /** Paste the email or drop the calendar invite; the legs fill themselves in. */
@@ -277,6 +268,28 @@ export class BookingWizard extends Modal {
     area.placeholder = "Paste here…";
 
     const actions = host.createDiv({ cls: "tp-flight-tools" });
+
+    // Opening the file beats asking someone to open it elsewhere and copy it.
+    const file = actions.createEl("input");
+    file.type = "file";
+    file.accept = ".ics,.txt,.eml,text/calendar,message/rfc822,text/plain";
+    file.addClass("tp-attach-input");
+    const choose = actions.createEl("button", { cls: "tp-dash-add", text: "Open a file…" });
+    choose.type = "button";
+    choose.addEventListener("click", () => file.click());
+    file.addEventListener("change", async () => {
+      const chosen = file.files?.[0];
+      if (!chosen) return;
+      area.value = await chosen.text();
+      file.value = "";
+      const parsed = parseConfirmation(area.value);
+      if (!parsed || parsed.legs.length === 0) {
+        new Notice(`Could not find any flights in ${chosen.name}.`);
+        return;
+      }
+      this.applyParsed(parsed);
+    });
+
     const apply = actions.createEl("button", { cls: "tp-dash-add is-cta", text: "Read it" });
     apply.type = "button";
     apply.addEventListener("click", () => {
@@ -324,68 +337,6 @@ export class BookingWizard extends Modal {
     this.renderBody();
   }
 
-  private hasAmadeus(): boolean {
-    return (
-      this.settings.amadeusClientId.trim().length > 0 &&
-      this.settings.amadeusClientSecret.trim().length > 0
-    );
-  }
-
-  private async lookUpLeg(number: string, date: string): Promise<FlightLeg | null> {
-    try {
-      const matches = await lookupFlight(number, date, this.settings);
-      if (matches.length === 0) return null;
-      new Notice(`Found ${number} on ${date}.`);
-      return matches[0];
-    } catch (err) {
-      new Notice(err instanceof Error ? err.message : "Flight lookup failed.", 8000);
-      console.error("[travel-planner]", err);
-      return null;
-    }
-  }
-
-  private async searchFares(): Promise<void> {
-    const from = airportFromLabel(this.draft.legs[0]?.from ?? "");
-    const to = airportFromLabel(this.draft.legs[this.draft.legs.length - 1]?.to ?? "");
-    if (!from || !to) {
-      new Notice("Set the from and to airports first.");
-      return;
-    }
-
-    const notice = new Notice("Searching…", 0);
-    try {
-      const offers = await searchFlights(
-        {
-          origin: from.i,
-          destination: to.i,
-          departureDate: this.draft.legs[0]?.date || this.trip.startDate,
-          returnDate: this.hasReturn ? this.trip.endDate : undefined,
-          adults: Math.max(1, this.trip.travellers.length),
-          currency: this.draft.currency,
-        },
-        this.settings,
-      );
-      notice.hide();
-      if (offers.length === 0) {
-        new Notice("No fares came back for those dates.");
-        return;
-      }
-      new FlightOfferModal(this.app, offers, this.settings.amadeusEnvironment, (offer) => {
-        this.draft.legs = offer.outbound;
-        this.draft.returnLegs = offer.inbound;
-        this.hasReturn = offer.inbound.length > 0;
-        this.draft.amount = offer.price;
-        this.amountRaw = String(offer.price);
-        this.draft.currency = offer.currency;
-        this.renderBody();
-      }).open();
-    } catch (err) {
-      notice.hide();
-      new Notice(err instanceof Error ? err.message : "Flight search failed.", 8000);
-      console.error("[travel-planner]", err);
-    }
-  }
-
   private renderFlightLegs(): void {
     this.renderFlightTools();
     this.bodyEl.createDiv({ cls: "tp-section-label", text: "Outbound" });
@@ -397,9 +348,6 @@ export class BookingWizard extends Modal {
       stars: this.stars,
       nearby: () => ({ country: this.trip.country, city: this.trip.city }),
       onChange: () => this.syncFromLegs(),
-      canLookUp: () => this.hasAmadeus(),
-      lookUp: (number, date) => this.lookUpLeg(number, date),
-      explainLookup: (message) => new Notice(message, 7000),
     });
 
     // Almost every holiday flight is a return, so this is one toggle rather
@@ -436,10 +384,7 @@ export class BookingWizard extends Modal {
         stars: this.stars,
         nearby: () => ({ country: this.trip.country, city: this.trip.city }),
         onChange: () => this.syncFromLegs(),
-        canLookUp: () => this.hasAmadeus(),
-        lookUp: (number, date) => this.lookUpLeg(number, date),
-        explainLookup: (message) => new Notice(message, 7000),
-      });
+        });
     } else {
       this.returnField = null;
     }

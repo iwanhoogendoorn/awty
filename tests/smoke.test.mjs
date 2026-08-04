@@ -19,6 +19,7 @@ export { emptyDayDates } from "./src/store/itinerary.ts";
 export { routeTitle, layoverMinutes, formatLayover } from "./src/bookings/legs.ts";
 export { parseConfirmation, parseIcs, parseConfirmationText, parseLooseDate } from "./src/flights/parseConfirmation.ts";
 export { splitFlightNumber } from "./src/flights/flightNumber.ts";
+export { decodeQuotedPrintable, extractIcsFromEmail } from "./src/flights/parseConfirmation.ts";
 export { fold, rankMatches, flattenByRank } from "./src/util/search.ts";
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
 export { allCategories, COST_CATEGORIES } from "./src/bookings/types.ts";
@@ -589,6 +590,45 @@ test("12-hour times are converted, and prose is not mistaken for a flight", () =
   // A line has to carry both a flight number and an airport pair.
   assert.equal(m.parseConfirmationText("Thanks for flying with us. See you soon!"), null);
   assert.equal(m.parseConfirmationText("Your reference is ABC123"), null);
+});
+
+test("raw email encoding is undone before parsing", () => {
+  // Saving an email gives quoted-printable source, where a soft break splits a
+  // flight number across two lines and the parser would see nothing.
+  const raw = "17 Aug 2026   KL18=\n85   AMS - DBV   10:15   12:35";
+  assert.equal(m.decodeQuotedPrintable(raw), "17 Aug 2026   KL1885   AMS - DBV   10:15   12:35");
+  assert.equal(m.decodeQuotedPrintable("caf=C3=A9"), "caf=C3=A9", "non-ASCII bytes are left alone");
+  assert.equal(m.decodeQuotedPrintable("Total: =E2=82=AC827"), "Total: =E2=82=AC827");
+  assert.equal(m.decodeQuotedPrintable("nothing encoded"), "nothing encoded");
+
+  const parsed = m.parseConfirmation(raw);
+  assert.equal(parsed.legs.length, 1);
+  assert.equal(parsed.legs[0].number, "KL1885");
+});
+
+test("a calendar invite attached to an email is decoded out of it", () => {
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "BEGIN:VEVENT",
+    "SUMMARY:Flight KL1885 AMS - DBV",
+    "DTSTART:20260817T101500",
+    "DTEND:20260817T123500",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+  const email = [
+    "Subject: Your booking",
+    "Content-Type: text/calendar; method=REQUEST",
+    "Content-Transfer-Encoding: base64",
+    "",
+    Buffer.from(ics, "utf8").toString("base64"),
+  ].join("\r\n");
+
+  assert.ok(m.extractIcsFromEmail(email).includes("BEGIN:VCALENDAR"));
+  const parsed = m.parseConfirmation(email);
+  assert.equal(parsed.source, "ics");
+  assert.equal(parsed.legs[0].number, "KL1885");
+  assert.equal(parsed.legs[0].depTime, "10:15");
 });
 
 test("flight numbers split into carrier and number", () => {

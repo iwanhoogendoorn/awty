@@ -259,46 +259,11 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
     containerEl.createDiv({
       cls: "tp-settings-note",
       text:
-        "Pasting a confirmation needs nothing at all and works offline. One free Amadeus Self-Service account " +
-        "covers both looking a flight up by its number and searching fares — no second provider, no RapidAPI. " +
-        "Nothing is called until you press a button.",
+        "Flights are filled in from your own booking confirmation — paste the email, or open the calendar " +
+        "invite the airline attached. It needs no account, no key and no network, and works on mobile. " +
+        "Automatic look-up by flight number is not offered: Amadeus retired its self-service portal in July 2026, " +
+        "and nothing else free and self-serve currently answers it over HTTPS.",
     });
-
-    new Setting(containerEl)
-      .setName("Amadeus API key")
-      .setDesc("Looks flights up by number, and searches fares. Free to register. Leave blank to skip both.")
-      .addText((t) => {
-        t.setPlaceholder("Client ID");
-        t.setValue(this.plugin.settings.amadeusClientId);
-        t.onChange(async (v) => {
-          this.plugin.settings.amadeusClientId = v.trim();
-          await this.plugin.saveSettings();
-        });
-      })
-      .addText((t) => {
-        t.inputEl.type = "password";
-        t.setPlaceholder("Client secret");
-        t.setValue(this.plugin.settings.amadeusClientSecret);
-        t.onChange(async (v) => {
-          this.plugin.settings.amadeusClientSecret = v.trim();
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Amadeus environment")
-      .setDesc(
-        "Test returns sample data, not real fares — useful for trying it out, useless for booking.",
-      )
-      .addDropdown((dd) => {
-        dd.addOption("test", "Test (sample data)");
-        dd.addOption("production", "Production (real fares)");
-        dd.setValue(this.plugin.settings.amadeusEnvironment);
-        dd.onChange(async (v) => {
-          this.plugin.settings.amadeusEnvironment = v as "test" | "production";
-          await this.plugin.saveSettings();
-        });
-      });
   }
 
   private displayTravel(containerEl: HTMLElement): void {

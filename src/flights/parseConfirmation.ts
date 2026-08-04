@@ -259,7 +259,51 @@ export function parseConfirmationText(text: string): ParsedConfirmation | null {
   };
 }
 
+/**
+ * Undoes quoted-printable encoding.
+ *
+ * Saving an email to a file gives you the raw source, where a soft line break
+ * is "=" at end of line and every non-ASCII byte is "=XX". Left alone, that
+ * splits flight numbers across lines and the parser sees nothing.
+ */
+export function decodeQuotedPrintable(text: string): string {
+  if (!/=\r?\n|=[0-9A-F]{2}/i.test(text)) return text;
+  return text
+    .replace(/=\r?\n/g, "")
+    .replace(/=([0-9A-F]{2})/gi, (whole, hex: string) => {
+      const code = parseInt(hex, 16);
+      // Only decode printable bytes; anything else is likely not encoded text.
+      return code >= 32 && code < 127 ? String.fromCharCode(code) : whole;
+    });
+}
+
+/**
+ * Pulls a calendar attachment out of an email.
+ *
+ * Airlines attach the invite as a base64 part, so the useful data is not in the
+ * text at all until it is decoded.
+ */
+export function extractIcsFromEmail(text: string): string | null {
+  if (/BEGIN:VCALENDAR/i.test(text)) return text;
+
+  const part = /Content-Type:\s*text\/calendar[\s\S]*?\r?\n\r?\n([A-Za-z0-9+/=\r\n]+)/i.exec(text);
+  if (!part) return null;
+
+  try {
+    const decoded = atob(part[1].replace(/\s+/g, ""));
+    return /BEGIN:VCALENDAR/i.test(decoded) ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Tries the calendar format first, since it is exact rather than inferred. */
-export function parseConfirmation(text: string): ParsedConfirmation | null {
+export function parseConfirmation(raw: string): ParsedConfirmation | null {
+  const embedded = extractIcsFromEmail(raw);
+  if (embedded) {
+    const parsed = parseIcs(embedded);
+    if (parsed) return parsed;
+  }
+  const text = decodeQuotedPrintable(raw);
   return parseIcs(text) ?? parseConfirmationText(text);
 }
