@@ -8,7 +8,7 @@ import { legsToFrontmatter, layoverMinutes, formatLayover, type FlightLeg } from
 import { readLegs as legsFromFrontmatter } from "./flightSummary";
 import type { Booking } from "./types";
 import { fileFromLink } from "./bookingStore";
-import { customSections, sectionText } from "./noteSections";
+import { customParts, sectionText, weaveKept } from "./noteSections";
 
 export interface BookingDraft {
   kind: BookingKind;
@@ -269,7 +269,7 @@ export async function updateBooking(
   draft: BookingDraft,
 ): Promise<TFile> {
   const links = linksFor(app, draft.attachments, file.path);
-  const kept = customSections(await app.vault.read(file));
+  const kept = customParts(await app.vault.read(file));
 
   await app.fileManager.processFrontMatter(file, (fm) => {
     writeBookingFrontmatter(app, fm, trip, file.path, draft, links);
@@ -277,7 +277,7 @@ export async function updateBooking(
 
   const head = await app.vault.read(file);
   const front = head.startsWith("---") ? head.slice(0, head.indexOf("\n---", 3) + 4) : "";
-  const body = [bookingBody(draft, links), kept].filter(Boolean).join("\n\n");
+  const body = weaveKept(bookingBody(draft, links), kept);
   await app.vault.modify(file, `${front.trimEnd()}\n\n${body}\n`);
 
   // A renamed booking keeps its links: renameFile rewrites every reference.
@@ -400,7 +400,7 @@ export async function updateExpense(
   draft: ExpenseDraft,
 ): Promise<TFile> {
   const links = linksFor(app, draft.attachments, file.path);
-  const kept = customSections(await app.vault.read(file));
+  const kept = customParts(await app.vault.read(file));
 
   await app.fileManager.processFrontMatter(file, (fm) => {
     for (const key of ["paid_by", "attachments"]) delete fm[key];
@@ -424,10 +424,7 @@ export async function updateExpense(
     for (const link of links) body.push(isImage(link) ? `!${link}` : `- ${link}`);
     body.push("");
   }
-  await app.vault.modify(
-    file,
-    `${front.trimEnd()}\n\n${[body.join("\n"), kept].filter(Boolean).join("\n\n")}\n`,
-  );
+  await app.vault.modify(file, `${front.trimEnd()}\n\n${weaveKept(body.join("\n"), kept)}\n`);
 
   const wanted = sanitizeName(`${draft.date} ${draft.description}`.trim() || "Expense");
   if (wanted && wanted !== file.basename) {

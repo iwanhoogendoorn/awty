@@ -81,7 +81,14 @@ function isGeneratedTable(rows: string[]): boolean {
   return rows.some((row) => /^\|\s*\*\*[^|]+\*\*\s*\|/.test(row.trim()));
 }
 
-export function customSections(content: string): string {
+export interface KeptParts {
+  /** Hand-written text above the first section heading. */
+  preamble: string;
+  /** Whole sections under headings the generator does not own. */
+  sections: string;
+}
+
+export function customParts(content: string): KeptParts {
   const preamble: string[] = [];
   const sections: string[] = [];
   let keeping = false;
@@ -111,9 +118,36 @@ export function customSections(content: string): string {
     }
   }
 
-  return [dropGeneratedTable(preamble).join("\n").trim(), sections.join("\n").trim()]
-    .filter(Boolean)
-    .join("\n\n");
+  return {
+    preamble: dropGeneratedTable(preamble).join("\n").trim(),
+    sections: sections.join("\n").trim(),
+  };
+}
+
+export function customSections(content: string): string {
+  const { preamble, sections } = customParts(content);
+  return [preamble, sections].filter(Boolean).join("\n\n");
+}
+
+/**
+ * Rebuilds a note body around what an edit kept.
+ *
+ * The kept preamble has to go back where it came from — between the generated
+ * details and the generated sections. Appending it after them moved a sentence
+ * typed under the details table to beneath "## Attachments", where the next
+ * edit read it as owned content and deleted it: preserved once, gone twice.
+ */
+export function weaveKept(generated: string, kept: KeptParts): string {
+  let body = generated.trimEnd();
+  if (kept.preamble) {
+    const at = body.search(/^## /m);
+    body =
+      at === -1
+        ? `${body}\n\n${kept.preamble}`
+        : `${body.slice(0, at).trimEnd()}\n\n${kept.preamble}\n\n${body.slice(at)}`;
+  }
+  if (kept.sections) body = `${body}\n\n${kept.sections}`;
+  return body;
 }
 
 /** Removes the first table in the preamble, but only if we wrote it. */

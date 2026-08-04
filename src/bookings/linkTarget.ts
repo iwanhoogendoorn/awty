@@ -11,9 +11,10 @@
 export function linkTarget(link: string): string {
   const raw = link.trim();
 
-  // ![[target|alias]] or [[target|alias]]
+  // ![[target|alias]] or [[target|alias]]. The #fragment addresses a heading
+  // or page inside the file; the file itself is the part that resolves.
   const wiki = /^!?\[\[([^\]]+)\]\]$/.exec(raw);
-  if (wiki) return decodeURI(wiki[1].split("|")[0].trim());
+  if (wiki) return decodeURI(wiki[1].split("|")[0].split("#")[0].trim());
 
   // ![label](target) or [label](target), with the target possibly <angled>
   const md = /^!?\[[^\]]*\]\(\s*<?([^)>]+?)>?\s*(?:"[^"]*")?\)$/.exec(raw);
@@ -21,7 +22,7 @@ export function linkTarget(link: string): string {
     const target = md[1].trim();
     // An external address is not a vault file.
     if (/^[a-z][a-z0-9+.-]*:/i.test(target)) return "";
-    return decodeURI(target);
+    return decodeURI(target.split("#")[0]);
   }
 
   // A bare path, which is what the writer stores before links are generated.

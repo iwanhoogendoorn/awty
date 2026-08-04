@@ -45,7 +45,7 @@ export { dayEvents, ongoingOn, BAND } from "./src/store/dayPlan.ts";
 export { itineraryPairs, groupByOrigin } from "./src/travel/routePlan.ts";
 export { readLegs, summariseFlight } from "./src/bookings/flightSummary.ts";
 export { renderMarkdown, stripFrontmatter } from "./src/export/markdown.ts";
-export { customSections, sectionText } from "./src/bookings/noteSections.ts";
+export { customSections, customParts, weaveKept, sectionText } from "./src/bookings/noteSections.ts";
 export { linkTarget } from "./src/bookings/linkTarget.ts";
 `;
 
@@ -1573,6 +1573,54 @@ test("a note that opens with a horizontal rule keeps its first paragraph", () =>
   assert.equal(m.stripFrontmatter("---\ntype: trip\n---\nA\n\n---\n\nB"), "A\n\n---\n\nB");
   assert.equal(m.stripFrontmatter("---\ntags:\n  - a\n---\nBody"), "Body");
   assert.equal(m.stripFrontmatter("---\r\ntype: trip\r\n---\r\nBody"), "Body", "CRLF");
+});
+
+test("prose under the details table survives any number of edits", () => {
+  // Each edit rebuilds the body as generated + kept. Appending the kept
+  // preamble after the generated sections moved it under "## Attachments",
+  // where the NEXT edit read it as owned and deleted it: preserved once, gone
+  // twice. The weave puts it back between the details and the sections.
+  const generated = [
+    "# Rausion Luxury Apartments", "",
+    "| | |", "|---|---|", "| **Status** | booked |", "",
+    "## Notes", "", "Ask for the top floor.", "",
+    "## Attachments", "", "- [[receipt.pdf]]",
+  ].join("\n");
+  const editOnce = (note) => m.weaveKept(generated, m.customParts(note));
+
+  const original = generated.replace(
+    "| **Status** | booked |",
+    "| **Status** | booked |\n\nCall the hotel the day before.",
+  );
+  let note = original;
+  for (let i = 0; i < 3; i += 1) note = editOnce(note);
+
+  assert.match(note, /Call the hotel the day before\./, "still there after three edits");
+  assert.ok(
+    note.indexOf("Call the hotel") < note.indexOf("## Notes"),
+    "and still above the sections, not relocated under one",
+  );
+  assert.equal(m.sectionText(note, "Notes"), "Ask for the top floor.", "Notes not contaminated");
+  // Stable: the third edit changed nothing.
+  assert.equal(note, editOnce(note));
+
+  // A custom section rides along too, after the generated ones.
+  const withSection = editOnce(`${original}\n\n## Door code\n\n4821`);
+  assert.match(withSection, /## Door code\n\n4821/);
+  assert.equal(withSection, editOnce(withSection));
+});
+
+test("an attachment link with a fragment still finds its file", () => {
+  // "#page=2" addresses a page inside the PDF; the file is what resolves.
+  assert.equal(m.linkTarget("[[receipt.pdf#page=2]]"), "receipt.pdf");
+  assert.equal(m.linkTarget("![p](Trips/receipt.pdf#page=2)"), "Trips/receipt.pdf");
+});
+
+test("a bare URL keeps its balanced paren and sheds its punctuation", () => {
+  const wiki = m.renderMarkdown("See https://en.wikipedia.org/wiki/Split_(city) today");
+  assert.match(wiki, /Split_\(city\)<\/span> today/, wiki);
+  const dot = m.renderMarkdown("Go to https://example.com.");
+  assert.match(dot, /example\.com<\/span>\./, dot);
 });
 
 test("only a table we generated is treated as generated", () => {

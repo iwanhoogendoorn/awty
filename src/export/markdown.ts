@@ -38,7 +38,23 @@ function inline(text: string): string {
     /\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
     (_, label: string, href: string) => `${label} <span class="url">${href}</span>`,
   );
-  out = out.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<span class="url">$2</span>');
+  out = out.replace(/(^|[\s(])(https?:\/\/[^\s<]+)/g, (_, pre: string, url: string) => {
+    // Trailing punctuation belongs to the sentence, and a closing paren only
+    // to an address that opened one — wikipedia.org/wiki/Split_(city) keeps
+    // its paren, "see https://x.com)." does not.
+    let end = url.length;
+    while (end > 0) {
+      const ch = url[end - 1];
+      if (".,;:!?".includes(ch)) end -= 1;
+      else if (
+        ch === ")" &&
+        (url.slice(0, end).match(/\(/g)?.length ?? 0) < (url.slice(0, end).match(/\)/g)?.length ?? 0)
+      )
+        end -= 1;
+      else break;
+    }
+    return `${pre}<span class="url">${url.slice(0, end)}</span>${url.slice(end)}`;
+  });
 
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
