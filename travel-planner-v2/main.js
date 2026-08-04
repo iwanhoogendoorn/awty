@@ -400,7 +400,8 @@ var TripStore = class {
           const raw = fm.budget_total;
           const value = typeof raw === "number" ? raw : Number(str(raw).replace(",", "."));
           return Number.isFinite(value) && value > 0 ? value : null;
-        })()
+        })(),
+        passports: list(fm.passports)
       });
     }
     trips.sort((a, b) => {
@@ -1601,9 +1602,11 @@ var AirportSuggest = class extends import_obsidian3.AbstractInputSuggest {
       return [...starred, ...rest];
     };
     if (!q) {
-      const local = AIRPORTS.filter((a) => this.locality(a) < 2);
-      const pool = local.length > 0 ? local : AIRPORTS.slice(0, 60);
-      return starredFirst(pool).slice(0, 50);
+      const inCity = AIRPORTS.filter((a) => this.locality(a) === 0);
+      if (inCity.length > 0) return starredFirst(inCity).slice(0, 50);
+      const inCountry = AIRPORTS.filter((a) => this.locality(a) === 1);
+      if (inCountry.length > 0) return starredFirst(inCountry).slice(0, 50);
+      return starredFirst(AIRPORTS.slice(0, 60)).slice(0, 50);
     }
     const exact = AIRPORT_BY_IATA.get(q.toUpperCase());
     const codePrefix = [];
@@ -2353,11 +2356,11 @@ function renderDocuments(parent, ctx) {
 function renderVisa(parent, ctx) {
   const { trip, plugin } = ctx;
   if (!trip) return;
-  const passports = plugin.settings.passportCountries.filter(Boolean);
+  const passports = (trip.passports.length > 0 ? trip.passports : plugin.settings.passportCountries).filter(Boolean);
   if (passports.length === 0) {
     parent.createDiv({
       cls: "tp-dash-hint",
-      text: "Set the passports you travel on in settings to see entry requirements."
+      text: "Set a passport on the trip, or in settings, to see entry requirements."
     });
     return;
   }
@@ -3863,25 +3866,32 @@ var LegsField = class {
         this.opts.onChange();
       });
     });
-    if (this.opts.canLookUp()) {
-      const lookup = flightInput.parentElement?.createEl("button", {
-        cls: "tp-leg-lookup",
-        attr: { "aria-label": "Look this flight up" }
+    const lookup = flightInput.parentElement?.createEl("button", {
+      cls: `tp-leg-lookup${this.opts.canLookUp() ? "" : " is-unset"}`,
+      attr: { "aria-label": "Look this flight up" }
+    });
+    if (lookup) {
+      lookup.type = "button";
+      (0, import_obsidian19.setIcon)(lookup, "search");
+      lookup.addEventListener("click", async () => {
+        if (!leg.number || !leg.date) {
+          this.opts.explainLookup("Enter a flight number and a date first.");
+          return;
+        }
+        if (!this.opts.canLookUp()) {
+          this.opts.explainLookup(
+            "Add a RapidAPI key under Settings \u2192 Travel Planner \u2192 Flight data to look flights up automatically."
+          );
+          return;
+        }
+        lookup.addClass("is-busy");
+        const filled = await this.opts.lookUp(leg.number, leg.date);
+        lookup.removeClass("is-busy");
+        if (!filled) return;
+        Object.assign(leg, filled, { number: leg.number });
+        this.render();
+        this.opts.onChange();
       });
-      if (lookup) {
-        lookup.type = "button";
-        (0, import_obsidian19.setIcon)(lookup, "search");
-        lookup.addEventListener("click", async () => {
-          if (!leg.number || !leg.date) return;
-          (0, import_obsidian19.setIcon)(lookup, "loader");
-          const filled = await this.opts.lookUp(leg.number, leg.date);
-          (0, import_obsidian19.setIcon)(lookup, "search");
-          if (!filled) return;
-          Object.assign(leg, filled, { number: leg.number });
-          this.render();
-          this.opts.onChange();
-        });
-      }
     }
     const airport = (label, key) => field(label, (input) => {
       input.type = "text";
@@ -4678,7 +4688,8 @@ var BookingWizard = class extends import_obsidian22.Modal {
       nearby: () => ({ country: this.trip.country, city: this.trip.city }),
       onChange: () => this.syncFromLegs(),
       canLookUp: () => this.settings.rapidApiKey.trim().length > 0,
-      lookUp: (number, date) => this.lookUpLeg(number, date)
+      lookUp: (number, date) => this.lookUpLeg(number, date),
+      explainLookup: (message) => new import_obsidian22.Notice(message, 7e3)
     });
     new import_obsidian22.Setting(this.bodyEl).setName("Return flight").setDesc("Same ticket, coming back.").addToggle((t) => {
       t.setValue(this.hasReturn);
@@ -4709,7 +4720,8 @@ var BookingWizard = class extends import_obsidian22.Modal {
         nearby: () => ({ country: this.trip.country, city: this.trip.city }),
         onChange: () => this.syncFromLegs(),
         canLookUp: () => this.settings.rapidApiKey.trim().length > 0,
-        lookUp: (number, date) => this.lookUpLeg(number, date)
+        lookUp: (number, date) => this.lookUpLeg(number, date),
+        explainLookup: (message) => new import_obsidian22.Notice(message, 7e3)
       });
     } else {
       this.returnField = null;
@@ -5973,7 +5985,7 @@ var TripPlanWizard = class extends import_obsidian29.Modal {
     const flights = [...of("flight"), ...of("transport")];
     const stays = of("stay");
     const activities = of("activity");
-    const passports = plugin.settings.passportCountries.filter(Boolean);
+    const passports = (trip.passports.length > 0 ? trip.passports : plugin.settings.passportCountries).filter(Boolean);
     const checks = passports.map((passport) => checkVisa(passport, trip.country));
     const tripDays = daysBetween(trip.startDate, trip.endDate);
     const blocking = checks.filter((c) => c.actionNeeded || exceedsAllowance(c, tripDays));
@@ -5981,7 +5993,7 @@ var TripPlanWizard = class extends import_obsidian29.Modal {
     const needsNoAction = blocking.length === 0;
     const documentSummary = (() => {
       const parts = [];
-      if (checks.length === 0) parts.push("No passports set");
+      if (checks.length === 0) parts.push("No passport set");
       else if (blocking.length > 0) parts.push(`${blocking[0].label} for ${blocking[0].passport}`);
       else parts.push("No visa needed");
       if (advice) parts.push(`advice ${ADVICE_MEANING[advice.colour].label.toLowerCase()}`);
@@ -6787,6 +6799,7 @@ function tripFrontmatter(draft) {
     end_date: def.singleDay ? draft.startDate : draft.endDate
   };
   if (draft.budgetTotal !== null && draft.budgetTotal > 0) fm.budget_total = draft.budgetTotal;
+  if (draft.passports.length > 0) fm.passports = draft.passports;
   if (draft.travellers.length > 0) fm.travellers = draft.travellers;
   if (draft.originCity) fm.origin_city = draft.originCity;
   if (draft.originAirport) fm.origin_airport = draft.originAirport;
@@ -7406,6 +7419,7 @@ var TripModal = class _TripModal extends import_obsidian34.Modal {
       originCity: initial.originCity ?? (mode === "create" ? settings.homeCity : ""),
       originAirport: initial.originAirport ?? (mode === "create" ? settings.homeAirport : ""),
       budgetTotal: initial.budgetTotal ?? null,
+      passports: initial.passports ?? (mode === "create" ? [...settings.passportCountries] : []),
       subNotes: initial.subNotes ?? [...settings.subNotesByKind[kind] ?? kindDef(kind).subNotes]
     };
     this.titleIsAuto = !this.draft.title;
@@ -7427,6 +7441,7 @@ var TripModal = class _TripModal extends import_obsidian34.Modal {
         originCity: trip.originCity,
         originAirport: trip.originAirport,
         budgetTotal: trip.budgetTotal,
+        passports: trip.passports,
         subNotes: []
       },
       onSubmit
@@ -7566,6 +7581,18 @@ var TripModal = class _TripModal extends import_obsidian34.Modal {
         // Where you are leaving from, not where you are going.
         () => ({ country: this.settings.defaultCountry, city: this.draft.originCity })
       );
+    });
+    new import_obsidian34.Setting(parent).setName("Passports").setDesc("Checked against the destination for visa requirements. Separate with commas.").addText((t) => {
+      t.setPlaceholder(this.settings.passportCountries.join(", ") || "Netherlands");
+      t.setValue(this.draft.passports.join(", "));
+      t.onChange((v) => {
+        this.draft.passports = v.split(",").map((c) => c.trim()).filter(Boolean);
+      });
+      new CountrySuggest(this.app, t.inputEl, (value) => {
+        const next = [...this.draft.passports.filter((p) => p !== value), value];
+        this.draft.passports = next;
+        t.setValue(next.join(", "));
+      });
     });
     new import_obsidian34.Setting(parent).setName("Budget").setDesc("Roughly what you want the whole trip to cost. Used everywhere costs are shown.").addText((t) => {
       t.setPlaceholder("3000");

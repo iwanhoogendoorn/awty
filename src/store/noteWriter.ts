@@ -78,6 +78,7 @@ function tripFrontmatter(draft: TripDraft): Record<string, unknown> {
     end_date: def.singleDay ? draft.startDate : draft.endDate,
   };
   if (draft.budgetTotal !== null && draft.budgetTotal > 0) fm.budget_total = draft.budgetTotal;
+  if (draft.passports.length > 0) fm.passports = draft.passports;
   if (draft.travellers.length > 0) fm.travellers = draft.travellers;
   if (draft.originCity) fm.origin_city = draft.originCity;
   if (draft.originAirport) fm.origin_airport = draft.originAirport;

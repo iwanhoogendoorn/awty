@@ -81,7 +81,9 @@ export class TripPlanWizard extends Modal {
 
     // Entry requirements and safety advice, which are the two things that can
     // stop a trip happening at all.
-    const passports = plugin.settings.passportCountries.filter(Boolean);
+    const passports = (
+      trip.passports.length > 0 ? trip.passports : plugin.settings.passportCountries
+    ).filter(Boolean);
     const checks = passports.map((passport) => checkVisa(passport, trip.country));
     const tripDays = daysBetween(trip.startDate, trip.endDate);
     const blocking = checks.filter((c) => c.actionNeeded || exceedsAllowance(c, tripDays));
@@ -90,7 +92,7 @@ export class TripPlanWizard extends Modal {
 
     const documentSummary = (() => {
       const parts: string[] = [];
-      if (checks.length === 0) parts.push("No passports set");
+      if (checks.length === 0) parts.push("No passport set");
       else if (blocking.length > 0) parts.push(`${blocking[0].label} for ${blocking[0].passport}`);
       else parts.push("No visa needed");
       if (advice) parts.push(`advice ${ADVICE_MEANING[advice.colour].label.toLowerCase()}`);

@@ -392,6 +392,7 @@ export class BookingWizard extends Modal {
       onChange: () => this.syncFromLegs(),
       canLookUp: () => this.settings.rapidApiKey.trim().length > 0,
       lookUp: (number, date) => this.lookUpLeg(number, date),
+      explainLookup: (message) => new Notice(message, 7000),
     });
 
     // Almost every holiday flight is a return, so this is one toggle rather
@@ -430,6 +431,7 @@ export class BookingWizard extends Modal {
         onChange: () => this.syncFromLegs(),
         canLookUp: () => this.settings.rapidApiKey.trim().length > 0,
         lookUp: (number, date) => this.lookUpLeg(number, date),
+        explainLookup: (message) => new Notice(message, 7000),
       });
     } else {
       this.returnField = null;

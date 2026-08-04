@@ -51,6 +51,8 @@ export class TripModal extends Modal {
       originCity: initial.originCity ?? (mode === "create" ? settings.homeCity : ""),
       originAirport: initial.originAirport ?? (mode === "create" ? settings.homeAirport : ""),
       budgetTotal: initial.budgetTotal ?? null,
+      passports:
+        initial.passports ?? (mode === "create" ? [...settings.passportCountries] : []),
       subNotes: initial.subNotes ?? [...(settings.subNotesByKind[kind] ?? kindDef(kind).subNotes)],
     };
     this.titleIsAuto = !this.draft.title;
@@ -78,6 +80,7 @@ export class TripModal extends Modal {
         originCity: trip.originCity,
         originAirport: trip.originAirport,
         budgetTotal: trip.budgetTotal,
+        passports: trip.passports,
         subNotes: [],
       },
       onSubmit,
@@ -253,6 +256,28 @@ export class TripModal extends Modal {
           // Where you are leaving from, not where you are going.
           () => ({ country: this.settings.defaultCountry, city: this.draft.originCity }),
         );
+      });
+
+    // The visa check has to know which passport you are travelling on, and
+    // settings were the only place it could be said.
+    new Setting(parent)
+      .setName("Passports")
+      .setDesc("Checked against the destination for visa requirements. Separate with commas.")
+      .addText((t) => {
+        t.setPlaceholder(this.settings.passportCountries.join(", ") || "Netherlands");
+        t.setValue(this.draft.passports.join(", "));
+        t.onChange((v) => {
+          this.draft.passports = v
+            .split(",")
+            .map((c) => c.trim())
+            .filter(Boolean);
+        });
+        new CountrySuggest(this.app, t.inputEl, (value) => {
+          // Appends rather than replacing, so a second passport is one pick away.
+          const next = [...this.draft.passports.filter((p) => p !== value), value];
+          this.draft.passports = next;
+          t.setValue(next.join(", "));
+        });
       });
 
     new Setting(parent)

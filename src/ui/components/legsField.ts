@@ -25,6 +25,8 @@ export interface LegsFieldOptions {
   canLookUp: () => boolean;
   /** Returns the filled-in leg, or null when the look-up failed. */
   lookUp: (number: string, date: string) => Promise<FlightLeg | null>;
+  /** Says why a look-up cannot run, rather than doing nothing. */
+  explainLookup: (message: string) => void;
 }
 
 /**
@@ -146,26 +148,35 @@ export class LegsField {
       });
     });
 
-    // Given a number and a date, everything else is transcription.
-    if (this.opts.canLookUp()) {
-      const lookup = flightInput.parentElement?.createEl("button", {
-        cls: "tp-leg-lookup",
-        attr: { "aria-label": "Look this flight up" },
+    // Given a number and a date, everything else is transcription. The button
+    // is always here: hiding it when no key is set made the feature look broken
+    // rather than unconfigured.
+    const lookup = flightInput.parentElement?.createEl("button", {
+      cls: `tp-leg-lookup${this.opts.canLookUp() ? "" : " is-unset"}`,
+      attr: { "aria-label": "Look this flight up" },
+    });
+    if (lookup) {
+      lookup.type = "button";
+      setIcon(lookup, "search");
+      lookup.addEventListener("click", async () => {
+        if (!leg.number || !leg.date) {
+          this.opts.explainLookup("Enter a flight number and a date first.");
+          return;
+        }
+        if (!this.opts.canLookUp()) {
+          this.opts.explainLookup(
+            "Add a RapidAPI key under Settings → Travel Planner → Flight data to look flights up automatically.",
+          );
+          return;
+        }
+        lookup.addClass("is-busy");
+        const filled = await this.opts.lookUp(leg.number, leg.date);
+        lookup.removeClass("is-busy");
+        if (!filled) return;
+        Object.assign(leg, filled, { number: leg.number });
+        this.render();
+        this.opts.onChange();
       });
-      if (lookup) {
-        lookup.type = "button";
-        setIcon(lookup, "search");
-        lookup.addEventListener("click", async () => {
-          if (!leg.number || !leg.date) return;
-          setIcon(lookup, "loader");
-          const filled = await this.opts.lookUp(leg.number, leg.date);
-          setIcon(lookup, "search");
-          if (!filled) return;
-          Object.assign(leg, filled, { number: leg.number });
-          this.render();
-          this.opts.onChange();
-        });
-      }
     }
 
     const airport = (label: string, key: "from" | "to") =>

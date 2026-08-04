@@ -35,11 +35,13 @@ function renderVisa(parent: HTMLElement, ctx: DashboardContext): void {
   const { trip, plugin } = ctx;
   if (!trip) return;
 
-  const passports = plugin.settings.passportCountries.filter(Boolean);
+  // The trip's own passports win; settings are the fallback.
+  const passports = (trip.passports.length > 0 ? trip.passports : plugin.settings.passportCountries)
+    .filter(Boolean);
   if (passports.length === 0) {
     parent.createDiv({
       cls: "tp-dash-hint",
-      text: "Set the passports you travel on in settings to see entry requirements.",
+      text: "Set a passport on the trip, or in settings, to see entry requirements.",
     });
     return;
   }

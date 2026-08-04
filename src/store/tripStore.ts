@@ -167,6 +167,7 @@ export class TripStore {
           const value = typeof raw === "number" ? raw : Number(str(raw).replace(",", "."));
           return Number.isFinite(value) && value > 0 ? value : null;
         })(),
+        passports: list(fm.passports),
       });
     }
 

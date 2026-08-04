@@ -1439,6 +1439,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* No key configured: still visible, but visibly not wired up yet. */
+.tp-leg-lookup.is-unset {
+  opacity: 0.45;
+}
+
+.tp-leg-lookup.is-busy {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 
 /* === 50-dashboard.css === */
 .tp-dashboard {

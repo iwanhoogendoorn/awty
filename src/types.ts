@@ -136,6 +136,8 @@ export interface Trip {
   originAirport: string;
   /** Budget for the whole trip, or null when none was set. */
   budgetTotal: number | null;
+  /** Passports this trip is taken on. Empty falls back to the settings list. */
+  passports: string[];
 }
 
 /** The form payload shared by the new-trip and edit-trip modals. */
@@ -154,6 +156,7 @@ export interface TripDraft {
   originAirport: string;
   /** Budget for the whole trip, asked once and reused everywhere. */
   budgetTotal: number | null;
+  passports: string[];
 }
 
 export interface TravelPlannerSettings {

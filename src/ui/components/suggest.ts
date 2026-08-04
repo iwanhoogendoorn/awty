@@ -179,12 +179,15 @@ export class AirportSuggest extends AbstractInputSuggest<AirportRecord> {
       return [...starred, ...rest];
     };
 
-    // With nothing typed, offer what is plausibly relevant rather than the
-    // alphabetical head of a six-thousand-row list.
+    // With nothing typed, narrow to the place in question rather than offering
+    // the alphabetical head of a six-thousand-row list. A city with airports
+    // wins outright; only when it has none do we widen to its country.
     if (!q) {
-      const local = AIRPORTS.filter((a) => this.locality(a) < 2);
-      const pool = local.length > 0 ? local : AIRPORTS.slice(0, 60);
-      return starredFirst(pool).slice(0, 50);
+      const inCity = AIRPORTS.filter((a) => this.locality(a) === 0);
+      if (inCity.length > 0) return starredFirst(inCity).slice(0, 50);
+      const inCountry = AIRPORTS.filter((a) => this.locality(a) === 1);
+      if (inCountry.length > 0) return starredFirst(inCountry).slice(0, 50);
+      return starredFirst(AIRPORTS.slice(0, 60)).slice(0, 50);
     }
 
     // An exact code wins outright — "AMS" should never be buried under cities
