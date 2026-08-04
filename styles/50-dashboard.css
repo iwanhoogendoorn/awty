@@ -132,6 +132,151 @@
   font-weight: normal;
 }
 
+/* Tick / dash / cross — is this note's wizard done? */
+
+.tp-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 50%;
+  color: var(--text-on-accent);
+  background: var(--text-faint);
+}
+
+.tp-mark.is-small {
+  width: 13px;
+  height: 13px;
+}
+
+.tp-mark .svg-icon {
+  width: 10px;
+  height: 10px;
+  stroke-width: 3.5;
+}
+
+.tp-mark.is-small .svg-icon {
+  width: 8px;
+  height: 8px;
+}
+
+.tp-note-cell.is-empty .tp-mark,
+.tp-mark.is-empty {
+  background: var(--color-red);
+}
+
+.tp-note-cell.is-started .tp-mark,
+.tp-mark.is-started {
+  background: var(--color-orange);
+}
+
+.tp-note-cell.is-complete .tp-mark,
+.tp-mark.is-complete {
+  background: var(--color-green);
+}
+
+.tp-card-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 0.55em;
+}
+
+.tp-note-actions {
+  display: flex;
+  gap: 0.3em;
+  margin-top: 0.5em;
+}
+
+.tp-note-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0.2em 0.55em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.tp-note-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+.tp-note-btn.is-cta {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.tp-note-btn .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+/* -------------------------------------------------------- packing modal */
+
+.tp-packing-summary {
+  margin: 0.5em 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.tp-packing-list {
+  max-height: 45vh;
+  overflow-y: auto;
+  padding-right: 0.3em;
+}
+
+.tp-packing-section {
+  margin: 0.8em 0 0.3em;
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.tp-packing-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.2em 0.3em;
+  border-radius: var(--radius-s);
+}
+
+.tp-packing-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.tp-packing-row.is-excluded {
+  opacity: 0.45;
+}
+
+.tp-packing-label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-small);
+}
+
+.tp-packing-qty {
+  width: 4.5em;
+  flex: none;
+  text-align: right;
+}
+
+.tp-packing-packed {
+  font-size: var(--font-ui-smaller);
+  color: var(--color-green);
+}
+
 .tp-note-detail {
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);

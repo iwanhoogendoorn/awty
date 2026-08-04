@@ -23,10 +23,13 @@ export class AddDayModal extends Modal {
   constructor(
     app: App,
     private store: TripStore,
+    preselected: Trip | null,
     private onDone: () => void,
   ) {
     super(app);
-    this.trip = this.inferTrip();
+    // A caller that already knows the trip shouldn't need the note opened first
+    // just so this can guess it back.
+    this.trip = preselected ?? this.inferTrip();
     this.date = this.defaultDate();
   }
 
@@ -143,7 +146,7 @@ export class AddDayModal extends Modal {
     }
 
     new Notice(`Added ${this.date} to ${this.trip.title}.`);
-    await this.app.workspace.getLeaf(false).openFile(file as TFile);
+    // Stays where you were; open the note yourself if you want to read it.
     this.onDone();
     this.close();
   }

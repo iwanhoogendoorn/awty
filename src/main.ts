@@ -25,6 +25,9 @@ import { TravelDashboardView } from "./ui/dashboard/dashboardView";
 import { BookingWizard } from "./ui/modals/bookingWizard";
 import { ExpenseModal } from "./ui/modals/expenseModal";
 import { BudgetModal } from "./ui/modals/budgetModal";
+import { PackingModal } from "./ui/modals/packingModal";
+import { EventDetailsModal } from "./ui/modals/eventDetailsModal";
+import { FoodModal } from "./ui/modals/foodModal";
 import {
   TravelService,
   TravelUnavailable,
@@ -33,7 +36,7 @@ import {
   type TripPlaces,
 } from "./travel/travelService";
 import { travelTable } from "./ui/dashboard/gettingAround";
-import { SUB_NOTE_LABELS } from "./types";
+import { replaceSection } from "./store/sectionWriter";
 import { createTrip, deleteTrip, notifyError, updateTrip } from "./store/noteWriter";
 import { TravelSidebarView } from "./ui/view";
 import { TripModal } from "./ui/modals/tripModal";
@@ -47,39 +50,6 @@ import { TravelPlannerSettingTab } from "./settings/settingsTab";
  */
 interface AppWithPlugins {
   plugins?: { enabledPlugins?: Set<string> };
-}
-
-/**
- * Replaces a `## <heading>` section, or appends it when absent, leaving
- * everything the user wrote around it untouched.
- */
-async function replaceSection(
-  app: App,
-  file: TFile,
-  heading: string,
-  body: string,
-): Promise<void> {
-  const content = await app.vault.read(file);
-  const lines = content.split("\n");
-  const start = lines.findIndex((line) => line.trim() === `## ${heading}`);
-
-  const block = `## ${heading}\n\n${body.trimEnd()}\n`;
-
-  if (start === -1) {
-    await app.vault.modify(file, `${content.trimEnd()}\n\n${block}`);
-    return;
-  }
-
-  // Runs to the next heading of the same or higher level.
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i += 1) {
-    if (/^#{1,2}\s/.test(lines[i])) {
-      end = i;
-      break;
-    }
-  }
-  const next = [...lines.slice(0, start), block, ...lines.slice(end)].join("\n");
-  await app.vault.modify(file, next.replace(/\n{3,}/g, "\n\n"));
 }
 
 export default class TravelPlannerPlugin extends Plugin {
@@ -378,7 +348,9 @@ export default class TravelPlannerPlugin extends Plugin {
         }.`,
       );
       this.store.invalidate();
-      await this.app.workspace.getLeaf(false).openFile(result.tripFile);
+      // Deliberately does not open the note. You stay where you were and click
+      // through to a note only when you actually want one.
+      this.selectTripInDashboard(result.tripFile.path);
     }).open();
   }
 
@@ -391,11 +363,58 @@ export default class TravelPlannerPlugin extends Plugin {
   }
 
   openAddDayModal(trip?: Trip): void {
-    if (trip) {
-      // Opening the trip first makes the modal's inference land on it.
-      void this.app.workspace.getLeaf(false).openFile(trip.file);
+    new AddDayModal(this.app, this.store, trip ?? null, () => {
+      this.store.invalidate();
+      this.refreshViews();
+    }).open();
+  }
+
+  /** Points any open dashboard at a trip, without opening its note. */
+  selectTripInDashboard(path: string): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(TRAVEL_DASHBOARD_TYPE)) {
+      const view = leaf.view;
+      if (view instanceof TravelDashboardView) view.selectByPath(path);
     }
-    new AddDayModal(this.app, this.store, () => this.store.invalidate()).open();
+    this.refreshViews();
+  }
+
+  /**
+   * Opens the right wizard for a sub-note, so every note can be filled in from
+   * the GUI rather than by typing markdown.
+   */
+  openNoteWizard(trip: Trip, id: SubNoteId): void {
+    switch (id) {
+      case "itinerary":
+        this.openAddDayModal(trip);
+        return;
+      case "accommodation":
+        this.openBookingWizard(trip, "stay");
+        return;
+      case "transport":
+        this.openBookingWizard(trip, "transport");
+        return;
+      case "budget":
+        this.openBudgetModal(trip);
+        return;
+      case "packing":
+        new PackingModal(this.app, trip, () => {
+          this.store.invalidate();
+          this.refreshViews();
+        }).open();
+        return;
+      case "event-details":
+        new EventDetailsModal(this.app, trip, () => {
+          this.store.invalidate();
+          this.refreshViews();
+        }).open();
+        return;
+      case "food":
+        new FoodModal(this.app, this.settings, trip, () => {
+          this.store.invalidate();
+          this.refreshViews();
+        }).open();
+        return;
+    }
   }
 
   deleteTrip(trip: Trip): void {

@@ -1,6 +1,6 @@
 import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { bar, emptyState, readiness, sectionTitle, statTiles, noTripState } from "../common";
+import { bar, emptyState, readiness, sectionTitle, stateMark, statTiles, noTripState } from "../common";
 import { renderGettingAround } from "../gettingAround";
 import { BOOKING_KINDS } from "../../../bookings/types";
 import { totalsByCategory } from "../../../bookings/bookingStore";
@@ -38,10 +38,14 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
   for (const sub of subNotes) {
     const progress = plugin.progress.peek(sub.file);
     const state = progress?.state ?? "empty";
+    const mark = stateMark(state);
     const cell = grid.createDiv({ cls: `tp-note-cell is-${state}` });
 
     const head = cell.createDiv({ cls: "tp-note-head" });
-    head.createDiv({ cls: "tp-dot" });
+    const markEl = head.createDiv({ cls: "tp-mark" });
+    setIcon(markEl, mark.icon);
+    markEl.setAttribute("aria-label", mark.label);
+    markEl.setAttribute("title", mark.label);
     head.createDiv({ cls: "tp-note-name", text: sub.label });
 
     cell.createDiv({ cls: "tp-note-detail", text: progress?.detail ?? "Reading…" });
@@ -49,7 +53,26 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
       bar(cell, progress.ratio, progress.ratio >= 1 ? "good" : "warn");
     }
 
-    cell.addEventListener("click", () => ctx.openFile(sub.file));
+    const actions = cell.createDiv({ cls: "tp-note-actions" });
+
+    // The wizard is the primary action; the note itself is the escape hatch.
+    if (sub.id) {
+      const fill = actions.createEl("button", { cls: "tp-note-btn is-cta" });
+      setIcon(fill.createSpan(), "wand-2");
+      fill.createSpan({ text: state === "empty" ? "Fill in" : "Add" });
+      fill.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        plugin.openNoteWizard(trip, sub.id!);
+      });
+    }
+
+    const open = actions.createEl("button", { cls: "tp-note-btn" });
+    setIcon(open.createSpan(), "file-text");
+    open.createSpan({ text: "Open" });
+    open.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      ctx.openFile(sub.file);
+    });
   }
 }
 

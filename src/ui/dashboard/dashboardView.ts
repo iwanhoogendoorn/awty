@@ -64,6 +64,13 @@ export class TravelDashboardView extends ItemView {
     this.render();
   }
 
+  /** Select a trip by note path, without needing the Trip object. */
+  selectByPath(path: string): void {
+    this.tripPath = path;
+    this.tab = "overview";
+    this.render();
+  }
+
   private context(trip: Trip | null = this.currentTrip()): DashboardContext {
     return {
       app: this.app,
