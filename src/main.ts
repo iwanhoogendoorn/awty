@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { App, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import {
   DEFAULT_SETTINGS,
   FOODSPOT_PLUGIN_ID,
@@ -25,6 +25,15 @@ import { TravelDashboardView } from "./ui/dashboard/dashboardView";
 import { BookingWizard } from "./ui/modals/bookingWizard";
 import { ExpenseModal } from "./ui/modals/expenseModal";
 import { BudgetModal } from "./ui/modals/budgetModal";
+import {
+  TravelService,
+  TravelUnavailable,
+  emptyTravelCache,
+  type TravelCache,
+  type TripPlaces,
+} from "./travel/travelService";
+import { travelTable } from "./ui/dashboard/gettingAround";
+import { SUB_NOTE_LABELS } from "./types";
 import { createTrip, deleteTrip, notifyError, updateTrip } from "./store/noteWriter";
 import { TravelSidebarView } from "./ui/view";
 import { TripModal } from "./ui/modals/tripModal";
@@ -40,12 +49,49 @@ interface AppWithPlugins {
   plugins?: { enabledPlugins?: Set<string> };
 }
 
+/**
+ * Replaces a `## <heading>` section, or appends it when absent, leaving
+ * everything the user wrote around it untouched.
+ */
+async function replaceSection(
+  app: App,
+  file: TFile,
+  heading: string,
+  body: string,
+): Promise<void> {
+  const content = await app.vault.read(file);
+  const lines = content.split("\n");
+  const start = lines.findIndex((line) => line.trim() === `## ${heading}`);
+
+  const block = `## ${heading}\n\n${body.trimEnd()}\n`;
+
+  if (start === -1) {
+    await app.vault.modify(file, `${content.trimEnd()}\n\n${block}`);
+    return;
+  }
+
+  // Runs to the next heading of the same or higher level.
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (/^#{1,2}\s/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  const next = [...lines.slice(0, start), block, ...lines.slice(end)].join("\n");
+  await app.vault.modify(file, next.replace(/\n{3,}/g, "\n\n"));
+}
+
 export default class TravelPlannerPlugin extends Plugin {
   settings: TravelPlannerSettings = { ...DEFAULT_SETTINGS };
   store!: TripStore;
   /** Sub-note completion, keyed on mtime so edits invalidate themselves. */
   progress!: ProgressCache;
   bookings!: BookingStore;
+  travel!: TravelService;
+  travelCache: TravelCache = emptyTravelCache();
+  /** Resolved places per trip folder, populated only after an explicit calculate. */
+  travelPlaces = new Map<string, TripPlaces>();
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -54,6 +100,12 @@ export default class TravelPlannerPlugin extends Plugin {
     this.store.register(this);
     this.progress = new ProgressCache(this.app);
     this.bookings = new BookingStore(this.app, () => this.settings);
+    this.travel = new TravelService(
+      this.app,
+      () => this.settings,
+      this.travelCache,
+      () => this.persist(),
+    );
     // Bookings live in the same vault events the trip store already watches.
     this.store.onChange(() => this.bookings.invalidate());
 
@@ -106,6 +158,26 @@ export default class TravelPlannerPlugin extends Plugin {
       });
     }
     this.addCommand({
+      id: "calculate-travel-times",
+      name: "Calculate travel times for this trip",
+      checkCallback: (checking) => {
+        const trip = this.contextTrip();
+        if (!trip) return false;
+        if (!checking) void this.computeTravelTimes(trip);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "write-travel-times",
+      name: "Write travel times into the trip notes",
+      checkCallback: (checking) => {
+        const trip = this.contextTrip();
+        if (!trip) return false;
+        if (!checking) void this.writeTravelTimes(trip);
+        return true;
+      },
+    });
+    this.addCommand({
       id: "log-expense",
       name: "Log an expense",
       checkCallback: (checking) => {
@@ -154,17 +226,35 @@ export default class TravelPlannerPlugin extends Plugin {
   // ---------------------------------------------------------------- settings
 
   async loadSettings(): Promise<void> {
-    const saved = (await this.loadData()) as Partial<TravelPlannerSettings> | null;
-    this.settings = { ...DEFAULT_SETTINGS, ...(saved ?? {}) };
+    const raw = (await this.loadData()) as
+      | (Partial<TravelPlannerSettings> & {
+          settings?: Partial<TravelPlannerSettings>;
+          travelCache?: TravelCache;
+        })
+      | null;
+
+    // 2.0 stored the settings object at the top level; 2.1 nests it alongside
+    // the travel cache. Read either shape.
+    const saved = raw?.settings ?? raw ?? {};
+    this.settings = { ...DEFAULT_SETTINGS, ...saved };
     // A kind added in a later version would otherwise have no entry at all.
     this.settings.subNotesByKind = {
       ...DEFAULT_SETTINGS.subNotesByKind,
-      ...(saved?.subNotesByKind ?? {}),
+      ...(saved.subNotesByKind ?? {}),
     } as Record<TripKind, SubNoteId[]>;
+
+    this.travelCache = {
+      legs: raw?.travelCache?.legs ?? {},
+      geocode: raw?.travelCache?.geocode ?? {},
+    };
+  }
+
+  private async persist(): Promise<void> {
+    await this.saveData({ settings: this.settings, travelCache: this.travelCache });
   }
 
   async saveSettings(): Promise<void> {
-    await this.saveData(this.settings);
+    await this.persist();
     this.store.invalidate();
   }
 
@@ -320,6 +410,117 @@ export default class TravelPlannerPlugin extends Plugin {
       return;
     }
     new ConfirmDeleteModal(this.app, trip, run).open();
+  }
+
+  // ------------------------------------------------------------ travel times
+
+  /**
+   * Resolves the trip's places and fills in any missing routes.
+   *
+   * Only ever runs from an explicit action — a button or a command — because
+   * each uncached pair is a billed Google request. Cached pairs cost nothing, so
+   * re-running is cheap; `force` throws the cache away first.
+   */
+  async computeTravelTimes(trip: Trip, onDone?: () => void, force = false): Promise<void> {
+    if (!this.travel.isConfigured()) {
+      new Notice("Travel Planner: switch on travel times and add a Google API key in settings.");
+      return;
+    }
+
+    const notice = new Notice("Working out travel times…", 0);
+    try {
+      if (force) await this.travel.clearLegs();
+
+      const places = await this.travel.placesFor(trip, this.bookings.getBookings(trip));
+      this.travelPlaces.set(trip.folderPath, places);
+
+      const origin = places.hotels[0];
+      if (!origin) {
+        notice.hide();
+        new Notice("Add an accommodation booking first — distances are measured from it.");
+        onDone?.();
+        return;
+      }
+
+      const destinations = [...places.airports, ...places.activities, ...places.restaurants];
+      if (destinations.length === 0) {
+        notice.hide();
+        new Notice("Nothing to measure to yet. Add a flight, an activity, or Food Spot restaurants in this city.");
+        onDone?.();
+        return;
+      }
+
+      await this.travel.fetchLegs(
+        origin,
+        destinations,
+        this.settings.travelModes,
+        this.travel.departureTimeFor(trip),
+      );
+
+      notice.hide();
+      new Notice(`Travel times ready for ${destinations.length} places.`);
+      onDone?.();
+      this.refreshViews();
+    } catch (err) {
+      notice.hide();
+      const message =
+        err instanceof TravelUnavailable
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Could not work out travel times.";
+      new Notice(`Travel Planner: ${message}`, 8000);
+      console.error("[travel-planner]", err);
+    }
+  }
+
+  /**
+   * Writes the travel tables into the notes themselves — the hotel booking, and
+   * the Food note — so they are readable offline and on mobile.
+   */
+  async writeTravelTimes(trip: Trip): Promise<void> {
+    const places = this.travelPlaces.get(trip.folderPath);
+    if (!places) {
+      await this.computeTravelTimes(trip);
+    }
+    const resolved = this.travelPlaces.get(trip.folderPath);
+    const origin = resolved?.hotels[0];
+    if (!resolved || !origin) return;
+
+    const modes = this.settings.travelModes;
+    let written = 0;
+
+    // Hotel note: airport and activities.
+    const hotelTargets = [...resolved.airports, ...resolved.activities];
+    const hotelTable = travelTable(
+      origin,
+      hotelTargets,
+      this.travel.peekLegs(origin, hotelTargets, modes),
+      modes,
+    );
+    if (hotelTable && origin.file) {
+      await replaceSection(this.app, origin.file, "Travel times", hotelTable);
+      written += 1;
+    }
+
+    // Food note: how walkable each restaurant is from where you're staying.
+    const foodNote = this.store.getSubNotes(trip).find((s) => s.id === "food");
+    const foodTable = travelTable(
+      origin,
+      resolved.restaurants,
+      this.travel.peekLegs(origin, resolved.restaurants, modes),
+      modes,
+    );
+    if (foodNote && foodTable) {
+      await replaceSection(this.app, foodNote.file, "Travel times", foodTable);
+      written += 1;
+    }
+
+    new Notice(
+      written === 0
+        ? "Nothing to write yet — calculate travel times first."
+        : `Travel times written into ${written} note${written === 1 ? "" : "s"}.`,
+    );
   }
 
   async openTrip(trip: Trip, newTab = false): Promise<void> {

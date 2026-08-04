@@ -1,4 +1,5 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { TRAVEL_MODES } from "../travel/types";
 import type TravelPlannerPlugin from "../main";
 import type { SubNoteId, TripKind } from "../types";
 import { FOODSPOT_PLUGIN_ID, KINDS, SUB_NOTE_LABELS, kindDef } from "../types";
@@ -93,7 +94,102 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
       );
 
     this.displayFoodSpot(containerEl);
+    this.displayTravel(containerEl);
     this.displayTemplates(containerEl);
+  }
+
+  private displayTravel(containerEl: HTMLElement): void {
+    new Setting(containerEl).setName("Travel times").setHeading();
+
+    containerEl.createDiv({
+      cls: "tp-settings-note",
+      text:
+        "Travel times use the Google Maps Geocoding and Distance Matrix APIs, which bill your Google Cloud account per request. " +
+        "Nothing is sent anywhere until you switch this on. Results are cached, so each route is paid for once.",
+    });
+
+    new Setting(containerEl)
+      .setName("Enable travel times")
+      .setDesc("Distances from your accommodation to the airport, activities and restaurants.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.travelTimesEnabled).onChange(async (v) => {
+          this.plugin.settings.travelTimesEnabled = v;
+          await this.plugin.saveSettings();
+          this.display();
+        }),
+      );
+
+    if (!this.plugin.settings.travelTimesEnabled) return;
+
+    new Setting(containerEl)
+      .setName("Google API key")
+      .setDesc("Needs Geocoding API and Distance Matrix API enabled on the project.")
+      .addText((t) => {
+        t.inputEl.type = "password";
+        t.setPlaceholder("AIza…");
+        t.setValue(this.plugin.settings.googleApiKey);
+        t.onChange(async (v) => {
+          this.plugin.settings.googleApiKey = v.trim();
+          await this.plugin.saveSettings();
+        });
+      })
+      .addExtraButton((btn) =>
+        btn
+          .setIcon("download")
+          .setTooltip("Use the key from Food Spot")
+          .onClick(async () => {
+            const key = await this.plugin.travel.importFoodSpotKey();
+            if (!key) {
+              new Notice("No Google key found in Food Spot's settings.");
+              return;
+            }
+            this.plugin.settings.googleApiKey = key;
+            await this.plugin.saveSettings();
+            new Notice("Imported the Google key from Food Spot.");
+            this.display();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Modes to look up")
+      .setDesc("Each mode is a separate billed request per route.")
+      .then((setting) => {
+        const row = setting.controlEl.createDiv({ cls: "tp-settings-subnotes" });
+        for (const mode of TRAVEL_MODES) {
+          const label = row.createEl("label", { cls: "tp-subnote" });
+          const box = label.createEl("input");
+          box.type = "checkbox";
+          box.checked = this.plugin.settings.travelModes.includes(mode.id);
+          label.createSpan({ text: mode.label });
+          box.addEventListener("change", async () => {
+            const current = new Set(this.plugin.settings.travelModes);
+            if (box.checked) current.add(mode.id);
+            else current.delete(mode.id);
+            this.plugin.settings.travelModes = TRAVEL_MODES.map((m) => m.id).filter((id) =>
+              current.has(id),
+            );
+            await this.plugin.saveSettings();
+          });
+        }
+      });
+
+    const counts = this.plugin.travel.countCached();
+    new Setting(containerEl)
+      .setName("Cached results")
+      .setDesc(
+        `${counts.legs} route${counts.legs === 1 ? "" : "s"} and ${counts.addresses} address${counts.addresses === 1 ? "" : "es"} stored. Clearing means paying to look them up again.`,
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Clear cache")
+          .setWarning()
+          .onClick(async () => {
+            await this.plugin.travel.clearLegs();
+            this.plugin.travelPlaces.clear();
+            new Notice("Travel time cache cleared.");
+            this.display();
+          }),
+      );
   }
 
   private displayFoodSpot(containerEl: HTMLElement): void {

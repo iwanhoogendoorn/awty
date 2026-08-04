@@ -1644,3 +1644,123 @@
   color: var(--text-on-accent);
   cursor: pointer;
 }
+
+
+/* === 55-travel.css === */
+/* ------------------------------------------------------- getting around */
+
+.tp-around-group {
+  margin: 0.7em 0 0.35em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tp-around-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tp-around-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  padding: 0.45em 0.75em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.tp-around-row.is-clickable {
+  cursor: pointer;
+}
+
+.tp-around-row.is-clickable:hover {
+  background: var(--background-modifier-hover);
+}
+
+.tp-around-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.tp-around-name {
+  font-size: var(--font-ui-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tp-around-dist {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.tp-around-times {
+  display: flex;
+  gap: 0.3em;
+  flex: none;
+}
+
+.tp-around-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0.1em 0.5em;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tp-around-chip.is-transit {
+  background: color-mix(in srgb, var(--color-blue) 18%, transparent);
+  color: var(--color-blue);
+}
+
+.tp-around-chip.is-walking {
+  background: color-mix(in srgb, var(--color-green) 18%, transparent);
+  color: var(--color-green);
+}
+
+.tp-around-chip-icon {
+  display: flex;
+}
+
+.tp-around-chip-icon .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+/* Travel between consecutive items on the itinerary timeline. */
+
+.tp-leg {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.15em 0 0.15em 1.6em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.tp-leg-icon {
+  display: flex;
+}
+
+.tp-leg-icon .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+.tp-settings-note {
+  margin: 0.4em 0 0.9em;
+  padding: 0.7em 0.9em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.5;
+}

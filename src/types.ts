@@ -167,7 +167,19 @@ export interface TravelPlannerSettings {
   bookingsFolder: string;
   /** Subfolder inside a trip where attachments are copied. */
   attachmentsFolder: string;
+  /**
+   * Travel times call the Google Maps web services, which bill per request.
+   * Off by default so nothing reaches the network — let alone the user's
+   * billing account — until they switch it on and supply a key.
+   */
+  travelTimesEnabled: boolean;
+  googleApiKey: string;
+  /** Which modes to look up. Each mode is a separate billed request. */
+  travelModes: TravelMode[];
 }
+
+/** Google travel modes; duplicated here to keep the settings type dependency-free. */
+export type TravelMode = "driving" | "transit" | "walking";
 
 export const DEFAULT_SETTINGS: TravelPlannerSettings = {
   tripsFolder: "Trips",
@@ -188,6 +200,9 @@ export const DEFAULT_SETTINGS: TravelPlannerSettings = {
   defaultCurrency: "EUR",
   bookingsFolder: "Bookings",
   attachmentsFolder: "Attachments",
+  travelTimesEnabled: false,
+  googleApiKey: "",
+  travelModes: ["driving", "transit"],
 };
 
 export const TRAVEL_VIEW_TYPE = "travel-planner-sidebar";

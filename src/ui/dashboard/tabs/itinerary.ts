@@ -4,6 +4,7 @@ import { emptyState, sectionTitle } from "../common";
 import { BOOKING_KINDS } from "../../../bookings/types";
 import { formatMoney } from "../../../util/money";
 import { datesInRange, monthName, parseISO, todayISO } from "../../../util/dates";
+import { TRAVEL_MODES, formatDuration as formatTravelDuration } from "../../../travel/types";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -94,5 +95,48 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
       }
       item.addEventListener("click", () => ctx.openFile(booking.file));
     }
+
+    renderLegs(body, dayBookings, ctx);
+  }
+}
+
+/**
+ * Travel between consecutive items on a day, drawn from the cache only — the
+ * timeline never triggers a billed lookup on its own.
+ */
+function renderLegs(
+  body: HTMLElement,
+  dayBookings: { file: { path: string } }[],
+  ctx: DashboardContext,
+): void {
+  const { trip, plugin } = ctx;
+  if (!trip || dayBookings.length < 2) return;
+
+  const places = plugin.travelPlaces.get(trip.folderPath);
+  if (!places) return;
+
+  const all = [...places.hotels, ...places.airports, ...places.activities];
+  const byPath = new Map(all.filter((p) => p.file).map((p) => [p.file!.path, p]));
+  const modes = plugin.settings.travelModes;
+
+  for (let i = 0; i < dayBookings.length - 1; i += 1) {
+    const from = byPath.get(dayBookings[i].file.path);
+    const to = byPath.get(dayBookings[i + 1].file.path);
+    if (!from || !to || from.id === to.id) continue;
+
+    const legs = plugin.travel.peekLegs(from, [to], modes).get(to.id);
+    if (!legs || legs.length === 0) continue;
+
+    const row = body.createDiv({ cls: "tp-leg" });
+    setIcon(row.createSpan({ cls: "tp-leg-icon" }), "move-right");
+    row.createSpan({
+      cls: "tp-leg-text",
+      text: legs
+        .map(
+          (leg) =>
+            `${TRAVEL_MODES.find((m) => m.id === leg.mode)?.label ?? leg.mode} ${formatTravelDuration(leg.durationSeconds)}`,
+        )
+        .join(" · "),
+    });
   }
 }

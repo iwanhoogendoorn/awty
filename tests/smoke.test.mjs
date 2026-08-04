@@ -18,6 +18,14 @@ export { analyseNote } from "./src/store/noteProgress.ts";
 export { fold, rankMatches } from "./src/util/search.ts";
 export { buildPackingPlan, effectiveDays, renderPackingPlan } from "./src/store/packing.ts";
 export { parseAmount, formatMoney, sumMoney, formatTotals } from "./src/util/money.ts";
+export {
+  parseLocation,
+  formatLocation,
+  coordKey,
+  legKey,
+  formatDuration as formatTravelDuration,
+  formatDistance,
+} from "./src/travel/types.ts";
 export { COUNTRIES, FOODSPOT_COUNTRIES } from "./src/data/countries.ts";
 export { CITIES } from "./src/data/cities.ts";
 `;
@@ -375,6 +383,43 @@ test("totals stay per currency rather than inventing a conversion", () => {
   assert.equal(totals.get("GBP"), 85);
   assert.equal(m.formatTotals(totals), "€570 + £85");
   assert.equal(m.formatMoney({ amount: 62.5, currency: "EUR" }), "€62.50");
+});
+
+// --------------------------------------------------------------- travel
+
+test("coordinates round-trip through Food Spot's own format", () => {
+  // Verbatim from a Food Spot note, so the two plugins stay mutually readable.
+  const coord = m.parseLocation("51.9325142,4.463706999999999");
+  assert.equal(coord.lat, 51.9325142);
+  assert.equal(coord.lng, 4.463706999999999);
+  assert.equal(m.formatLocation({ lat: 1.5, lng: -2.25 }), "1.5,-2.25");
+});
+
+test("nonsense coordinates are rejected rather than sent to Google", () => {
+  assert.equal(m.parseLocation("not a location"), null);
+  assert.equal(m.parseLocation("51.93"), null);
+  assert.equal(m.parseLocation(""), null);
+  assert.equal(m.parseLocation(undefined), null);
+  assert.equal(m.parseLocation("91,0"), null, "latitude beyond the pole");
+  assert.equal(m.parseLocation("0,181"), null, "longitude past the date line");
+});
+
+test("cache keys round to a building, so trivial jitter is one paid lookup", () => {
+  const a = { lat: 51.93251, lng: 4.46370 };
+  const b = { lat: 51.93253, lng: 4.46372 };
+  assert.equal(m.coordKey(a), m.coordKey(b));
+  assert.equal(m.legKey(a, b, "driving"), "51.9325,4.4637|51.9325,4.4637|driving");
+  // Mode is part of the key: driving and transit are separate results.
+  assert.notEqual(m.legKey(a, b, "driving"), m.legKey(a, b, "transit"));
+});
+
+test("durations and distances read like a human wrote them", () => {
+  assert.equal(m.formatTravelDuration(540), "9 min");
+  assert.equal(m.formatTravelDuration(3600), "1 h");
+  assert.equal(m.formatTravelDuration(5400), "1 h 30 min");
+  assert.equal(m.formatDistance(850), "850 m");
+  assert.equal(m.formatDistance(1250), "1.3 km");
+  assert.equal(m.formatDistance(24500), "25 km");
 });
 
 console.log(`\n${passed} tests passed`);

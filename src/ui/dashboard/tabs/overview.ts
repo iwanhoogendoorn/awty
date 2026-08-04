@@ -1,6 +1,7 @@
 import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
 import { bar, emptyState, readiness, sectionTitle, statTiles } from "../common";
+import { renderGettingAround } from "../gettingAround";
 import { BOOKING_KINDS } from "../../../bookings/types";
 import { totalsByCategory } from "../../../bookings/bookingStore";
 import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/money";
@@ -109,6 +110,8 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
       row.addEventListener("click", () => ctx.openFile(booking.file));
     }
   }
+
+  renderGettingAround(parent, ctx);
 
   // ------------------------------------------------- needs attention
   const attention: { text: string; action?: () => void }[] = [];
