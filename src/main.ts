@@ -39,6 +39,8 @@ import {
   type TripPlaces,
 } from "./travel/travelService";
 import { travelTable } from "./ui/dashboard/gettingAround";
+import { groupByOrigin, itineraryPairs } from "./travel/routePlan";
+import { datesInRange } from "./util/dates";
 import {
   ADVICE_MEANING,
   AdviceUnavailable,
@@ -685,15 +687,27 @@ export default class TravelPlannerPlugin extends Plugin {
         return;
       }
 
-      await this.travel.fetchLegs(
+      const when = this.travel.departureTimeFor(trip);
+      await this.travel.fetchLegs(origin, destinations, this.settings.travelModes, when);
+
+      // And the hops the timeline draws between one event and the next, which
+      // rarely start at the hotel: airport to hotel on arrival, activity to
+      // activity in the afternoon. Without these the day-by-day view asks the
+      // cache for pairs that were never measured, and shows nothing.
+      const pairs = itineraryPairs(
+        this.bookings.getBookings(trip).filter((b) => b.status !== "cancelled"),
+        datesInRange(trip.startDate, trip.endDate, 90),
+        [...places.hotels, ...places.airports, ...places.activities, ...places.restaurants],
         origin,
-        destinations,
-        this.settings.travelModes,
-        this.travel.departureTimeFor(trip),
       );
+      for (const group of groupByOrigin(pairs)) {
+        await this.travel.fetchLegs(group.from, group.to, this.settings.travelModes, when);
+      }
 
       notice.hide();
-      new Notice(`Travel times ready for ${destinations.length} places.`);
+      new Notice(
+        `Travel times ready for ${destinations.length} places and ${pairs.length} connections.`,
+      );
       onDone?.();
       this.refreshViews();
     } catch (err) {

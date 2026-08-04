@@ -3012,6 +3012,63 @@
   color: var(--color-purple, var(--color-blue));
 }
 
+/* ------------------------------------------------------------ route modal */
+
+.tp-leg.is-clickable {
+  cursor: pointer;
+  border-radius: var(--radius-s);
+}
+
+.tp-leg.is-clickable:hover {
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+}
+
+.tp-route-result {
+  margin-top: 0.4em;
+}
+
+.tp-route-dist {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-bottom: 0.5em;
+}
+
+.tp-route-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tp-route-mode {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.45em 0.6em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.tp-route-mode-icon {
+  display: flex;
+  color: var(--text-muted);
+}
+
+.tp-route-mode-label {
+  flex: 1;
+}
+
+.tp-route-mode-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-normal);
+}
+
+/* A mode with no route says so, rather than vanishing. */
+.tp-route-mode.is-none .tp-route-mode-time {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
 
 /* === 60-settings.css === */
 /* ==========================================================================

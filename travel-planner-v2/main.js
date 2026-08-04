@@ -26,7 +26,7 @@ __export(main_exports, {
   default: () => TravelPlannerPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian37 = require("obsidian");
+var import_obsidian38 = require("obsidian");
 
 // src/types.ts
 var KINDS = [
@@ -1952,10 +1952,10 @@ async function saveBudget(app, trip, budget, currency, total) {
 }
 
 // src/ui/dashboard/dashboardView.ts
-var import_obsidian17 = require("obsidian");
+var import_obsidian20 = require("obsidian");
 
 // src/ui/dashboard/tabs/overview.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian12 = require("obsidian");
 
 // src/ui/dashboard/common.ts
 var import_obsidian5 = require("obsidian");
@@ -2045,7 +2045,7 @@ function readiness(plugin, trip) {
 }
 
 // src/ui/dashboard/gettingAround.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/travel/types.ts
 var TRAVEL_MODES = [
@@ -2085,6 +2085,544 @@ function formatDistance(meters) {
   return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
 }
 
+// src/bookings/flightSummary.ts
+function readLegs(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((raw) => {
+    const leg = raw;
+    return {
+      operator: leg?.airline ?? "",
+      number: leg?.flight ?? "",
+      from: leg?.from ?? "",
+      to: leg?.to ?? "",
+      date: leg?.date ?? "",
+      depTime: leg?.departs ?? "",
+      arrDate: leg?.arrives_on ?? leg?.date ?? "",
+      arrTime: leg?.arrives ?? ""
+    };
+  });
+}
+function summariseFlight(legs) {
+  const stops = Math.max(legs.length - 1, 0);
+  const raw = totalJourneyMinutes(legs);
+  const totalMinutes = raw !== null && raw > 24 * 60 ? null : raw;
+  const layovers = [];
+  for (let i = 1; i < legs.length; i += 1) {
+    const gap = layoverMinutes(legs[i - 1], legs[i]);
+    if (gap === null) continue;
+    layovers.push(
+      `${formatLayover(gap)} in ${legs[i - 1].to || "transit"}${gap < TIGHT_CONNECTION_MINUTES ? " (tight)" : ""}`
+    );
+  }
+  const last = legs[legs.length - 1];
+  const arrival = last?.arrTime ?? "";
+  const label = [
+    totalMinutes === null ? "" : formatLayover(totalMinutes),
+    legs.length === 0 ? "" : stops === 0 ? "direct" : `${stops} stop${stops === 1 ? "" : "s"}`
+  ].filter(Boolean).join(" \xB7 ");
+  return { legs, stops, totalMinutes, label, layovers, arrival };
+}
+
+// src/ui/modals/routeModal.ts
+var import_obsidian8 = require("obsidian");
+
+// src/travel/travelService.ts
+var import_obsidian7 = require("obsidian");
+
+// src/travel/googleApi.ts
+var import_obsidian6 = require("obsidian");
+var GoogleApiError = class extends Error {
+};
+var GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json";
+var MATRIX_URL = "https://maps.googleapis.com/maps/api/distancematrix/json";
+var MAX_DESTINATIONS = 25;
+async function geocode(address, apiKey) {
+  const url = `${GEOCODE_URL}?address=${encodeURIComponent(address)}&key=${encodeURIComponent(apiKey)}`;
+  const response = await (0, import_obsidian6.requestUrl)({ url, throw: false });
+  if (response.status !== 200) {
+    throw new GoogleApiError(`Geocoding failed with HTTP ${response.status}.`);
+  }
+  const body = response.json;
+  if (body.status === "ZERO_RESULTS") return null;
+  if (body.status !== "OK") {
+    throw new GoogleApiError(describe(body.status, body.error_message, "Geocoding"));
+  }
+  const location = body.results?.[0]?.geometry?.location;
+  if (!location || !Number.isFinite(location.lat) || !Number.isFinite(location.lng)) return null;
+  return { lat: location.lat, lng: location.lng };
+}
+async function distanceMatrix(origin, destinations, mode, apiKey, departureTime) {
+  if (destinations.length === 0) return [];
+  if (destinations.length > MAX_DESTINATIONS) {
+    throw new GoogleApiError(`Too many destinations in one request (max ${MAX_DESTINATIONS}).`);
+  }
+  const params = new URLSearchParams({
+    origins: `${origin.lat},${origin.lng}`,
+    destinations: destinations.map((d) => `${d.lat},${d.lng}`).join("|"),
+    mode,
+    units: "metric",
+    key: apiKey
+  });
+  if (mode === "transit") {
+    const when = departureTime && departureTime.getTime() > Date.now() ? departureTime : /* @__PURE__ */ new Date();
+    params.set("departure_time", String(Math.floor(when.getTime() / 1e3)));
+  }
+  const response = await (0, import_obsidian6.requestUrl)({ url: `${MATRIX_URL}?${params.toString()}`, throw: false });
+  if (response.status !== 200) {
+    throw new GoogleApiError(`Distance lookup failed with HTTP ${response.status}.`);
+  }
+  const body = response.json;
+  if (body.status !== "OK") {
+    throw new GoogleApiError(describe(body.status, body.error_message, "Distance lookup"));
+  }
+  const elements = body.rows?.[0]?.elements ?? [];
+  return destinations.map((_, index) => {
+    const element = elements[index];
+    if (!element || element.status !== "OK") return null;
+    const distanceMeters = element.distance?.value;
+    const durationSeconds = element.duration?.value;
+    if (!Number.isFinite(distanceMeters) || !Number.isFinite(durationSeconds)) return null;
+    return { mode, distanceMeters, durationSeconds };
+  });
+}
+function describe(status, message, what) {
+  switch (status) {
+    case "REQUEST_DENIED":
+      return `${what} was denied. Check the API key, and that Geocoding and Distance Matrix are enabled on that Google Cloud project.${message ? ` (${message})` : ""}`;
+    case "OVER_QUERY_LIMIT":
+      return `${what} hit the Google quota or billing limit for this key.`;
+    case "INVALID_REQUEST":
+      return `${what} was rejected as invalid.${message ? ` (${message})` : ""}`;
+    default:
+      return `${what} failed: ${status}.${message ? ` ${message}` : ""}`;
+  }
+}
+
+// src/travel/travelService.ts
+function emptyTravelCache() {
+  return { legs: {}, geocode: {}, advice: {} };
+}
+var TravelUnavailable = class extends Error {
+};
+var TravelService = class {
+  constructor(app, getSettings, cache, persist) {
+    this.app = app;
+    this.getSettings = getSettings;
+    this.cache = cache;
+    this.persist = persist;
+  }
+  setCache(cache) {
+    this.cache = cache;
+  }
+  isConfigured() {
+    const settings = this.getSettings();
+    return settings.travelTimesEnabled && settings.googleApiKey.trim().length > 0;
+  }
+  requireKey() {
+    const settings = this.getSettings();
+    if (!settings.travelTimesEnabled) {
+      throw new TravelUnavailable("Travel times are switched off in settings.");
+    }
+    const key = settings.googleApiKey.trim();
+    if (!key) throw new TravelUnavailable("No Google API key set in Travel Planner settings.");
+    return key;
+  }
+  // --------------------------------------------------------------- places
+  /**
+   * Coordinates for a booking, in cheapest-first order: the note's own
+   * `location`, then the geocode cache, then an actual paid geocode whose result
+   * is written back to the note so it is never paid for twice.
+   */
+  async coordForBooking(booking, trip) {
+    const fm = this.app.metadataCache.getFileCache(booking.file)?.frontmatter;
+    const existing = parseLocation(fm?.location);
+    if (existing) return existing;
+    const address = this.addressFor(booking, trip);
+    if (!address) return null;
+    const coord = await this.geocodeCached(address);
+    if (!coord) return null;
+    await this.app.fileManager.processFrontMatter(booking.file, (front) => {
+      front.location = formatLocation(coord);
+    });
+    return coord;
+  }
+  /** Best address string we can build for a booking. */
+  addressFor(booking, trip) {
+    const where = [trip.city, trip.country].filter(Boolean).join(", ");
+    if (booking.kind === "flight") {
+      const airport = booking.to || booking.from;
+      return airport ? `${airport} airport` : "";
+    }
+    const base = booking.address || booking.to || booking.title;
+    if (!base) return "";
+    return where && !base.toLowerCase().includes(trip.city.toLowerCase()) ? `${base}, ${where}` : base;
+  }
+  async geocodeCached(address) {
+    const key = address.trim().toLowerCase();
+    if (!key) return null;
+    const hit = this.cache.geocode[key];
+    if (hit) {
+      const parsed = parseLocation(hit);
+      if (parsed) return parsed;
+    }
+    const coord = await geocode(address, this.requireKey());
+    if (!coord) return null;
+    this.cache.geocode[key] = formatLocation(coord);
+    await this.persist();
+    return coord;
+  }
+  /** Restaurants come from Food Spot notes, which already carry coordinates. */
+  restaurantsFor(trip) {
+    const city = trip.city.trim().toLowerCase();
+    if (!city) return [];
+    const out = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      if (!fm || fm.type !== "foodspot") continue;
+      if (String(fm.city ?? "").trim().toLowerCase() !== city) continue;
+      const coord = parseLocation(fm.location);
+      if (!coord) continue;
+      out.push({
+        id: file.path,
+        label: String(fm.name ?? file.basename),
+        kind: "restaurant",
+        coord,
+        file
+      });
+    }
+    out.sort((a, b) => a.label.localeCompare(b.label));
+    return out;
+  }
+  /**
+   * Every place on a trip worth measuring between. Geocodes on demand, so this
+   * can make paid calls the first time it runs for a trip.
+   */
+  async placesFor(trip, bookings) {
+    const places = { hotels: [], airports: [], activities: [], restaurants: [] };
+    for (const booking of bookings) {
+      if (booking.status === "cancelled") continue;
+      const coord = await this.coordForBooking(booking, trip);
+      if (!coord) continue;
+      const label = booking.kind === "flight" ? booking.to || booking.from || booking.title : booking.title;
+      const place = {
+        id: booking.file.path,
+        label,
+        kind: booking.kind === "stay" ? "hotel" : booking.kind === "flight" ? "airport" : booking.kind === "transport" ? "station" : "activity",
+        coord,
+        file: booking.file,
+        // A flight's place is the airport it lands at, so the transfer to the
+        // hotel happens on the outbound date, not the return. No time: the
+        // booking's own time is the departure from home, and its end is the
+        // return arrival on a return ticket — neither is when you land.
+        date: booking.date,
+        time: booking.kind === "flight" ? "" : booking.time
+      };
+      if (place.kind === "hotel") places.hotels.push(place);
+      else if (place.kind === "airport") places.airports.push(place);
+      else places.activities.push(place);
+    }
+    places.restaurants = this.restaurantsFor(trip);
+    return places;
+  }
+  // ----------------------------------------------------------------- legs
+  readCache(from, to, mode) {
+    const hit = this.cache.legs[legKey(from, to, mode)];
+    if (!hit) return null;
+    return { mode, distanceMeters: hit.d, durationSeconds: hit.t };
+  }
+  /** Cached results for a fan-out, with no network access at all. */
+  peekLegs(origin, destinations, modes) {
+    const out = /* @__PURE__ */ new Map();
+    for (const destination of destinations) {
+      const legs = [];
+      for (const mode of modes) {
+        const leg = this.readCache(origin.coord, destination.coord, mode);
+        if (leg) legs.push(leg);
+      }
+      if (legs.length) out.set(destination.id, legs);
+    }
+    return out;
+  }
+  /** True when something in this fan-out would need a paid request. */
+  needsFetch(origin, destinations, modes) {
+    return destinations.some(
+      (d) => modes.some((mode) => this.readCache(origin.coord, d.coord, mode) === null)
+    );
+  }
+  /**
+   * Fills in whatever is missing, batching up to 25 destinations per request and
+   * per mode. Already-cached pairs cost nothing.
+   */
+  async fetchLegs(origin, destinations, modes, when) {
+    const key = this.requireKey();
+    let dirty = false;
+    for (const mode of modes) {
+      const missing = destinations.filter(
+        (d) => this.readCache(origin.coord, d.coord, mode) === null && coordKey(d.coord) !== coordKey(origin.coord)
+      );
+      for (let i = 0; i < missing.length; i += MAX_DESTINATIONS) {
+        const batch = missing.slice(i, i + MAX_DESTINATIONS);
+        const results = await distanceMatrix(
+          origin.coord,
+          batch.map((d) => d.coord),
+          mode,
+          key,
+          when
+        );
+        for (const [index, leg] of results.entries()) {
+          if (!leg) continue;
+          this.cache.legs[legKey(origin.coord, batch[index].coord, mode)] = {
+            d: leg.distanceMeters,
+            t: leg.durationSeconds,
+            at: Date.now()
+          };
+          dirty = true;
+        }
+      }
+    }
+    if (dirty) await this.persist();
+    return this.peekLegs(origin, destinations, modes);
+  }
+  /** Departure time to ask about: 09:00 on the trip's first day. */
+  departureTimeFor(trip) {
+    const start = parseISO(trip.startDate);
+    if (!start) return void 0;
+    start.setUTCHours(9, 0, 0, 0);
+    return start;
+  }
+  /**
+   * Drops everything cached for one trip.
+   *
+   * Cached routes are keyed by coordinate, not by trip, so this works out which
+   * coordinates belonged to it and removes any leg touching them.
+   */
+  async forgetTrip(trip) {
+    const bookings = this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${trip.folderPath}/`));
+    const keys = /* @__PURE__ */ new Set();
+    for (const file of bookings) {
+      const coord = parseLocation(this.app.metadataCache.getFileCache(file)?.frontmatter?.location);
+      if (coord) keys.add(coordKey(coord));
+    }
+    if (keys.size === 0) return;
+    for (const key of Object.keys(this.cache.legs)) {
+      const [from, to] = key.split("|");
+      if (keys.has(from) || keys.has(to)) delete this.cache.legs[key];
+    }
+    await this.persist();
+  }
+  /**
+   * Checks the key against both APIs the plugin needs.
+   *
+   * Geocoding and Distance Matrix are enabled separately on a Google Cloud
+   * project, and having one without the other is the usual reason travel times
+   * fail — so the test says which of the two is missing rather than just
+   * "failed". Costs two requests, and is only run from the button.
+   */
+  async testKey() {
+    const key = this.getSettings().googleApiKey.trim();
+    if (!key) return { ok: false, message: "No key to test." };
+    let origin;
+    try {
+      origin = await geocode("Amsterdam Airport Schiphol", key);
+    } catch (err) {
+      return { ok: false, message: `Geocoding: ${err instanceof Error ? err.message : "failed"}` };
+    }
+    if (!origin) return { ok: false, message: "Geocoding returned nothing." };
+    try {
+      const [leg] = await distanceMatrix(origin, [{ lat: 52.379, lng: 4.9 }], "driving", key);
+      if (!leg) return { ok: false, message: "Distance Matrix returned no route." };
+      return {
+        ok: true,
+        message: `Both APIs answered \u2014 Schiphol to Amsterdam in ${Math.round(leg.durationSeconds / 60)} min.`
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        message: `Distance Matrix: ${err instanceof Error ? err.message : "failed"}`
+      };
+    }
+  }
+  /** Wipes cached legs so the next look-up re-fetches. */
+  async clearLegs() {
+    this.cache.legs = {};
+    await this.persist();
+  }
+  countCached() {
+    return {
+      legs: Object.keys(this.cache.legs).length,
+      addresses: Object.keys(this.cache.geocode).length
+    };
+  }
+  /**
+   * Reads the Google key out of the Food Spot plugin's own settings, so the two
+   * can share one key without it being typed twice. Only ever called when the
+   * user clicks the import button.
+   */
+  async importFoodSpotKey() {
+    const path = (0, import_obsidian7.normalizePath)(`${this.app.vault.configDir}/plugins/foodspot/data.json`);
+    try {
+      const raw = await this.app.vault.adapter.read(path);
+      const parsed = JSON.parse(raw);
+      const key = parsed?.settings?.apiKeys?.googlePlaces;
+      return typeof key === "string" && key.trim() ? key.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+};
+
+// src/ui/modalUtils.ts
+function keepOpenOnBackgroundClick(modal) {
+  modal.containerEl.addEventListener(
+    "click",
+    (evt) => {
+      const target = evt.target;
+      if (!target) return;
+      const onBackground = target === modal.containerEl || target.classList.contains("modal-bg");
+      if (!onBackground) return;
+      evt.preventDefault();
+      evt.stopImmediatePropagation();
+    },
+    true
+  );
+}
+
+// src/ui/modals/routeModal.ts
+var KIND_LABEL = {
+  hotel: "Stay",
+  airport: "Airport",
+  activity: "Activity",
+  restaurant: "Restaurant",
+  station: "Transport"
+};
+var RouteModal = class _RouteModal extends import_obsidian8.Modal {
+  constructor(app, plugin, trip, defaults = {}) {
+    super(app);
+    this.plugin = plugin;
+    this.trip = trip;
+    this.places = [];
+    const known = plugin.travelPlaces.get(trip.folderPath);
+    this.places = known ? [...known.hotels, ...known.airports, ...known.activities, ...known.restaurants] : [];
+    this.from = defaults.from ?? known?.hotels[0] ?? this.places[0];
+    this.to = defaults.to ?? this.places.find((p) => p.id !== this.from?.id);
+  }
+  onOpen() {
+    const { contentEl, modalEl } = this;
+    modalEl.addClass("tp-modal");
+    keepOpenOnBackgroundClick(this);
+    contentEl.createEl("h2", { text: "Travel time" });
+    if (this.places.length < 2) {
+      contentEl.createDiv({
+        cls: "tp-dash-hint",
+        text: "Calculate travel times for this trip first \u2014 there are not two placed bookings to measure between yet."
+      });
+      return;
+    }
+    const pick = (label, get, set) => {
+      new import_obsidian8.Setting(contentEl).setName(label).addDropdown((dd) => {
+        for (const place of this.places) {
+          dd.addOption(place.id, `${KIND_LABEL[place.kind] ?? "Place"} \xB7 ${place.label}`);
+        }
+        dd.setValue(get()?.id ?? "");
+        dd.onChange((value) => {
+          const found = this.places.find((p) => p.id === value);
+          if (found) set(found);
+          this.renderResult();
+        });
+      });
+    };
+    pick(
+      "From",
+      () => this.from,
+      (p) => {
+        this.from = p;
+      }
+    );
+    new import_obsidian8.Setting(contentEl).addButton(
+      (b) => b.setButtonText("Swap").setTooltip("Measure the other way \u2014 a one-way street or an uphill walk is not symmetric").onClick(() => {
+        [this.from, this.to] = [this.to, this.from];
+        this.close();
+        new _RouteModal(this.app, this.plugin, this.trip, {
+          from: this.from,
+          to: this.to
+        }).open();
+      })
+    );
+    pick(
+      "To",
+      () => this.to,
+      (p) => {
+        this.to = p;
+      }
+    );
+    this.body = contentEl.createDiv({ cls: "tp-route-result" });
+    this.renderResult();
+  }
+  renderResult() {
+    const { body } = this;
+    body.empty();
+    if (!this.from || !this.to) return;
+    if (this.from.id === this.to.id) {
+      body.createDiv({ cls: "tp-dash-hint", text: "Pick two different places." });
+      return;
+    }
+    const modes = this.plugin.settings.travelModes;
+    const legs = this.plugin.travel.peekLegs(this.from, [this.to], modes).get(this.to.id) ?? [];
+    if (legs.length === 0) {
+      body.createDiv({
+        cls: "tp-dash-hint",
+        text: "This pair has not been measured yet. Looking it up makes one billed Google request per mode."
+      });
+      this.renderLookup(body);
+      return;
+    }
+    const reference = legs.find((l) => l.mode === "walking") ?? legs[0];
+    body.createDiv({
+      cls: "tp-route-dist",
+      text: `${formatDistance(reference.distanceMeters)} \xB7 ${this.from.label} \u2192 ${this.to.label}`
+    });
+    const list3 = body.createDiv({ cls: "tp-route-modes" });
+    for (const mode of modes) {
+      const leg = legs.find((l) => l.mode === mode);
+      const def = TRAVEL_MODES.find((m) => m.id === mode);
+      const row2 = list3.createDiv({ cls: `tp-route-mode${leg ? "" : " is-none"}` });
+      (0, import_obsidian8.setIcon)(row2.createSpan({ cls: "tp-route-mode-icon" }), def?.icon ?? "route");
+      row2.createSpan({ cls: "tp-route-mode-label", text: def?.label ?? mode });
+      row2.createSpan({
+        cls: "tp-route-mode-time",
+        text: leg ? formatDuration2(leg.durationSeconds) : "no route"
+      });
+    }
+    if (legs.length < modes.length) this.renderLookup(body);
+  }
+  renderLookup(parent) {
+    new import_obsidian8.Setting(parent).addButton(
+      (b) => b.setButtonText("Look it up").setCta().onClick(async () => {
+        if (!this.from || !this.to) return;
+        b.setDisabled(true).setButtonText("Looking up\u2026");
+        try {
+          await this.plugin.travel.fetchLegs(
+            this.from,
+            [this.to],
+            this.plugin.settings.travelModes,
+            this.plugin.travel.departureTimeFor(this.trip)
+          );
+          this.renderResult();
+          this.plugin.refreshViews();
+        } catch (err) {
+          b.setDisabled(false).setButtonText("Look it up");
+          new import_obsidian8.Notice(
+            err instanceof TravelUnavailable ? err.message : `Travel Planner: ${err instanceof Error ? err.message : "lookup failed"}`
+          );
+        }
+      })
+    );
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+
 // src/ui/dashboard/gettingAround.ts
 var MODE_ICON = new Map(TRAVEL_MODES.map((m) => [m.id, m.icon]));
 function renderGettingAround(parent, ctx) {
@@ -2094,7 +2632,7 @@ function renderGettingAround(parent, ctx) {
   const places = plugin.travelPlaces.get(trip.folderPath);
   const origin = places?.hotels[0];
   const configured = travel.isConfigured();
-  sectionTitle(
+  const head = sectionTitle(
     parent,
     origin ? `Getting around \xB7 from ${origin.label}` : "Getting around",
     configured ? {
@@ -2103,6 +2641,12 @@ function renderGettingAround(parent, ctx) {
       onClick: () => void plugin.computeTravelTimes(trip, ctx.refresh, Boolean(places))
     } : { label: "Settings", icon: "settings", onClick: () => plugin.openSettings() }
   );
+  if (places && origin) {
+    const btn = head.createEl("button", { cls: "tp-dash-action" });
+    (0, import_obsidian9.setIcon)(btn.createSpan(), "route");
+    btn.createSpan({ text: "Route" });
+    btn.addEventListener("click", () => new RouteModal(ctx.app, plugin, trip).open());
+  }
   if (!plugin.settings.travelTimesEnabled) {
     renderNotice(
       parent,
@@ -2179,7 +2723,7 @@ function renderGettingAround(parent, ctx) {
 }
 function renderNotice(parent, title, detail) {
   const box = parent.createDiv({ cls: "tp-around-notice" });
-  (0, import_obsidian6.setIcon)(box.createDiv({ cls: "tp-around-notice-icon" }), "route");
+  (0, import_obsidian9.setIcon)(box.createDiv({ cls: "tp-around-notice-icon" }), "route");
   const text = box.createDiv();
   text.createDiv({ cls: "tp-around-notice-title", text: title });
   text.createDiv({ cls: "tp-around-notice-detail", text: detail });
@@ -2205,7 +2749,7 @@ function renderRow(parent, place, legs, modes, ctx) {
     const leg = legs.find((l) => l.mode === mode);
     const label = TRAVEL_MODES.find((m) => m.id === mode)?.label ?? mode;
     const chip = times2.createDiv({ cls: `tp-around-chip is-${mode}${leg ? "" : " is-none"}` });
-    (0, import_obsidian6.setIcon)(chip.createSpan({ cls: "tp-around-chip-icon" }), MODE_ICON.get(mode) ?? "route");
+    (0, import_obsidian9.setIcon)(chip.createSpan({ cls: "tp-around-chip-icon" }), MODE_ICON.get(mode) ?? "route");
     chip.createSpan({ text: leg ? formatDuration2(leg.durationSeconds) : "none" });
     chip.setAttribute(
       "aria-label",
@@ -2223,19 +2767,6 @@ function renderFlights(parent, ctx) {
   if (!trip) return;
   const flights = plugin.bookings.getBookings(trip).filter((b) => b.kind === "flight" && b.status !== "cancelled");
   if (flights.length === 0) return;
-  const readLegs = (value) => Array.isArray(value) ? value.map((raw) => {
-    const leg = raw;
-    return {
-      operator: leg?.airline ?? "",
-      number: leg?.flight ?? "",
-      from: leg?.from ?? "",
-      to: leg?.to ?? "",
-      date: leg?.date ?? "",
-      depTime: leg?.departs ?? "",
-      arrDate: leg?.arrives_on ?? leg?.date ?? "",
-      arrTime: leg?.arrives ?? ""
-    };
-  }) : [];
   parent.createDiv({ cls: "tp-around-group", text: "Flights" });
   const list3 = parent.createDiv({ cls: "tp-around-list" });
   for (const flight of flights) {
@@ -2267,28 +2798,22 @@ function renderFlights(parent, ctx) {
         cls: "tp-around-name",
         text: `${direction.label} \xB7 ${routeTitle(legs) || flight.title}`
       });
-      const stops = legs.length - 1;
+      const summary = summariseFlight(legs);
       const bits = [
         legs[0].date && legs[0].depTime ? `${legs[0].date} ${legs[0].depTime}` : legs[0].date,
-        stops === 0 ? "direct" : `${stops} stop${stops === 1 ? "" : "s"}`
+        summary.label.split(" \xB7 ").pop() ?? "",
+        ...summary.layovers
       ].filter(Boolean);
-      for (let i = 1; i < legs.length; i += 1) {
-        const gap = layoverMinutes(legs[i - 1], legs[i]);
-        if (gap === null) continue;
-        bits.push(
-          `${formatLayover(gap)} in ${legs[i - 1].to || "transit"}${gap < TIGHT_CONNECTION_MINUTES ? " (tight)" : ""}`
-        );
-      }
       text.createDiv({ cls: "tp-around-dist", text: bits.join(" \xB7 ") });
-      const raw = totalJourneyMinutes(legs);
-      const total = raw !== null && raw > 24 * 60 ? null : raw;
       const times2 = row2.createDiv({ cls: "tp-around-times" });
       const chip = times2.createDiv({ cls: "tp-around-chip is-flight" });
-      (0, import_obsidian6.setIcon)(chip.createSpan({ cls: "tp-around-chip-icon" }), "plane");
-      chip.createSpan({ text: total === null ? "\u2014" : formatLayover(total) });
+      (0, import_obsidian9.setIcon)(chip.createSpan({ cls: "tp-around-chip-icon" }), "plane");
+      chip.createSpan({
+        text: summary.totalMinutes === null ? "\u2014" : formatLayover(summary.totalMinutes)
+      });
       chip.setAttribute(
         "title",
-        total === null ? "Arrival time not recorded \u2014 re-save the flight to fill it in" : "Total journey, including time on the ground"
+        summary.totalMinutes === null ? "Arrival time not recorded \u2014 re-save the flight to fill it in" : "Total journey, including time on the ground"
       );
       row2.addEventListener("click", () => ctx.openFile(flight.file));
     }
@@ -2320,7 +2845,7 @@ function travelTable(origin, destinations, legs, modes) {
 }
 
 // src/ui/dashboard/documents.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 
 // src/data/visa.ts
 var VISA = { "AF": { "21": "DM", "30": "FM", "90": "HT,SC", "E": "AE,AG,AL,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CO,EC,ET,GA,GE,GN,GQ,HK,ID,IN,IQ,KG,KN,KR,LS,LY,MD,MW,MY,NG,OM,PG,PK,QA,SG,SL,SO,SR,SS,ST,SV,TG,TJ,TZ,UG,VN,ZM,ZW", "R": "AD,AM,AO,AR,AT,AZ,BA,BB,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GM,GR,GT,GY,HN,HR,HU,IE,IL,IR,IS,IT,JM,JO,JP,KI,KP,KW,KZ,LA,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MN,MT,MU,MX,NA,NE,NI,NL,NO,NP,NR,NZ,PA,PE,PH,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SN,SY,SZ,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VC,VE,VU,XK,YE,ZA", "A": "BD,BI,BO,CV,DJ,GH,GW,KH,KM,LK,MG,MO,MR,MV,MZ,PW,RW,TL,TV,WS", "T": "CI,KE" }, "AL": { "14": "HK", "21": "DM", "28": "BB", "30": "BY,FM,RW,SG,TT", "60": "KG,TH", "90": "AD,AT,AZ,BA,BE,BG,BR,CH,CL,CN,CO,CY,CZ,DE,DK,EE,ES,FI,FR,GM,GR,GY,HR,HT,HU,IL,IS,IT,KZ,LI,LT,LU,LV,MC,MD,ME,MK,MO,MT,MY,NL,NO,PL,PT,RO,RS,SC,SE,SI,SK,SM,TR,TW,UA,VA,VC,XK", "180": "AE,AG,AM,SV", "360": "GE", "R": "AF,AO,AR,BN,BZ,CA,CF,CG,CR,DZ,ER,FJ,GB,GD,GT,HN,IE,JP,KI,KP,KW,LB,LC,LR,MA,MH,ML,MX,NA,NE,NI,NR,NZ,PA,PE,PH,PY,RU,SB,SD,SN,SR,SZ,TD,TM,TN,TO,US,UY,VE,VU,YE", "E": "AU,BF,BH,BJ,BS,BT,BW,CD,CM,CU,EC,ET,GA,GN,GQ,IN,IQ,KN,LS,LY,MM,MN,NG,OM,PG,PK,QA,SL,SO,SS,ST,SY,TG,TJ,UG,UZ,VN,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,ID,IR,JM,JO,KH,KM,LA,LK,MG,MR,MU,MV,MW,MZ,NP,PW,SA,TL,TV,TZ,WS,ZM,ZW", "T": "CI,KE,KR", "F": "DO,PS" }, "DZ": { "14": "HK", "21": "DM", "30": "AO,FM,ML,RW", "90": "BB,BJ,EC,GM,HT,MA,MR,MY,SC,TN,VC", "E": "AE,AG,AL,AM,AU,AZ,BF,BH,BS,BT,BW,CD,CM,CO,CU,GA,GE,GQ,ID,IQ,KG,KN,KR,KZ,LS,MD,MM,MW,OM,PG,PK,QA,SG,SL,SO,SS,ST,SV,TG,TH,UG,UZ,VN,ZA,ZM", "R": "AD,AF,AR,AT,BA,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JP,KI,KP,KW,LA,LC,LI,LR,LT,LU,LV,MC,ME,MK,MN,MT,MX,NA,NE,NL,NO,NR,NZ,PA,PE,PH,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TM,TO,TR,TT,TW,UA,US,UY,VA,VE,VU,XK", "A": "BI,BO,CV,DJ,ET,GH,GW,IR,JO,KH,KM,LB,LK,MG,MH,MO,MU,MV,MZ,NG,NI,NP,PW,SN,TJ,TL,TV,TZ,WS,YE,ZW", "T": "CI,KE", "F": "GN,LY,PS,SY" }, "AD": { "15": "ST", "21": "DM", "30": "AE,BY,CN,CV,FM,MY,PH,RW,SG,SZ,TJ,UZ", "42": "LC", "60": "KG,TH", "90": "AL,AR,AT,BA,BB,BE,BG,BO,BR,BS,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GM,GR,GT,HK,HN,HR,HT,HU,IE,IL,IS,IT,JP,KZ,LI,LT,LU,LV,MA,MC,MD,ME,MK,MO,MT,NI,NL,NO,PA,PL,PT,PY,RO,RS,RU,SC,SE,SI,SK,SM,TN,TR,TW,UA,UY,VA,VC,VE,XK,ZA", "120": "VU", "180": "AG,AM,CR,GB,MX,PE,SV", "360": "GE", "R": "AF,AO,BN,CF,CG,DZ,ER,FJ,GD,GY,KI,KP,LR,ML,MM,NA,NE,NR,SD,SR,TD,TM,TO,TT,YE", "T": "AU,CA,CI,KE,KR,NZ,PG,US", "E": "AZ,BF,BJ,BT,BW,CD,CM,CU,ET,GA,GN,GQ,IN,IQ,KN,LS,LY,MN,NG,PK,SL,SO,SS,SY,TG,UG,VN", "A": "BD,BH,BI,DJ,EG,GH,GW,ID,IR,JM,JO,KH,KM,KW,LA,LB,LK,MG,MH,MR,MU,MV,MW,MZ,NP,OM,PW,QA,SA,SB,SN,TL,TV,TZ,WS,ZM,ZW", "F": "BZ,DO,PS" }, "AO": { "21": "DM", "30": "FM,MZ,PH,SG,ZA", "90": "BB,BJ,BW,GM,HT,MU,NA,RW,SC,TN,UG,VC,ZM,ZW", "E": "AE,AG,AL,AU,BF,BH,BS,BT,CD,CM,CO,CU,EC,GA,GE,GN,GQ,HK,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,MW,MY,OM,PG,QA,SL,SO,SR,SS,SV,SY,TG,TJ,UZ,VN", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SZ,TD,TH,TM,TO,TR,TT,TW,UA,US,UY,VA,VE,VU,XK,YE", "A": "BD,BI,BO,DJ,ET,GH,GW,IR,KH,KM,LA,LK,MG,MO,MR,MV,NG,NI,NP,PW,SN,TL,TV,TZ,WS", "F": "CV,ST", "T": "CI,KE,PK" }, "AG": { "30": "AO,BY,CN,CR,CU,FM,MY,PH,RW,SG,SZ,UZ,ZA", "90": "AD,AL,AT,BA,BE,BG,BR,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GM,GR,GT,HK,HN,HR,HT,HU,IE,IS,IT,KI,LI,LS,LT,LU,LV,MC,MD,ME,MK,MT,MU,MW,NI,NL,NO,PA,PL,PT,RO,RS,RU,SC,SE,SI,SK,SM,TN,TZ,UA,UG,VA,VE,XK,ZM,ZW", "120": "FJ,VU", "180": "GY,PE,SR,SV", "240": "BS", "360": "GE", "R": "AF,AR,AZ,BN,CA,CF,CG,DZ,ER,IL,JP,KP,KW,LR,MA,MH,ML,MM,MX,NA,NE,NR,NZ,PY,SA,SD,SN,TD,TM,TO,TW,US,UY,YE", "A": "AM,BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LB,LK,MG,MO,MR,MV,MZ,NP,PW,QA,SB,SL,TL,TR,TV,WS", "E": "AE,AU,BF,BH,BJ,BT,CD,CM,ET,GA,GN,GQ,ID,IN,IQ,KG,KZ,LY,MN,NG,OM,PK,SO,SS,ST,SY,TG,TH,TJ,VN", "F": "BB,BZ,DM,DO,GD,JM,KN,LC,PS,TT,VC", "T": "CI,GB,KE,KR,PG" }, "AR": { "30": "AO,FM,GD,JM,KZ,MO,PH,SG,SZ,TJ,UZ", "42": "LC", "60": "KG", "90": "AD,AE,AL,AT,BA,BB,BE,BG,BO,BR,BS,BW,BY,BZ,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GR,GT,GY,HK,HN,HR,HT,HU,IE,IL,IS,IT,JP,KI,KN,LI,LT,LU,LV,MA,MC,MD,ME,MK,MN,MT,MU,MY,NI,NL,NO,PA,PL,PT,PY,RO,RS,RU,SC,SE,SI,SK,SM,TH,TN,TR,TT,UA,UY,VA,VC,VE,XK,ZA", "120": "FJ,VU", "180": "AG,AM,CR,DM,MX,PE,SR,SV", "360": "GE", "R": "AF,BN,CA,CF,CG,CN,DZ,ER,GM,KP,KW,LR,ML,NE,NR,SA,SD,TD,TM,TO,TW,US,YE", "E": "AU,AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,IQ,LS,LY,MM,NG,SL,SO,SS,ST,SY,TG,UG,VN", "A": "BD,BF,BH,BI,CV,DJ,EG,ET,GH,GW,ID,IR,JO,KH,KM,LA,LB,LK,MG,MH,MR,MV,MW,MZ,NA,NP,OM,PW,QA,RW,SB,SN,TL,TV,TZ,WS,ZM,ZW", "T": "CI,GB,KE,KR,NZ,PG,PK", "F": "DO,PS" }, "AM": { "21": "DM", "28": "BB", "30": "FM,HK,MY,RW", "90": "AE,AL,AR,BR,BS,CN,EC,GM,HT,IR,KZ,MD,MO,NA,PA,RS,RU,SC,TJ,UY,VC", "180": "AG", "360": "GE", "R": "AD,AF,AO,AT,BA,BE,BG,BN,BZ,CA,CF,CG,CH,CL,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JP,KI,KP,KW,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NI,NL,NO,NR,NZ,PE,PH,PK,PL,PT,PY,RO,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TM,TN,TO,TT,TW,US,VA,VE,VU,XK,YE,ZA", "E": "AU,BF,BH,BJ,BT,BW,CD,CM,CO,CU,ET,GA,GN,GQ,IN,IQ,KN,KR,LS,LY,MN,NG,OM,PG,SG,SO,SS,ST,SV,SY,TG,UG,VN,ZM", "N": "AZ", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,ID,JM,JO,KH,KM,LA,LB,LK,MG,MR,MU,MV,MW,MZ,NP,PW,QA,SL,SN,TH,TL,TR,TV,TZ,WS,ZW", "F": "BY,KG,PS,UA,UZ", "T": "CI,KE" }, "AU": { "30": "AE,AO,BY,CN,FM,KZ,MN,MO,MW,PH,RW,SZ,TJ,UZ", "42": "LC", "60": "KG,TH", "90": "AD,AL,AR,AT,BA,BE,BG,BO,BR,BS,BW,CH,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,GT,GY,HK,HN,HR,HT,HU,IE,IL,IS,IT,JP,KI,KN,KR,LI,LT,LU,LV,MA,MC,MD,ME,MK,MT,MU,NA,NI,NL,NO,PA,PL,PT,PY,RO,RS,SC,SE,SI,SK,SM,TN,TW,UA,UY,VA,VC,VE,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,BB,CR,DM,MX,PE,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,RU,SD,SR,TD,TM,YE", "E": "AZ,BJ,BT,CD,CL,CM,CU,GA,GN,GQ,IN,LY,MM,NG,SO,SS,ST,SY,TG,UG,VN", "A": "BD,BF,BH,BI,BN,CV,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MH,MR,MV,MZ,NP,OM,PW,QA,SA,SB,SL,SN,TL,TO,TR,TT,TV,TZ,WS,ZW", "F": "BZ,DO,JM,LS,MY,NZ,PS,SG", "T": "CA,CI,GB,KE,PG,PK,US" }, "AT": { "15": "LA,ST", "30": "AO,BY,CN,CV,KZ,MN,PH,SZ,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HR,HT,IL,JM,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NA,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HU,IE,IS,IT,LI,LS,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LB,LK,MG,MR,MV,MW,MZ,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "AZ": { "14": "IR", "21": "DM", "28": "BB", "30": "FM,KG,KZ,MY", "90": "AE,AL,BA,BS,CO,EC,GM,HT,MA,MD,ME,NA,RS,RU,SC,TJ,TR,VC", "120": "VU", "180": "AG", "360": "GE", "R": "AD,AF,AO,AR,AT,BE,BG,BN,BR,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JP,KI,KP,KW,LC,LI,LR,LT,LU,LV,MC,MK,ML,MM,MN,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PH,PL,PT,PY,RO,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TT,TW,US,UY,VA,VE,XK,YE,ZA", "F": "AM,BY,GD,PS,UA,UZ", "E": "AU,BF,BH,BJ,BT,BW,CD,CM,CU,ET,GA,GN,GQ,HK,IN,IQ,KN,KR,LS,LY,NG,OM,PG,SG,SO,SS,ST,SV,TG,TH,UG,VN,ZM", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,ID,JM,JO,KH,KM,LA,LB,LK,MG,MH,MO,MR,MU,MV,MW,MZ,NI,NP,PW,QA,RW,SA,SL,SY,TL,TV,TZ,WS,ZW", "T": "CI,KE,PK" }, "BS": { "30": "AO,CN,FM,MY,PH,RS,RW,SG,SZ,TJ,UZ,ZA", "42": "LC", "90": "AD,AE,AL,AT,BA,BE,BG,BJ,BR,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GH,GM,GR,GT,GY,HK,HN,HR,HT,HU,IE,IL,IS,IT,JP,KI,LI,LS,LT,LU,LV,MC,MD,ME,MK,MT,MU,MW,NI,NL,NO,PA,PL,PT,PY,RO,SC,SE,SI,SK,SM,TZ,UG,UY,VA,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,CR,DM,KN,MX,PE,SR,SV,VC", "360": "GE", "R": "AF,AR,BN,BY,CF,CG,DZ,ER,KP,KW,LR,MA,MH,ML,MM,NA,NE,NR,NZ,RU,SD,TD,TM,TN,TW,UA,US,VE,YE", "A": "AM,BD,BI,BO,CV,DJ,EG,GW,IR,JO,KH,KM,LA,LB,LK,MG,MO,MR,MV,MZ,NP,PW,QA,SA,SB,SL,SN,TL,TO,TR,TV,WS", "E": "AU,AZ,BF,BH,BT,CD,CM,CU,ET,GA,GN,GQ,ID,IN,IQ,KG,KZ,LY,MN,NG,OM,SO,SS,ST,SY,TG,TH,VN", "F": "BB,BZ,DO,JM,PS,TT", "T": "CA,CI,GB,KE,KR,PG,PK" }, "BH": { "10": "UZ", "15": "IR", "21": "DM", "30": "BY,FM,HK,KR,KZ,PH,SG,TJ", "60": "KG,TH", "90": "AL,BB,BS,BW,EC,GT,HN,HT,JO,KN,MA,MU,MY,NI,PK,RS,SC,TN,TR,UA,VC,XK,ZM", "120": "VU", "180": "EG,LB,SV", "360": "GE", "R": "AD,AF,AO,AR,AT,BA,BE,BG,BR,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FJ,FR,GD,GM,GR,GY,HR,HU,IE,IL,IN,IS,IT,JM,JP,KI,KP,LC,LI,LR,LT,LU,LV,MC,ME,MH,MK,ML,MM,MN,MT,MX,NA,NE,NL,NO,NR,PA,PE,PL,PT,PY,RO,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TM,TO,TT,US,UY,VA,VE,ZA", "E": "AG,AM,AU,BF,BJ,BT,CD,CM,CO,CU,GA,GN,GQ,LS,LY,MD,NG,PG,RU,SS,ST,TG,TW,UG,VN", "A": "AZ,BD,BI,BN,BO,CV,DJ,ET,GH,GW,ID,IQ,KH,KM,LA,LK,MG,MO,MR,MV,MW,MZ,NP,PW,RW,SL,SN,SO,TL,TV,TZ,WS,YE,ZW", "T": "CI,GB,KE,NZ", "F": "AE,DO,KW,OM,PS,QA,SA,SY" }, "BD": { "14": "BT", "30": "FM,RW", "90": "BS,GD,GM,HT,KI,KN,SC,VC", "120": "FJ,VU", "180": "BB,DM", "E": "AE,AG,AL,AU,BF,BH,BJ,BW,CD,CM,CO,EC,ET,GA,GE,GN,GQ,HK,ID,KG,KR,KZ,MD,MM,MW,MY,MZ,NG,OM,PG,PK,QA,SG,SO,SR,SS,ST,SV,SY,TG,TJ,TZ,UG,UZ,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IN,IR,IS,IT,JO,JP,KP,KW,LA,LB,LC,LI,LR,LS,LT,LU,LV,MA,MC,ME,MH,MK,ML,MN,MO,MT,MU,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PH,PL,PS,PT,PW,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SN,SZ,TD,TH,TM,TN,TO,TR,TW,UA,US,UY,VA,VE,XK,YE,ZA", "A": "BI,BO,CV,DJ,GH,GW,KH,KM,LK,MG,MR,MV,NP,SL,TL,TV,WS", "T": "CI,KE", "N": "IQ,LY", "F": "JM,TT" }, "BB": { "28": "CU", "30": "AO,BY,CN,FM,MY,PH,RS,RW,SG,SZ,UZ,ZA", "42": "LC", "60": "GH", "90": "AD,AE,AL,AR,AT,BA,BD,BE,BG,BR,BS,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,GT,HK,HN,HR,HT,HU,IE,IL,IS,IT,JP,KI,LI,LS,LT,LU,LV,MC,MD,ME,MK,MT,MU,MW,NI,NL,NO,PA,PL,PT,RO,SC,SE,SI,SK,SM,TN,TZ,UG,UY,VA,VE,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,CR,DM,GY,KN,MX,PE,SR,SV,VC", "360": "GE", "R": "AF,BN,CF,CG,DZ,ER,KP,KW,LR,MA,ML,MM,NA,NE,NR,NZ,PY,SD,TD,TM,TW,UA,US,YE", "A": "AM,BI,BO,CV,DJ,EG,GW,IR,JO,KH,KM,LA,LB,LK,MG,MH,MO,MR,MV,MZ,NP,PW,SA,SB,SL,SN,TL,TO,TR,TV,WS", "E": "AU,AZ,BF,BH,BJ,BT,CD,CM,ET,GA,GN,ID,IN,IQ,KG,KZ,LY,MN,NG,OM,QA,RU,SO,SS,ST,SY,TG,TH,TJ,VN", "F": "BZ,DO,GQ,JM,PS,TT", "T": "CA,CI,GB,KE,KR,PG,PK" }, "BY": { "14": "HK,OM", "15": "IR", "21": "DM", "28": "BB", "30": "AL,CN,CU,FM,KN,ME,MO,MY,RS,TR", "45": "VN", "90": "AE,AR,AZ,BR,EC,GM,HT,IL,KZ,MD,MN,NA,NI,PA,RU,SC,TJ,VC,VE", "180": "AG,PE", "360": "GE", "R": "AD,AF,AO,AT,BA,BE,BG,BN,BZ,CA,CF,CG,CH,CL,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GR,GT,GY,HN,HR,HU,IE,IS,IT,JP,KI,KP,KW,LC,LI,LR,LT,LU,LV,MA,MC,MH,MK,ML,MT,MX,NE,NL,NO,NR,NZ,PH,PL,PT,PY,RO,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TO,TT,TW,US,UY,VA,VU,XK,YE", "F": "AM,GD,KG,PS,UA,UZ", "E": "AU,BF,BH,BJ,BS,BT,BW,CD,CM,CO,GA,GN,GQ,IN,IQ,KR,LS,LY,MM,NG,PG,PK,SG,SO,SS,ST,SV,TG,UG,ZA", "A": "BD,BI,BO,CV,DJ,EG,ET,GH,GW,ID,JM,JO,KH,KM,LA,LB,LK,MG,MR,MU,MV,MW,MZ,NP,PW,QA,RW,SL,SY,TH,TL,TN,TV,TZ,WS,ZM,ZW", "T": "CI,KE" }, "BE": { "14": "LS", "15": "ST", "30": "AO,BY,CN,CV,KZ,MN,MW,MZ,PH,RW,SZ,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JM,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NA,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ", "150": "VU", "180": "AG,AM,CR,DM,GB,MX,SV", "240": "BS", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,PK,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,NP,OM,QA,SA,SL,SO,TZ,ZW" }, "BZ": { "30": "AO,CR,FM,MY,PH,RW,SG,SZ,TW,UZ,ZA", "42": "LC", "90": "BR,BS,BW,CL,CO,EC,GD,GM,GT,HK,HN,HT,IE,IL,KI,LS,MU,MW,NI,PA,RU,SC,TR,TZ,UG,UY,VE,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM,GY,KN,MX,PE,SR,SV,VC", "360": "GE", "E": "AE,AL,AM,AU,BF,BH,BJ,BT,CD,CM,CU,ET,GA,GN,GQ,ID,IN,IQ,KG,KR,KZ,LY,MD,MN,NG,OM,PK,QA,SO,SS,ST,SY,TG,TJ,VN", "R": "AD,AF,AR,AT,AZ,BA,BD,BE,BG,BN,BY,CA,CF,CG,CH,CN,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FR,GR,HR,HU,IS,IT,JO,JP,KP,KW,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MM,MT,NA,NE,NL,NO,NR,NZ,PL,PT,PY,RO,RS,SA,SD,SE,SI,SK,SM,SN,TD,TH,TM,TN,TO,UA,US,VA,YE", "A": "BI,BO,CV,DJ,EG,GH,GW,IR,KH,KM,LA,LB,LK,MG,MH,MO,MR,MV,MZ,NP,PW,SB,SL,TL,TV,WS", "T": "CI,GB,KE,PG", "F": "DO,JM,PS,TT" }, "BJ": { "14": "HK", "21": "DM", "30": "FM,MY,PH,SG,ZA", "90": "BB,BS,CF,CI,CU,EC,GH,GM,HT,MU,RW,SC,SN,TN,VC", "E": "AE,AG,AL,AU,BH,BT,BW,CD,CM,CO,GA,GE,GQ,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,OM,PG,PK,QA,SO,SS,ST,SV,SY,TJ,UG,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LB,LI,LT,LU,LV,MA,MC,ME,MH,MK,MM,MT,MX,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TH,TM,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE", "A": "BD,BI,BO,CG,DJ,ET,IR,KH,KM,LA,LC,LK,MG,MO,MR,MV,MW,MZ,NA,NI,NP,PW,TD,TL,TV,TZ,WS", "F": "BF,CV,GN,GW,LR,ML,NE,NG,SL,TG", "T": "KE" }, "BT": { "14": "HK", "21": "DM", "30": "FM,PH,SG", "60": "TH", "90": "BB,BD,CO,EC,GM,HT,PA,SC,VC", "E": "AE,AG,AL,AM,AU,BF,BH,BJ,BS,BW,CD,CM,CU,ET,GA,GE,GN,GQ,ID,IQ,KG,KN,KR,KZ,LS,LY,MD,MM,MN,NG,OM,PG,PK,QA,RU,SL,SO,SS,ST,SV,SY,TG,TJ,UG,VN", "R": "AD,AF,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JP,KI,KP,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MT,MX,MY,NA,NE,NL,NO,NR,NZ,PE,PL,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,KW,LA,LB,LC,LK,MG,MO,MR,MU,MV,MW,MZ,NI,NP,PW,RW,TL,TV,TZ,WS,ZM,ZW", "T": "CI,KE", "F": "IN,PS" }, "BO": { "21": "DM", "30": "BZ,CR,FM,HK,JM,MY,PH,SG,ZA", "90": "AG,AR,BB,BR,BS,CL,CO,EC,GM,HT,KI,KN,PA,PY,RU,SC,SV,TR,UY,VC,VE", "180": "MX,PE", "E": "AE,AL,AM,AU,AZ,BF,BJ,BT,BW,CD,CM,CU,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KR,KZ,LS,LY,MD,MM,MN,NG,PG,PK,SO,SS,ST,SY,TG,TJ,UG,UZ,VN,ZW", "R": "AD,AF,AO,AT,BA,BE,BG,BN,BY,CA,CF,CG,CH,CN,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JP,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MT,NA,NE,NL,NO,NR,NZ,PL,PT,RO,RS,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TT,TW,UA,US,VA,VU,XK,YE", "A": "BD,BH,BI,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LC,LK,MG,MO,MR,MU,MV,MW,MZ,NI,NP,OM,PW,QA,RW,SL,TH,TL,TV,TZ,WS,ZM", "T": "CI,KE", "F": "DO,PS" }, "BA": { "14": "HK", "15": "IR", "21": "DM", "30": "BY,FM,RU,SG,SZ,TJ,TT,UA,UZ", "42": "LC", "60": "KG", "90": "AD,AL,AR,AT,AZ,BE,BG,BR,CH,CL,CN,CO,CU,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GM,GR,HR,HT,HU,IS,IT,LI,LT,LU,LV,MC,MD,ME,MK,MO,MT,MY,NL,NO,PA,PL,PT,RO,RS,SC,SE,SI,SK,SM,TN,TR,VA,VC", "360": "GE", "R": "AF,AO,BB,BN,BZ,CA,CF,CG,CR,DZ,ER,FJ,GB,GT,GY,HN,IE,IL,JP,KI,KP,KW,LB,LR,MA,ML,MX,NA,NE,NI,NR,NZ,PE,PH,PY,SA,SB,SD,SN,SR,TD,TM,TO,US,UY,VE,VU,XK,YE,ZA", "E": "AG,AU,BF,BH,BJ,BS,BT,BW,CD,CM,EG,GA,GN,GQ,IN,IQ,KN,KZ,LS,LY,MM,MN,NG,OM,PG,PK,SL,SO,SS,ST,SV,SY,TG,TH,TW,UG,VN", "A": "AE,AM,BD,BI,BO,CV,DJ,ET,GH,GW,ID,JM,JO,KH,KM,LA,LK,MG,MH,MR,MU,MV,MW,MZ,NP,PW,QA,RW,TL,TV,TZ,WS,ZM,ZW", "T": "CI,KE,KR", "F": "DO,GD,PS" }, "BW": { "30": "AO,FM,MY,PH,RU,RW,SG,SZ", "42": "LC", "60": "GH", "90": "BD,BJ,BR,BS,EC,GD,GM,GY,HK,HT,IL,KI,KN,MU,MW,NA,PA,SC,TZ,UG,VC,XK,ZA,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM", "360": "GE", "E": "AE,AL,AU,BF,BH,BT,CD,CM,CO,CU,GA,GN,GQ,ID,IN,IQ,KG,KZ,LY,MD,MN,OM,SO,SS,ST,SV,SY,TG,TJ,VN", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BY,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DZ,EE,EG,ER,ES,FI,FR,GR,GT,HN,HR,HU,IE,IS,IT,JO,JP,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NI,NL,NO,NR,NZ,PE,PL,PS,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SR,TD,TH,TM,TN,TO,TR,TW,UA,US,UY,UZ,VA,VE,YE", "F": "BZ,DO,JM,LS,MZ,TT", "A": "BI,BO,CV,DJ,ET,GW,IR,KH,KM,LA,LK,MG,MO,MR,MV,NG,NP,PW,QA,SL,SN,TL,TV,WS", "T": "CI,GB,KE,KR,PG,PK" }, "BR": { "15": "IR", "30": "AO,CV,FM,KZ,SG,SZ,TJ,UZ", "42": "LC", "60": "KG,PH", "90": "AD,AE,AL,AR,AT,BA,BE,BG,BO,BS,BW,BY,BZ,CH,CL,CO,CY,CZ,DE,DK,DM,EC,EE,ES,FI,FR,GD,GR,GT,GY,HK,HN,HR,HT,HU,IE,IL,IS,IT,JM,JP,KI,KN,LI,LT,LU,LV,MA,MC,MD,ME,MK,MN,MO,MT,MU,MY,NA,NI,NL,NO,PA,PL,PT,PY,RO,RS,RU,SC,SE,SI,SK,SM,SN,TH,TN,TR,TT,UA,UY,VA,VC,VE,XK,ZA", "120": "FJ,VU", "180": "AG,AM,BB,CR,PE,SR,SV", "360": "GE", "R": "AF,BD,BN,CA,CF,CG,CN,DZ,ER,GM,KP,KW,LR,ML,MX,NE,NR,SA,SD,TD,TM,TW,US,YE", "E": "AU,AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,IQ,LS,LY,MM,NG,PK,SS,SY,TG,UG,VN", "A": "BF,BH,BI,DJ,EG,ET,GH,GW,ID,JO,KH,KM,LA,LB,LK,MG,MH,MR,MV,MW,MZ,NP,OM,PW,QA,RW,SB,SL,SO,TL,TO,TV,TZ,WS,ZM,ZW", "T": "CI,GB,KE,KR,NZ,PG", "F": "DO,PS,ST" }, "BN": { "14": "JP,KH,LA,MM,MO,RU,TW,VN", "15": "CN,IR", "30": "AE,CR,FM,ID,KR,MY,OM,PH,RW,SG,SZ,TJ,UA,UZ", "42": "LC", "60": "KG,TH", "90": "AD,AL,AT,BA,BE,BG,BS,BW,CH,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,GT,HK,HN,HR,HT,HU,IE,IS,IT,KI,KN,LI,LS,LT,LU,LV,MC,MD,ME,MK,MT,MU,MW,NI,NL,NO,PA,PL,PT,RO,SC,SE,SI,SK,SM,TN,TR,TZ,VA,VC,XK", "120": "FJ,VU", "180": "AG,BB,DM,PE,SV", "360": "GE", "R": "AF,AO,AR,BD,BR,BY,CF,CG,CL,DZ,ER,GY,IL,KP,LB,LR,MA,ML,MX,NA,NE,NR,PY,RS,SD,SR,TD,TM,UY,VE,YE,ZA", "E": "AM,AZ,BF,BJ,BT,CD,CM,CU,ET,GA,GN,GQ,IN,IQ,KZ,LY,MN,NG,SO,SS,ST,SY,TG,UG", "T": "AU,CA,CI,GB,KE,NZ,PG,PK,US", "A": "BH,BI,BO,CV,DJ,EG,GH,GW,JO,KM,KW,LK,MG,MH,MR,MV,MZ,NP,PW,QA,SA,SB,SL,SN,TL,TO,TV,WS,ZM,ZW", "F": "BZ,DO,JM,PS,TT" }, "BG": { "15": "ST", "30": "AO,BY,CN,CV,KZ,MN,PH,RW,TJ,UZ", "60": "KG,TH,TN", "90": "AE,AL,AR,BA,BB,BN,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,GY,KP,LR,ML,NE,NR,SD,SR,SZ,TD,TM,US,YE", "F": "AD,AT,BE,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LS,LY,MM,NG,PK,RU,SS,SY,TG,UG,VN,ZA", "A": "BD,BF,BH,BI,BO,DJ,EG,ET,GH,GW,ID,IQ,IR,JM,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MW,MZ,NA,NP,OM,QA,SA,SL,SO,TZ,ZW" }, "BF": { "14": "HK", "21": "DM", "30": "FM,PH,RW,SG,VC", "90": "BB,BD,BJ,CF,CI,EC,GH,GM,HT,MA,SC,SN,TD,TN", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CM,CO,CU,GA,GE,GQ,ID,IQ,KG,KN,KR,KZ,LS,LY,MD,MW,MY,OM,PG,PK,QA,SO,SS,ST,SV,SY,TJ,TW,UG,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,LB,LI,LT,LU,LV,MC,ME,MH,MK,MM,MN,MT,MX,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TH,TM,TO,TR,TT,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BI,BO,CG,DJ,ET,IR,KH,KM,LA,LC,LK,MG,MO,MR,MU,MV,MZ,NA,NI,NP,PW,TL,TV,TZ,WS", "F": "CV,GN,GW,LR,ML,NE,NG,SL,TG", "T": "KE" }, "BI": { "21": "DM", "30": "FM,PH,SG", "90": "BB,BJ,CF,EC,GM,HT,MU,SC,TZ,UG,VC", "180": "RW", "E": "AE,AG,AL,AU,BF,BH,BS,BT,BW,CM,CO,CU,GA,GE,GN,GQ,HK,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,MW,MY,OM,PG,PK,QA,SL,SO,ST,SV,SY,TG,TJ,VN", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LA,LB,LI,LR,LT,LU,LV,MA,MC,ME,MG,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BD,BO,CV,DJ,ET,GH,GW,IR,KH,KM,LC,LK,MO,MR,MV,MZ,NA,NG,NI,NP,PW,SN,SS,TL,TV,WS,ZM,ZW", "F": "CD,KE", "T": "CI" }, "KH": { "14": "BN,MM", "15": "IR", "21": "DM", "30": "FM,ID,LA,MY,PH,RW,SG,VN", "60": "TH", "90": "BB,EC,GM,HT,PA,SC,VC", "E": "AE,AG,AL,AM,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CO,CU,ET,GA,GE,GN,GQ,HK,IN,IQ,JP,KG,KN,KR,KZ,LS,LY,MD,MN,NG,OM,PG,PK,QA,RU,SO,SS,ST,SV,SY,TG,TJ,UG,UZ,ZM,ZW", "R": "AD,AF,AO,AR,AT,AZ,BA,BE,BG,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,KI,KP,LB,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MT,MX,NE,NL,NO,NR,NZ,PE,PL,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TR,TT,UA,US,UY,VA,VE,VU,XK,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,KM,KW,LC,LK,MG,MH,MO,MR,MU,MV,MW,MZ,NA,NI,NP,PW,SL,TL,TV,TZ,WS", "T": "CI,KE,TW", "F": "PS" }, "CM": { "30": "FM,PH,RW,SG", "90": "BB,BJ,CF,CG,GA,GD,GM,GQ,HT,KI,ML,NG,SC,TD", "120": "VU", "180": "DM", "E": "AE,AG,AL,AU,BF,BH,BS,BT,BW,CD,CO,EC,GE,GN,HK,ID,IN,IQ,KG,KN,KR,KZ,LY,MD,MM,MW,MY,OM,PG,PK,QA,SO,SR,SS,ST,SV,SY,TG,TJ,UG,UZ,VN,ZA,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KP,KW,LA,LB,LI,LK,LR,LS,LT,LU,LV,MA,MC,ME,MH,MK,MN,MT,MX,NE,NI,NL,NO,NP,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SZ,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,VA,VC,VE,XK,YE", "A": "BD,BI,BO,CV,DJ,ET,GH,GW,IR,KH,KM,LC,MG,MO,MR,MU,MV,MZ,NA,PW,SL,SN,TL,TV,TZ,WS", "T": "CI,KE" }, "CA": { "15": "ST", "30": "AO,BY,CV,FM,KZ,MN,MO,MW,MZ,PH,RW,SG,SZ,TJ,UZ", "42": "LC", "60": "KG,TH", "90": "AD,AE,AL,AR,AT,BA,BE,BG,BN,BO,BR,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,GT,GY,HK,HN,HR,HT,HU,IE,IL,IS,IT,JP,KI,LI,LT,LU,LV,MA,MC,MD,ME,MK,MT,MU,MY,NA,NI,NL,NO,PL,PT,PY,RO,RS,SC,SE,SI,SK,SM,SN,TR,TW,UA,UY,VA,XK,ZA,ZM", "120": "FJ,TN,VU", "180": "AG,BB,CR,DM,KN,KR,MX,PA,PE,SV,US,VC", "240": "BS", "360": "GE", "R": "AF,CF,CG,CN,DZ,ER,IR,KP,LR,ML,NE,NR,RU,SD,SR,TD,TM,VE,YE", "A": "AM,BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,JO,KH,KM,KW,LA,LB,LK,MG,MH,MR,MV,NP,OM,PW,QA,SA,SB,SL,SO,TL,TO,TV,TZ,WS,ZW", "T": "AU,CI,GB,KE,NZ,PG,PK", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,SS,SY,TG,UG,VN", "F": "BZ,DO,JM,LS,PS,TT" }, "CV": { "21": "DM", "30": "AO,FM,HK,MY,PH,RW,SG,TL,ZA", "60": "RU", "90": "BB,BJ,BS,CI,EC,GM,HT,MA,MO,MU,SC,SN,TN,VC", "E": "AE,AG,AL,AU,BH,BT,BW,CD,CM,CO,CU,GA,GE,GQ,ID,IN,IQ,KG,KN,KR,LS,LY,MD,MN,OM,PG,PK,QA,SO,SS,SV,SY,TJ,UG,UZ,VN", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JP,KI,KP,KW,KZ,LB,LI,LT,LU,LV,MC,ME,MK,MM,MT,MX,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TH,TM,TO,TR,TT,TW,UA,US,UY,VA,VE,VU,XK,YE", "A": "BD,BI,BO,DJ,ET,IR,JO,KH,KM,LA,LC,LK,MG,MH,MR,MV,MW,MZ,NA,NI,NP,PW,TV,TZ,WS,ZM,ZW", "F": "BF,GH,GN,GW,LR,ML,NE,NG,PS,SL,ST,TG", "T": "KE" }, "CF": { "21": "DM", "30": "FM,PH,SG", "90": "BB,BF,BJ,CG,CI,CM,EC,GA,GM,HT,RW,SC,SN,TD,VC", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CO,CU,GE,GN,GQ,HK,ID,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,MW,MY,OM,PG,PK,QA,SL,SO,SS,ST,SV,SY,TG,TJ,UG,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BD,BI,BO,CV,DJ,ET,GH,GW,IR,KH,KM,LA,LK,MG,MO,MR,MU,MV,MZ,NA,NG,NI,NP,PW,TL,TV,TZ,WS", "T": "KE", "F": "PS" }, "TD": { "14": "HK", "21": "DM", "30": "FM,MY,PH,SG", "90": "BB,BJ,CF,CG,CI,CM,GA,GM,HT,ML,MU,NE,NG,RW,SC,VC", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CO,CU,EC,GE,GN,GQ,ID,IQ,KG,KN,KR,KZ,LS,LY,MD,MW,OM,PG,PK,QA,SL,SO,SS,ST,SV,SY,TG,TJ,TZ,UG,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,MM,MN,MT,MX,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BD,BF,BI,BO,CV,DJ,ET,GH,GW,IR,KH,KM,LA,LK,MG,MO,MR,MV,MZ,NA,NI,NP,PW,SN,TL,TV,WS", "T": "KE" }, "CL": { "21": "DM", "30": "AO,BY,FM,KZ,MO,MY,PH,SG,SZ,TJ,UZ", "42": "LC", "60": "KG", "90": "AD,AE,AL,AR,AT,BA,BB,BE,BG,BO,BR,BS,BW,BZ,CH,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GE,GR,GT,GY,HK,HN,HR,HT,HU,IE,IL,IS,IT,JM,JP,KI,KN,LI,LT,LU,LV,MA,MC,MD,ME,MK,MN,MT,MU,NI,NL,NO,PA,PL,PT,PY,RO,RS,RU,SC,SE,SI,SK,SM,SR,TH,TN,TR,TT,TW,UA,UY,VA,VC,VN,XK,ZA", "120": "FJ,VU", "180": "AG,CR,MX,PE,SV", "R": "AF,BN,CF,CG,CN,DZ,ER,GM,KP,KW,LR,ML,NE,NR,SA,SB,SD,SN,TD,TM,TO,VE,YE", "A": "AM,BD,BH,BI,CV,DJ,EG,GH,GW,ID,IR,JO,KH,KM,LA,LB,LK,MG,MH,MR,MV,MW,MZ,NA,NP,OM,PW,QA,RW,TL,TV,TZ,WS,ZM,ZW", "E": "AU,AZ,BF,BJ,BT,CD,CM,CU,ET,GA,GN,GQ,IN,IQ,LS,LY,MM,NG,PK,SL,SO,SS,ST,SY,TG,UG", "T": "CA,CI,GB,KE,KR,NZ,PG,US", "F": "DO,PS" }, "CN": { "10": "UZ", "21": "IR", "30": "AE,AG,AO,AZ,BB,BJ,BY,FM,GD,GE,JM,KZ,MV,MW,MY,MZ,QA,RS,SG,SR", "42": "LC", "60": "TH", "90": "AL,BA,BS,CU,HT,KI,KN,MA,MU,SC,TN,ZM", "120": "FJ,VU", "180": "AM,DM", "R": "AD,AF,AR,AT,BE,BG,BR,BZ,CA,CF,CG,CH,CL,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FR,GB,GM,GR,GT,GY,HK,HN,HR,HU,IE,IL,IN,IS,IT,KP,KW,LI,LR,LT,LU,LV,MC,ME,MH,MK,ML,MO,MT,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PH,PL,PT,PY,RO,SD,SE,SI,SK,SM,SZ,TD,TM,TT,TW,UA,US,UY,VA,VC,VE,XK,YE", "E": "AU,BF,BT,BW,CD,CM,CO,EC,GA,GN,GQ,JP,KG,KR,LS,LY,MD,MN,NG,RU,SS,SV,SY,TG,TJ,TR,UG,VN,ZA", "A": "BD,BH,BI,BN,BO,CV,DJ,EG,ET,GH,GW,ID,IQ,JO,KH,KM,LA,LB,LK,MG,MM,MR,NP,OM,PW,RW,SA,SB,SL,SN,SO,ST,TL,TO,TV,TZ,WS,ZW", "T": "CI,KE,PG,PK", "F": "PS" }, "CO": { "21": "DM", "30": "BZ,FM,ID,JM,KZ,PH,RS,SG", "60": "TH", "90": "AD,AE,AL,AR,AT,BA,BB,BE,BG,BO,BR,BS,CH,CL,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GR,GT,GY,HK,HN,HR,HU,IL,IS,IT,KI,KN,KR,LI,LT,LU,LV,MA,MC,MD,ME,MK,MT,NL,NO,PA,PL,PT,PY,RO,RU,SC,SE,SI,SK,SM,TR,TT,UA,UY,VA,VC,VE,XK", "120": "FJ", "180": "MX,PE,SV", "360": "GE", "R": "AF,AO,BN,BY,CA,CF,CG,CN,CR,DZ,ER,GB,GD,GM,HT,IE,IR,JP,KP,KW,LB,LC,LR,ML,NA,NE,NR,NZ,SA,SB,SD,SN,SR,SZ,TD,TM,TN,TO,US,VU,YE,ZA", "F": "AG,DO,PS", "E": "AM,AU,AZ,BJ,BT,BW,CD,CM,CU,ET,GA,GN,GQ,IN,IQ,KG,LS,LY,MM,MN,MW,MY,NG,PG,PK,SL,SO,SS,ST,SY,TG,TJ,TW,UG,UZ,VN,ZW", "A": "BD,BF,BH,BI,CV,DJ,EG,GH,GW,JO,KH,KM,LA,LK,MG,MH,MO,MR,MU,MV,MZ,NI,NP,OM,PW,QA,RW,TL,TV,TZ,WS,ZM", "T": "CI,KE" }, "KM": { "14": "HK", "21": "DM", "30": "FM,MY,PH,RW,SG", "90": "BB,BJ,EC,GM,HT,PA,SC,UG,VC", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CM,CO,CU,GA,GE,GN,GQ,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,OM,PG,PK,QA,SL,SO,SS,ST,SV,SY,TG,TJ,VN,ZA", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE", "A": "BD,BF,BI,BO,CV,DJ,ET,GH,GW,IR,KH,LA,LB,LC,LK,MG,MO,MR,MU,MV,MW,MZ,NA,NG,NI,NP,PW,SN,TL,TV,TZ,WS,ZM,ZW", "T": "CI,KE" }, "CG": { "21": "DM", "30": "FM,PH,RW,SG", "90": "BB,BJ,CD,CF,CI,CM,GA,GM,HT,MU,SC,SN,TD,VC", "E": "AE,AG,AL,AU,BF,BH,BS,BT,BW,CO,CU,EC,GE,GN,GQ,HK,ID,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,MY,OM,PG,PK,QA,SL,SO,SS,ST,SV,SY,TG,TH,TJ,UG,VN,ZA,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,LA,LB,LC,LI,LR,LT,LU,LV,MC,ME,MH,MK,ML,MM,MT,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE", "A": "BD,BI,BO,CV,DJ,ET,GH,GW,IR,KH,KM,LK,MG,MO,MR,MV,MW,MZ,NG,NP,PW,TL,TV,TZ,WS,ZM", "T": "KE,MA" }, "CD": { "21": "DM", "30": "FM,PH,SG", "90": "BB,BI,BJ,GM,HT,MU,RW,SC,UG,VC,ZW", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CM,CO,CU,EC,GA,GE,GN,GQ,HK,ID,IQ,KG,KN,KR,LS,LY,MD,MN,MW,MY,OM,PG,PK,QA,SL,SO,SS,ST,SV,SY,TG,TJ,VN,ZA", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,KZ,LA,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE", "A": "BD,BF,BO,CV,DJ,ET,GH,GW,IR,KH,KM,LK,MG,MO,MR,MV,MZ,NG,NP,PW,SN,TL,TV,TZ,WS,ZM", "T": "CI", "F": "KE" }, "CR": { "14": "BN", "30": "BB,BZ,FM,HK,JM,MY,PH,SG,TJ,TR,UZ,ZA", "42": "LC", "90": "AD,AE,AL,AR,AT,BA,BE,BG,BO,BR,BS,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GR,GT,GY,HN,HR,HT,HU,IE,IL,IS,IT,JP,KI,KN,LI,LT,LU,LV,MC,MD,ME,MK,MT,NI,NL,NO,PA,PE,PL,PT,PY,RO,RS,RU,SC,SE,SI,SK,SM,TN,TT,UY,VA,VC,VE,XK", "180": "DM,MX,SV", "360": "GE", "R": "AF,AO,BY,CA,CF,CG,CN,DZ,ER,FJ,GM,KP,KW,LR,MA,ML,NA,NE,NR,NZ,SA,SB,SD,SR,SZ,TD,TM,TO,TW,UA,US,VU,YE", "E": "AG,AM,AU,AZ,BF,BH,BJ,BT,CD,CM,CU,ET,GA,GN,GQ,ID,IN,IQ,KG,KZ,LS,LY,MM,MN,NG,OM,PG,SL,SO,SS,ST,SY,TG,UG,VN", "A": "BD,BI,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LB,LK,MG,MH,MO,MR,MU,MV,MW,MZ,NP,PW,QA,RW,SN,TH,TL,TV,TZ,WS,ZM,ZW", "T": "CI,GB,KE,KR,PK", "F": "DO,PS" }, "CI": { "21": "DM", "30": "FM,MZ,PH,SG", "90": "BB,BJ,CF,GH,GM,HT,MR,RW,SC,SN,TD,TN,VC", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CM,CO,CU,EC,GA,GE,GQ,HK,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MM,MN,MY,OM,PG,PK,QA,SO,SS,ST,SV,SY,TJ,UG,UZ,VN,ZA,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LA,LI,LK,LT,LU,LV,MA,MC,ME,MH,MK,MT,MX,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TH,TM,TO,TR,TT,TW,UA,US,UY,VA,VE,VU,XK,YE", "A": "BD,BI,BO,CG,DJ,ET,IR,KH,KM,LB,LC,MG,MO,MU,MV,MW,NA,NI,NP,PW,TL,TV,TZ,WS", "F": "BF,CV,GN,GW,LR,ML,NE,NG,SL,TG", "T": "KE" }, "HR": { "15": "IR,ST", "30": "AO,BY,CN,CV,KZ,MN,PH,SZ,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,GY,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LS,LY,MM,NG,PK,RU,SS,SY,TG,UG,VN,ZA", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,JM,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MW,MZ,NA,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "CU": { "15": "IR", "28": "BB,DM", "30": "AG,BY,FM,MN,SG,TJ,UZ", "42": "LC", "60": "GD,TH", "90": "BW,GM,GY,KI,MY,NA,NI,RU,SC,TT,VC", "120": "FJ,VU", "E": "AE,AL,AM,AO,AU,AZ,BH,BJ,BS,BT,CD,CM,CO,EC,ET,GA,GE,GN,GQ,HK,ID,IN,IQ,KR,KZ,LS,LY,MW,NG,OM,PG,PK,SL,SO,SR,SS,ST,SV,SY,TG,UG,VN,ZA", "R": "AD,AF,AR,AT,BA,BE,BG,BN,BR,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FR,GB,GR,GT,HN,HR,HT,HU,IE,IL,IS,IT,JM,JO,JP,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PH,PL,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SN,SZ,TD,TM,TN,TO,TR,TW,UA,US,UY,VA,VE,XK,YE", "A": "BD,BF,BI,BO,CV,DJ,EG,GH,GW,KH,KM,LA,LK,MG,MH,MO,MR,MU,MV,MZ,NP,PW,QA,RW,TL,TV,TZ,WS,ZM,ZW", "T": "CI,KE", "F": "KG,KN,MD,PS" }, "CY": { "15": "ST", "30": "AO,BY,CN,CV,KR,KZ,MN,MW,PH,RW,SZ,TJ,UZ,ZA", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JP,KI,KN,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TO,TT,TV,TW,TZ,UA,UG,UY,VC,VE,WS,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,GY,KP,LR,ML,NA,NE,NR,SD,SR,TD,TM,TN,US,YE", "F": "AD,AT,BE,BG,BZ,CH,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,JM,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG", "E": "AZ,BF,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LS,LY,MM,NG,PK,RU,SS,SY,TG,VN", "A": "BD,BH,BI,BO,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MZ,NP,OM,QA,SA,SL,SO,TR" }, "CZ": { "14": "LS", "15": "ST", "30": "AO,BY,CV,JM,KZ,MN,PH,SZ,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,CN,DZ,ER,GY,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,PK,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MW,MZ,NA,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "DK": { "14": "LS", "15": "LA,ST", "30": "AO,BY,CN,CV,KZ,MN,MZ,PH,SZ,TJ,UZ", "45": "VN", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JM,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NA,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,SR,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "240": "BS", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,PK,RU,SS,SY,TG,UG", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LB,LK,MG,MR,MV,MW,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "DJ": { "14": "HK", "21": "DM", "30": "FM,PH,RW,SG", "90": "BB,BJ,EC,ET,GM,HT,SC,SN,VC", "E": "AE,AG,AL,AU,AZ,BH,BS,BT,BW,CD,CM,CO,CU,GA,GE,GN,GQ,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,MW,MY,OM,PG,PK,QA,SL,SS,ST,SV,SY,TG,TH,TJ,TZ,UG,VN,ZW", "R": "AD,AF,AM,AO,AR,AT,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BD,BF,BI,BO,CV,GH,GW,IR,KH,KM,LA,LB,LC,LK,MG,MO,MR,MU,MV,MZ,NA,NG,NI,NP,PW,SO,TL,TV,WS,ZM", "T": "CI,KE" }, "DM": { "28": "CU", "30": "BY,CN,CR,FM,MY,PH,RW,SG,SZ,UZ", "60": "TH", "90": "AD,AR,AT,BA,BE,BG,BR,BS,BW,CH,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GM,GR,HK,HR,HT,HU,IL,IS,IT,KI,LI,LS,LT,LU,LV,MC,MD,ME,MO,MT,MU,NL,NO,PA,PL,PT,RO,RS,RU,SC,SE,SI,SK,SM,TZ,UA,UY,VA,VE,XK,ZM", "120": "FJ,VU", "180": "GY,PE,SR", "E": "AE,AL,AU,BF,BH,BJ,BT,CD,CM,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KZ,LY,MN,NG,OM,PK,QA,SO,SS,ST,SV,SY,TG,TJ,TW,UG,VN,ZW", "R": "AF,AO,AZ,BN,CA,CF,CG,CL,DZ,ER,GB,GT,HN,IE,JP,KP,KW,LB,LR,MA,MH,MK,ML,MM,MX,NA,NE,NR,NZ,PY,SA,SD,SN,TD,TM,TN,TR,US,YE,ZA", "F": "AG,BB,BZ,CV,DO,GD,JM,KN,LC,MW,PS,TT,VC", "A": "AM,BD,BI,BO,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LK,MG,MR,MV,MZ,NI,NP,PW,SB,SL,TL,TO,TV,WS", "T": "CI,KE,KR,PG" }, "DO": { "7": "TN", "30": "AO,FM,GY,HK,MY,PH,SG,TJ,TW,UZ", "60": "BR,HN,MA,PE,PY,RU,TH", "90": "BW,CO,EC,GD,GM,IL,JP,KI,SC,TT", "180": "SV", "360": "GE", "E": "AE,AG,AL,AU,BF,BH,BJ,BS,BT,CD,CM,CU,ET,GA,GN,GQ,ID,IN,IQ,KG,KN,KZ,LS,LY,MD,NG,OM,PG,PK,SL,SO,SR,SS,ST,SY,TG,TR,UG,VN", "R": "AD,AF,AR,AT,AZ,BA,BB,BE,BG,BN,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DM,DZ,EE,ER,ES,FI,FJ,FR,GB,GR,GT,HR,HT,HU,IE,IS,IT,JM,KP,KW,LC,LI,LR,LT,LU,LV,MC,ME,MK,ML,MM,MN,MT,MX,NA,NE,NL,NO,NR,NZ,PA,PL,PT,RO,RS,SA,SD,SE,SI,SK,SM,SZ,TD,TM,TO,UA,US,UY,VA,VC,VE,VU,XK,YE,ZA", "A": "AM,BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LB,LK,MG,MH,MO,MR,MU,MV,MW,MZ,NI,NP,PW,QA,RW,SB,SN,TL,TV,TZ,WS,ZM,ZW", "T": "CI,KE,KR", "F": "PS" }, "EC": { "21": "DM", "30": "BY,CN,FM,JM,KZ,MN,MO,MY,PH,SG,TJ", "60": "TH", "90": "AG,AR,BB,BO,BR,BS,CL,CO,GD,GM,GY,HK,HN,HT,IL,KN,MD,NI,PA,PY,RU,SC,TR,TT,UA,UY,VC,VE,ZA", "180": "AM,PE,SV", "360": "GE", "E": "AE,AL,AU,AZ,BF,BJ,BT,BW,CD,CM,CU,ET,GA,GN,GQ,IN,IQ,KG,LS,LY,MM,NG,PK,SL,SO,SS,ST,SY,TG,TW,UG,UZ,VN", "R": "AD,AF,AO,AT,BA,BE,BG,BN,BZ,CA,CF,CG,CH,CR,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FJ,FR,GB,GR,GT,HR,HU,IE,IS,IT,JP,KI,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MT,MX,NE,NL,NO,NR,NZ,PL,PT,RO,RS,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,US,VA,VU,XK,YE", "A": "BD,BH,BI,CV,DJ,EG,GH,GW,ID,IR,JO,KH,KM,LA,LC,LK,MG,MH,MR,MU,MV,MW,MZ,NA,NP,OM,PW,QA,RW,TL,TV,TZ,WS,ZM,ZW", "T": "CI,KE,KR,PG", "F": "DO,PS" }, "EG": { "21": "DM,IR", "30": "FM,JO,RW", "90": "BB,BJ,GM,HK,HT,KI,KN,MO,MU,MY,SC,VC", "E": "AE,AG,AL,AM,AU,BH,BS,BT,BW,CD,CM,CO,CU,EC,ET,GA,GE,GQ,IQ,KG,KR,KZ,LS,MD,MM,MW,OM,PG,PK,QA,SG,SL,SR,SS,ST,SV,SY,TG,TH,UG,UZ,VN,ZA,ZM", "R": "AD,AF,AO,AR,AT,AZ,BA,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JP,KP,KW,LC,LI,LR,LT,LU,LV,LY,MA,MC,ME,MK,ML,MN,MT,MX,NA,NE,NL,NO,NR,NZ,PA,PE,PH,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SZ,TD,TM,TN,TO,TR,TT,TW,UA,US,UY,VA,VE,VU,XK", "A": "BF,BI,BO,CV,DJ,GH,GW,ID,KH,KM,LA,LB,LK,MG,MH,MR,MV,MZ,NG,NI,NP,PW,SN,SO,TJ,TL,TV,TZ,WS,YE,ZW", "T": "CI,KE", "F": "GN,PS" }, "SV": { "21": "DM", "30": "BY,BZ,CR,FM,HK,JM,MY,PH,SG,UZ", "90": "AD,AE,AL,AR,AT,BA,BB,BE,BG,BR,BS,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GR,GT,HN,HR,HT,HU,IE,IL,IS,IT,JP,KI,KN,LI,LT,LU,LV,MC,MD,ME,MK,MT,NI,NL,NO,PA,PL,PT,PY,RO,RU,SC,SE,SI,SK,SM,TR,TT,UY,VA,VC,XK", "180": "PE", "360": "GE", "R": "AF,AO,AZ,BN,CA,CF,CG,CN,DZ,ER,FJ,GB,GM,GY,KP,KW,LB,LR,MA,ML,MM,MX,NA,NE,NR,NZ,RS,SA,SB,SD,SR,SZ,TD,TM,TN,TO,TW,UA,US,VE,VU,YE,ZA", "E": "AG,AM,AU,BF,BH,BJ,BT,BW,CD,CM,CU,ET,GA,GN,GQ,ID,IN,IQ,KG,KZ,LS,LY,MN,NG,OM,PG,PK,QA,SL,SO,SS,ST,SY,TG,TJ,UG,VN", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LC,LK,MG,MH,MO,MR,MU,MV,MW,MZ,NP,PW,RW,SN,TH,TL,TV,TZ,WS,ZM,ZW", "T": "CI,KE,KR", "F": "DO,PS" }, "GQ": { "14": "HK", "15": "ST", "21": "DM", "30": "AO,FM,PH,RW,SG", "90": "BB,BJ,CF,CG,CM,EC,GA,GM,HT,SC,TD,TN,VC", "E": "AE,AG,AL,AU,BF,BH,BS,BT,BW,CD,CO,CU,GE,GN,ID,IN,IQ,KG,KN,KR,LS,LY,MD,MN,MY,OM,PG,PK,QA,SL,SO,SS,SV,SY,TG,TJ,UG,VN,ZM", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,KZ,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TH,TM,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BD,BI,BO,CV,DJ,ET,GH,GW,IR,KH,KM,LA,LC,LK,MG,MO,MR,MU,MV,MW,MZ,NA,NG,NI,NP,PW,SN,TL,TV,TZ,WS,ZW", "T": "CI,KE", "F": "PS" }, "ER": { "21": "DM", "30": "FM,PH,RW,SG", "90": "BJ,GM,HT,SC,UG,VC", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CM,CO,EC,ET,GA,GE,GN,GQ,HK,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MM,MN,MW,MY,MZ,OM,PG,PK,QA,SL,SR,SS,ST,SV,SY,TG,TH,TJ,TZ,VN,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BB,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MT,MX,NE,NI,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SN,SZ,TD,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BD,BF,BI,BO,CV,DJ,GH,GW,IR,KH,KM,LA,LK,MG,MO,MR,MU,MV,NA,NG,NP,PW,SO,TL,TV,WS,ZM", "T": "CI,KE" }, "EE": { "30": "AO,BY,CN,CV,JM,KZ,MN,PH,SZ,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,GY,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE,ZA", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,ST,VA", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LS,LY,MM,NG,PK,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MW,MZ,NA,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "SZ": { "30": "AO,FM,MY,PH,RW,SG,ZA", "42": "LC", "60": "GH,GY", "90": "BJ,BS,BW,EC,GD,GM,HT,IE,IL,KI,KN,MU,MW,NA,SC,TW,TZ,UG,VC,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM", "E": "AE,AL,AU,BF,BH,BT,CD,CM,CO,CU,GA,GE,GN,GQ,HK,ID,IN,IQ,KG,KZ,LY,MD,MN,OM,PG,PK,QA,RU,SO,SS,ST,SV,SY,TG,TJ,VN", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BR,BY,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GR,GT,HN,HR,HU,IS,IT,JP,KP,KW,LA,LB,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MM,MT,MX,NE,NL,NO,NP,NR,NZ,PA,PE,PL,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SR,TD,TH,TM,TN,TO,TR,UA,US,UY,UZ,VA,VE,YE", "A": "BD,BI,BO,CV,DJ,ET,GW,IR,JO,KH,KM,LK,MG,MH,MO,MR,MV,NG,NI,PW,SL,SN,TL,TV,WS", "F": "BZ,JM,LS,MZ,PS,TT", "T": "CI,KE,KR" }, "ET": { "21": "DM", "30": "FM,PH,RW,SG", "90": "BB,BJ,GM,HT,SC,VC", "E": "AE,AG,AL,AU,BF,BH,BS,BT,BW,CD,CM,CO,EC,GA,GE,GN,GQ,HK,ID,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,MW,MY,OM,PG,PK,QA,SL,SS,ST,SV,SY,TG,TJ,UG,VN,ZA,ZM", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NA,NE,NL,NO,NP,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE", "A": "BD,BI,BO,CV,DJ,ER,GH,GW,IR,KH,KM,LA,LC,LK,MG,MO,MR,MU,MV,MZ,NG,NI,PW,SN,SO,TH,TL,TV,TZ,WS,ZW", "T": "CI,KE" }, "FJ": { "21": "DM", "30": "AO,CN,CR,FM,KR,MY,PH,RW,SG", "42": "LC", "60": "TH", "90": "AR,BD,BR,BS,CL,CO,EC,GE,GM,GT,HK,HT,IE,IL,KI,KN,MU,MW,NI,PA,RU,SC,TN,UG,VC,XK,ZM,ZW", "120": "VU", "180": "AG,BB,PE,SV", "E": "AE,AL,AM,AU,BF,BH,BJ,BT,BW,CD,CM,CU,ET,GA,GN,GQ,ID,IN,IQ,KG,KZ,LS,LY,MD,MM,MN,NG,OM,PK,QA,SO,SS,ST,SY,TG,TJ,TR,UZ,VN", "R": "AD,AF,AT,AZ,BA,BE,BG,BN,BY,CA,CF,CG,CH,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FR,GB,GD,GR,GY,HN,HR,HU,IS,IT,JP,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MT,MX,NA,NE,NL,NO,NZ,PL,PT,PY,RO,RS,SA,SD,SE,SI,SK,SM,SR,SZ,TD,TM,TT,TW,UA,US,UY,VA,VE,YE,ZA", "F": "BZ,DO,JM,PS", "A": "BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LK,MG,MH,MO,MR,MV,MZ,NP,NR,PW,SB,SL,SN,TL,TO,TV,TZ,WS", "T": "CI,KE,PG" }, "FI": { "14": "LS", "15": "LA,ST", "30": "AO,BY,CN,CV,KZ,MN,MW,MZ,PH,SZ,TJ,UZ", "45": "VN", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JM,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NA,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,RU,SS,SY,TG,UG", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LB,LK,MG,MR,MV,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "FR": { "14": "LS", "15": "ST", "30": "AO,BY,CN,CV,JM,KZ,MN,MW,MZ,PH,RW,SZ,TJ,UZ", "45": "VN", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NA,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,RU,SS,SY,TG,UG", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,NP,OM,QA,SA,SL,SO,TZ,ZW" }, "GA": { "14": "HK", "15": "ST", "21": "DM", "30": "FM,MY,PH,RW,SG,ZA", "90": "BB,BD,BJ,CF,CG,CM,EC,GM,HT,KI,MA,MU,PA,SC,TD,TN,VC", "E": "AE,AG,AL,AU,BF,BH,BS,BT,BW,CD,CO,CU,GE,GN,GQ,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,OM,PG,PK,QA,SL,SO,SS,SV,SY,TG,TJ,UG,UZ,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KP,KW,LB,LI,LR,LT,LU,LV,MC,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TH,TM,TO,TR,TT,TW,UA,US,UY,VA,VE,VU,XK,YE", "A": "BI,BO,CV,DJ,ET,GH,GW,IR,KH,KM,LA,LC,LK,MG,MO,MR,MV,MW,MZ,NA,NG,NI,NP,PW,SN,TL,TV,TZ,WS", "T": "CI,KE" }, "GM": { "30": "FM,MY,PH,RW,SG,SZ", "90": "BD,BJ,BS,BW,CI,GD,HT,KI,KN,LS,MR,MU,MW,SC,SN,TZ,UG,VC", "120": "FJ,VU", "180": "BB,DM", "E": "AE,AG,AL,AU,BH,BT,CD,CM,CO,CU,EC,GA,GE,GQ,HK,ID,IN,IQ,KG,KR,KZ,LY,MD,MN,OM,PG,PK,QA,SO,SS,ST,SV,SY,TJ,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JO,JP,KP,KW,LB,LI,LT,LU,LV,MA,MC,ME,MH,MK,MM,MT,MX,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,TD,TH,TM,TO,TR,TW,UA,US,UY,UZ,VA,VE,XK,YE,ZA", "F": "BF,BZ,CV,GH,GN,GW,JM,LR,ML,NE,NG,SL,TG,TN,TT", "A": "BI,BO,DJ,ET,IR,KH,KM,LA,LC,LK,MG,MO,MV,MZ,NA,NI,NP,PW,TL,TV,WS", "T": "KE" }, "GE": { "21": "DM", "28": "BB", "30": "CN,FM,HK,MO,MY,RS", "42": "LC", "45": "IR", "60": "TH", "90": "AD,AE,AL,AR,AT,AZ,BA,BE,BG,BR,BS,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GR,HR,HT,HU,IL,IS,IT,KZ,LI,LT,LU,LV,MC,MD,ME,MK,MT,MU,NL,NO,PE,PL,PT,PY,RO,RU,SC,SE,SI,SK,TR,UA,UY,VA,VC", "120": "FJ", "180": "AG", "360": "KG", "R": "AF,AO,BN,BZ,CA,CF,CG,CR,DZ,ER,GB,GM,GT,GY,HN,IE,JP,KI,KP,LR,MA,ML,MN,MX,NA,NE,NR,NZ,PA,PH,SB,SD,SN,SR,SZ,TD,TM,TN,TO,TT,TW,US,VE,VU,XK,YE,ZA", "F": "AM,BY,DO,PS,SM,TJ,UZ", "E": "AU,BF,BJ,BT,BW,CD,CM,CU,GA,GN,GQ,ID,IN,IQ,KN,KR,LS,LY,MM,NG,PG,PK,SG,SO,SS,ST,SV,TG,UG,VN", "A": "BD,BH,BI,BO,CV,DJ,EG,ET,GH,GW,JM,JO,KH,KM,KW,LA,LB,LK,MG,MH,MR,MV,MW,MZ,NI,NP,OM,PW,QA,RW,SA,SL,SY,TL,TV,TZ,WS,ZM,ZW", "T": "CI,KE" }, "DE": { "14": "LS", "15": "ST", "30": "AO,BY,CN,CV,KZ,MN,MW,MZ,PH,SZ,TJ,UZ", "45": "VN", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JM,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,NA,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ,TN,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CO,CY,CZ,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,MY,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,RU,SS,SY,TG,UG", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "GH": { "30": "FM,MZ,PH,SG,SZ", "90": "BD,BJ,BS,CI,GD,GM,GY,HT,KI,KN,MU,MW,RW,SC,SN,TZ,UG,VC,ZA,ZW", "120": "FJ,VU", "180": "BB,DM", "E": "AE,AG,AL,AU,BH,BT,BW,CD,CM,CO,EC,GA,GE,GQ,HK,ID,IN,IQ,KG,KR,KZ,LY,MD,MM,MN,MY,OM,PG,QA,SO,SR,SS,ST,SV,SY,TJ,UZ,VN", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GR,GT,HN,HR,HU,IE,IL,IS,IT,JP,KP,KW,LA,LI,LT,LU,LV,MA,MC,ME,MH,MK,MT,MX,NA,NL,NO,NP,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,TD,TH,TM,TN,TO,TR,TW,UA,US,UY,VA,VE,XK,YE", "F": "BF,BZ,CV,GN,GW,JM,LR,ML,NE,NG,SL,TG,TT", "A": "BI,BO,DJ,ET,IR,JO,KH,KM,LB,LC,LK,LS,MG,MO,MR,MV,NI,PW,TL,TV,WS,ZM", "T": "KE,PK" }, "GR": { "15": "LA,ST", "30": "AO,BY,CN,CV,JM,KZ,MN,PH,RW,SZ,TJ,TN,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PW,PY,RS,SB,SC,SG,SN,TL,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,PE,SV", "240": "BS", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LS,LY,MM,NG,PK,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LB,LK,MG,MR,MV,MW,MZ,NA,NP,OM,QA,SA,SL,SO,TZ,ZW" }, "GD": { "30": "AO,CN,CR,FM,MY,PH,RW,SG,SZ,UZ", "60": "CU", "90": "AD,AR,AT,BA,BD,BE,BG,BR,BS,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GM,GR,GY,HK,HR,HT,HU,IE,IL,IS,IT,KI,LI,LS,LT,LU,LV,MC,MD,ME,MO,MT,MU,MW,NL,NO,PA,PL,PT,RO,RS,RU,SC,SE,SI,SK,SM,TZ,UA,UG,UY,VA,VE,XK,ZM,ZW", "120": "FJ,VU", "180": "PE,SR", "E": "AE,AL,AM,AU,BF,BH,BJ,BT,CD,CM,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KZ,LY,MN,NG,OM,PK,QA,SO,SS,ST,SV,SY,TG,TH,TJ,VN", "R": "AF,AZ,BN,BY,CA,CF,CG,DZ,ER,GT,HN,JP,KP,KW,LB,LR,MA,MH,MK,ML,MM,MX,NA,NE,NR,NZ,PY,SD,TD,TM,TN,TO,TW,US,YE,ZA", "F": "AG,BB,BZ,DM,DO,JM,KN,LC,PS,TT,VC", "A": "BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LK,MG,MR,MV,MZ,NI,NP,PW,SA,SB,SL,SN,TL,TR,TV,WS", "T": "CI,GB,KE,KR,PG" }, "GT": { "21": "DM", "30": "BZ,CR,FM,HK,JM,MY,PH,SG,UZ", "60": "TH", "90": "AD,AL,AR,AT,BA,BB,BE,BG,BR,BS,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GR,HN,HR,HT,HU,IE,IL,IS,IT,JP,KI,KN,LI,LT,LU,LV,MC,MD,ME,MK,MT,NI,NL,NO,PA,PE,PL,PT,PY,RO,RU,SC,SE,SI,SK,SM,TR,TT,TW,UY,VA,VC,XK", "180": "SV", "R": "AF,AO,BN,BY,CA,CF,CG,CN,DZ,EG,ER,FJ,GD,GM,GY,KP,KW,LB,LR,ML,MX,NA,NE,NR,NZ,RS,SA,SB,SD,SR,SZ,TD,TM,TN,TO,UA,US,VE,VU,YE,ZA", "E": "AE,AG,AM,AU,AZ,BF,BH,BJ,BT,BW,CD,CM,CU,ET,GA,GE,GN,GQ,IN,IQ,KG,KZ,LS,LY,MA,MM,MN,NG,OM,PG,PK,QA,SL,SO,SS,ST,SY,TG,TJ,UG,VN", "A": "BD,BI,BO,CV,DJ,GH,GW,ID,IR,JO,KH,KM,LA,LC,LK,MG,MH,MO,MR,MU,MV,MW,MZ,NP,PW,RW,SN,TL,TV,TZ,WS,ZM,ZW", "T": "CI,GB,KE,KR", "F": "DO,PS" }, "GN": { "14": "HK", "21": "DM", "30": "FM,MY,PH,SG", "90": "BB,BD,BJ,CI,GH,GM,HT,RW,SC,SN,TN,VC", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CM,CO,EC,GA,GE,GQ,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MM,MN,OM,PG,PK,QA,SO,SS,ST,SV,SY,TJ,TZ,UG,VN,ZA,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LB,LI,LT,LU,LV,MC,ME,MH,MK,MT,MX,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TH,TM,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE", "A": "BI,BO,DJ,EG,ET,IR,KH,KM,LA,LC,LK,MG,MO,MR,MU,MV,MW,MZ,NA,NI,NP,PW,TL,TV,WS", "F": "BF,CV,GW,LR,ML,NE,NG,SL,TG", "T": "KE,MA" }, "GW": { "21": "DM", "30": "FM,PH,RW,SG", "90": "BB,BD,BJ,CI,GH,GM,HT,SC,SN,TN,VC", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CM,CO,CU,EC,GA,GE,GQ,HK,ID,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,MY,OM,PG,PK,QA,SO,SS,SV,SY,TJ,TZ,UG,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,LA,LB,LI,LT,LU,LV,MA,MC,ME,MH,MK,MM,MT,MX,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TH,TM,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BI,BO,DJ,ET,IR,KH,KM,LC,LK,MG,MO,MR,MU,MV,MW,MZ,NA,NI,NP,PW,TL,TV,WS", "F": "BF,CV,GN,LR,ML,NE,NG,SL,ST,TG", "T": "KE" }, "GY": { "30": "AO,CR,FM,MV,MW,MY,PH,RW,SG,SZ,ZA", "42": "LC", "90": "AR,BR,BS,BW,CL,CO,EC,GD,GH,GM,HK,HT,IE,KI,LS,MU,PA,RU,SC,TZ,UY,XK", "120": "FJ,VU", "180": "AG,DM,KN,PE,SR,VC", "E": "AE,AL,AM,AU,BF,BJ,BT,CD,CM,CU,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KZ,LY,MD,MN,NG,OM,PK,SO,SS,ST,SV,SY,TG,TH,TJ,UG,UZ,VN", "R": "AD,AF,AT,AZ,BA,BE,BG,BN,BY,CA,CF,CG,CH,CN,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FR,GR,GT,HN,HR,HU,IL,IS,IT,JP,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NA,NE,NL,NO,NR,NZ,PL,PT,PY,RO,RS,SA,SD,SE,SI,SK,SM,SN,TD,TM,TN,TO,TR,TW,UA,US,VA,VE,YE", "A": "BD,BH,BI,BO,CV,DJ,EG,GW,IR,JO,KH,KM,LA,LK,MG,MO,MR,MZ,NI,NP,PW,QA,SB,SL,TL,TV,WS,ZM,ZW", "F": "BB,BZ,DO,JM,PS,TT", "T": "CI,GB,KE,KR,PG" }, "HT": { "14": "HK", "30": "AO,FM,MY,PH,SG", "90": "BJ,GD,GM,IL,KI,RW,SC,TW", "E": "AE,AG,AL,AM,AU,BF,BH,BS,BT,BW,CD,CM,CO,CU,EC,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KN,KZ,LS,LY,MD,MN,NG,OM,PG,PK,QA,SL,SO,SS,ST,SV,SY,TG,TJ,UG,VN", "R": "AD,AF,AR,AT,AZ,BA,BB,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DM,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GR,GT,GY,HN,HR,HU,IE,IS,IT,JM,JP,KP,KW,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SZ,TD,TH,TM,TN,TO,TT,UA,US,UY,UZ,VA,VC,VE,VU,XK,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LK,MG,MO,MR,MU,MV,MW,MZ,NP,PW,SN,TL,TR,TV,TZ,WS,ZM,ZW", "T": "CI,KE,KR", "F": "PS", "N": "SR" }, "HN": { "21": "DM", "30": "BO,BZ,FM,HK,MY,PH,SG,UZ", "90": "AD,AE,AL,AR,AT,BA,BB,BE,BG,BR,BS,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GM,GR,GT,HR,HT,HU,IL,IS,IT,JP,KI,KN,LI,LT,LU,LV,MC,MD,ME,MK,MT,NI,NL,NO,PA,PL,PT,PY,RO,RU,SC,SE,SI,SK,SM,TN,TR,TT,TW,UY,VC,XK", "180": "CR,PE,SV", "360": "GE", "R": "AF,AO,BN,BY,CA,CF,CG,CN,DZ,ER,FJ,GB,GD,GY,IE,JM,KP,KW,LB,LR,MA,ML,MM,MX,NA,NE,NR,NZ,RS,SA,SB,SD,SR,SZ,TD,TH,TM,TO,UA,US,VE,VU,YE,ZA", "E": "AG,AM,AU,AZ,BF,BH,BJ,BT,BW,CD,CM,CU,ET,GA,GN,GQ,ID,IN,IQ,IR,KG,KZ,LS,LY,MN,NG,OM,PG,PK,QA,SL,SO,SS,ST,SY,TG,TJ,UG,VN", "A": "BD,BI,CV,DJ,EG,GH,GW,JO,KH,KM,LA,LC,LK,MG,MH,MO,MR,MU,MV,MW,MZ,NP,PW,RW,SN,TL,TV,TZ,WS,ZM,ZW", "T": "CI,KE,KR", "F": "DO,PS,VA" }, "HK": { "7": "UZ", "14": "BJ,BN,KZ,MN,NE,PH,RS,RU,UA", "21": "IR", "30": "AE,AG,BB,BY,FM,GE,GY,ID,JM,KG,MA,MW,MY,SG,YE,ZA", "42": "LC", "60": "TH", "90": "AD,AL,AR,AT,BA,BE,BG,BR,BS,BW,CH,CL,CO,CV,CY,CZ,DE,DK,EC,EE,EG,ES,FI,FR,GD,GR,GT,HR,HT,HU,IE,IL,IS,IT,JP,KI,KN,KR,LI,LS,LT,LU,LV,MC,MD,ME,MK,MT,MU,NA,NI,NL,NO,PA,PL,PT,RO,SC,SE,SI,SK,SM,SR,TN,TR,TZ,UY,VA,VC,VE,XK,ZM", "120": "FJ,VU", "180": "AM,DM,MX,PE,ZW", "R": "AF,AZ,BD,CF,CG,CR,DZ,ER,GM,HN,IN,KP,LR,MH,ML,NR,PK,PY,SB,SD,SN,SZ,TD,TM,UG,US", "A": "AO,BF,BH,BI,BO,DJ,ET,GH,GW,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MZ,NP,OM,PW,QA,RW,SA,TL,TO,TV,TW,WS", "T": "AU,CA,CI,GB,KE,NZ,PG", "F": "BZ,CN,DO,MO,PS,TT", "E": "BT,CD,CM,CU,GA,GN,GQ,IQ,LY,MM,NG,SL,SO,SS,ST,SV,SY,TG,TJ,VN" }, "HU": { "15": "ST", "30": "AO,BY,CN,CV,JM,KZ,MN,PH,SZ,TJ,UZ,ZA", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,PE,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,GY,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LS,LY,MM,NG,PK,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MW,MZ,NA,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "IS": { "14": "LS", "15": "ST", "21": "DM", "30": "AO,BY,CN,CV,KZ,MN,PH,SG,TJ,UZ", "42": "LC", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JM,JP,KI,KN,KR,MA,MD,ME,MK,MO,MU,MY,NA,NI,PA,PE,PY,RS,SB,SC,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,XK,ZA", "120": "FJ", "180": "AG,AM,CR,GB,MX,SV", "240": "BS", "360": "GE", "R": "AF,CF,CG,DZ,ER,GY,KP,LR,ML,NE,NR,SD,SR,SZ,TD,TM,VU,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,IQ,LY,MM,NG,RU,SL,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IR,JO,KH,KM,KW,LA,LB,LK,MG,MH,MR,MV,MW,MZ,NP,OM,PW,QA,RW,SA,SN,SO,TZ,WS,ZM,ZW" }, "IN": { "14": "BT,KZ", "15": "IR", "30": "AO,FM,MO,RW", "60": "TH", "90": "BB,GD,GM,HT,KI,KN,MU,SC,SN,TT,VC", "120": "FJ,VU", "180": "DM,SV", "E": "AE,AG,AL,AM,AU,AZ,BF,BH,BJ,BS,BW,CD,CM,CO,EC,EG,GA,GE,GN,GQ,HK,IQ,JP,KG,KR,LS,LY,MA,MD,MW,MZ,NG,OM,RU,SG,SO,SR,SS,ST,SY,TG,TJ,UG,UZ,VN,ZA,ZM", "R": "AD,AF,AR,AT,BA,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,KP,KW,LB,LI,LR,LT,LU,LV,MC,ME,MK,ML,MT,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PH,PK,PL,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SZ,TD,TM,TN,TO,TR,TW,UA,US,UY,VA,VE,XK,YE", "A": "BI,BO,CV,DJ,ET,GH,GW,ID,JO,KH,KM,LA,LC,LK,MG,MH,MM,MN,MR,MV,PW,QA,SL,TL,TV,TZ,WS,ZW", "T": "CI,KE,PG", "F": "JM,MY,NP,PS" }, "ID": { "14": "BN,MM", "15": "IR,JP", "21": "DM", "30": "AO,BR,BY,FM,GY,HK,KH,KZ,LA,ML,MO,MY,NA,PH,RS,SG,TJ,TL,TR,UZ,VN", "60": "TH", "90": "AL,BB,CL,CO,EC,GM,HT,KI,KN,MA,RW,SC,TN,VC,VE", "120": "FJ", "180": "PE", "R": "AD,AF,AR,AT,BA,BE,BG,BZ,CA,CF,CG,CH,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GD,GR,GT,HN,HR,HU,IE,IL,IS,IT,JM,KP,KW,LB,LC,LI,LR,LT,LU,LV,MC,ME,MK,MT,MX,NE,NL,NO,NR,NZ,PA,PL,PT,PY,RO,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TO,TT,TW,UA,US,UY,VA,VU,XK,YE", "E": "AE,AG,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CU,GA,GE,GN,GQ,IN,IQ,KR,LS,LY,MD,MN,NG,RU,SO,SS,ST,SV,SY,TG,UG,ZA,ZM", "A": "AM,AZ,BD,BI,BO,CV,DJ,ET,GH,GW,JO,KG,KM,LK,MG,MH,MR,MU,MV,MW,MZ,NI,NP,OM,PW,QA,SL,TV,TZ,WS,ZW", "T": "CI,KE,PG,PK", "F": "PS" }, "IR": { "14": "KZ,MY", "15": "TN,VE", "21": "DM", "30": "FM,IQ,TJ", "45": "GE", "90": "AM,HT,SC,TR", "E": "AE,AG,AL,AU,AZ,BF,BH,BJ,BS,BT,BW,CD,CM,CO,EC,ET,GA,GN,GQ,HK,ID,KG,KN,KR,LS,MD,MW,NG,PG,RU,SG,SO,SS,ST,SV,TG,TZ,UG,VN,ZA,ZM", "R": "AD,AF,AO,AR,AT,BA,BB,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GM,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,LA,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MN,MT,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PH,PL,PS,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TH,TM,TO,TT,TW,UA,US,UY,UZ,VA,VC,VU,XK,YE", "A": "BI,BO,CV,DJ,GH,GW,KH,KM,LB,LK,MG,MO,MR,MU,MV,MZ,NP,OM,PW,QA,RW,SL,SY,TL,TV,WS,ZW", "T": "CI,KE,PK", "N": "LY" }, "IQ": { "15": "TN", "21": "DM", "30": "FM,IR,MY", "90": "HT,SC,ZM", "E": "AE,AG,AL,AM,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CO,EC,EG,ET,GA,GE,GN,GQ,HK,ID,KG,KN,KR,LS,LY,MD,MW,NG,OM,PG,PK,QA,SG,SL,SO,SS,ST,SV,SY,TG,TJ,TZ,UG,VN,ZW", "R": "AD,AF,AO,AR,AT,AZ,BA,BB,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GM,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,KZ,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MN,MT,MU,MX,NA,NE,NI,NL,NO,NP,NR,NZ,PA,PE,PH,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TH,TM,TO,TR,TT,TW,UA,US,UY,UZ,VA,VC,VE,VU,XK,YE,ZA", "A": "BI,BO,CV,DJ,GH,GW,KH,KM,LA,LB,LK,MG,MO,MR,MV,MZ,PW,RW,TL,TV,WS", "T": "CI,KE" }, "IE": { "15": "ST", "30": "AE,AO,BY,CN,CV,FM,KZ,MN,MW,MZ,PH,SZ,TJ,UZ", "42": "LC", "60": "KG,TH", "90": "AL,AR,BA,BN,BO,BR,BS,BW,CL,CO,EC,GD,GM,GT,GY,HK,HN,HT,IL,JM,JP,KI,KN,KR,LS,MA,MD,ME,MH,MK,MO,MU,MY,NA,NI,PA,PW,PY,RS,SC,SG,SN,TN,TR,TW,UA,UG,UY,VC,VE,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,BB,CR,DM,MX,PE,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GB,GR,HR,HU,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,TT,VA", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,PK,RU,SS,SY,TG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,NP,OM,QA,RW,SA,SB,SL,SO,TL,TO,TV,TZ,WS,ZW" }, "IL": { "30": "AO,FM,KZ,MN,MZ,SG,SZ,UZ", "42": "LC", "60": "KG,PH,TH", "90": "AD,AE,AL,AR,AT,BA,BE,BG,BR,BS,BW,BY,BZ,CF,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GR,GT,HK,HN,HR,HT,HU,IE,IS,IT,JM,JP,KI,KN,KR,LI,LS,LT,LU,LV,MC,MD,ME,MK,MO,MT,MU,MW,NI,NL,NO,PA,PL,PT,PW,PY,RO,RS,RU,SC,SE,SI,SK,SM,TO,TR,TT,TW,UA,UY,VA,VC,XK,ZA", "120": "FJ,VU", "180": "BB,CR,DM,MX,PE,SR,SV", "360": "GE", "N": "BD,BN,DZ,IR,LB,LY,MY,PK,SA,SY,YE", "E": "AG,AU,BF,BH,BJ,BT,CD,CM,CU,GA,GN,GQ,ID,IN,MA,MM,NG,OM,QA,SO,SS,ST,TG,UG,VN", "A": "AM,AZ,BI,BO,CV,DJ,ET,GH,GW,JO,KH,KM,LA,LK,MG,MH,MR,MV,NA,NP,NR,PG,RW,SB,SL,SN,TJ,TL,TV,TZ,WS,ZM,ZW", "T": "CA,CI,GB,KE,NZ,US", "R": "AF,CG,CN,EG,ER,GM,GY,IQ,KP,KW,LR,ML,NE,SD,TD,TM,TN,VE", "F": "DO,PS" }, "IT": { "14": "LS", "15": "ST", "30": "AO,BY,CN,CV,KZ,MN,MW,MZ,PH,SZ,TJ,UZ", "45": "VN", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JM,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NA,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "240": "BS", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,RU,SS,SY,TG,UG", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "JM": { "30": "AO,FM,MY,PH,RS,RW,SG,SZ,TJ,UZ", "42": "LC", "60": "GH,TH", "90": "AR,BD,BR,BS,BW,CL,CO,EC,GD,GM,HK,HT,IL,KI,LS,MU,MW,NA,PA,RU,SC,TZ,UG,UY,VE,ZA,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM,GY,KN,MX,PE,SR,VC", "E": "AE,AL,AM,AU,AZ,BF,BH,BJ,BT,CD,CM,CU,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KZ,LY,MD,MM,MN,NG,OM,PK,QA,SO,SS,ST,SV,SY,TG,VN", "R": "AD,AF,AT,BA,BE,BG,BN,BY,CA,CF,CG,CH,CN,CR,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FR,GB,GR,GT,HN,HR,HU,IE,IS,IT,JP,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MT,NE,NL,NO,NR,NZ,PL,PT,PY,RO,SA,SB,SD,SE,SI,SK,SM,TD,TM,TN,TO,TW,UA,US,VA,XK,YE", "F": "BZ,DO,PS,TT", "A": "BI,BO,CV,DJ,EG,GW,IR,JO,KH,KM,LA,LK,MG,MO,MR,MV,MZ,NI,NP,PW,SL,SN,TL,TR,TV,WS", "T": "CI,KE,KR,PG" }, "JP": { "15": "IR,LA,ST", "30": "AE,AO,BY,CN,FM,JM,KZ,MN,MZ,PH,SG,SZ,TJ,UZ", "42": "LC", "45": "VN", "60": "KG,TH", "90": "AD,AL,AR,AT,BA,BB,BE,BG,BN,BO,BR,BS,BW,BZ,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GR,GT,GY,HK,HN,HR,HT,HU,IE,IL,IS,IT,KI,KN,KR,LI,LS,LT,LU,LV,MA,MC,MD,ME,MK,MO,MT,MU,MY,NA,NI,NL,NO,PA,PL,PT,PY,RO,RS,SC,SE,SI,SK,SM,SN,TN,TR,TT,TW,UA,UY,VA,VC,VE,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,MX,PE,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,GM,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "T": "AU,CA,CI,GB,KE,NZ,PG,PK,US", "A": "AZ,BD,BH,BI,CV,DJ,EG,ET,GH,GW,ID,IN,IQ,JO,KH,KM,KW,LB,LK,MG,MH,MR,MV,MW,NP,OM,PW,QA,RW,SA,SB,SL,TL,TO,TV,TZ,WS,ZW", "E": "BF,BJ,BT,CD,CM,CU,GA,GN,GQ,LY,MM,NG,RU,SO,SS,SY,TG,UG", "F": "DO,PS" }, "JO": { "21": "DM", "30": "FM,HK,TJ,ZA", "60": "TH", "90": "BB,EC,EG,HT,KN,MY,SC,TN,TR,XK", "180": "LB", "360": "GE", "E": "AE,AG,AL,AU,AZ,BF,BH,BJ,BS,BT,BW,CD,CM,CO,CU,GA,GN,GQ,IN,IQ,KG,KR,LS,LY,MA,MD,MM,NG,OM,PG,QA,RU,SG,SL,SO,SS,ST,SV,TG,UG,UZ,VN,ZM,ZW", "R": "AD,AF,AO,AR,AT,BA,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GM,GR,GT,GY,HN,HR,HU,IE,IL,IR,IS,IT,JM,JP,KI,KP,KW,KZ,LA,LC,LI,LR,LT,LU,LV,MC,ME,MH,MK,ML,MN,MT,MX,NA,NE,NL,NO,NR,NZ,PA,PE,PH,PL,PS,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TO,TT,TW,UA,US,UY,VA,VC,VE,VU", "A": "AM,BI,BO,CV,DJ,ET,GH,GW,ID,KH,KM,LK,MG,MO,MR,MU,MV,MW,MZ,NI,NP,PW,RW,TL,TV,TZ,WS,YE", "T": "CI,KE,PK", "F": "SY" }, "KZ": { "14": "HK,IR,MO,OM", "21": "DM", "28": "BB", "30": "AE,BR,CN,FM,MY,PH,RS,VN", "60": "TH", "90": "AL,AR,AZ,CO,EC,GM,HT,KN,MD,MN,NA,RU,SC,TN,TR,UA,VC", "180": "AG,AM", "360": "GE", "R": "AD,AF,AO,AT,BA,BE,BG,BN,BZ,CA,CF,CG,CH,CL,CR,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FJ,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JP,KI,KP,KW,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TO,TT,TW,US,UY,VA,VE,VU,XK,YE,ZA", "E": "AU,BF,BJ,BS,BT,BW,CD,CM,CU,ET,GA,GN,GQ,IN,IQ,LS,LY,MM,MW,NG,PG,PK,SG,SO,SS,ST,SV,TG,UG", "A": "BD,BH,BI,BO,CV,DJ,EG,GH,GW,ID,JM,JO,KH,KM,LA,LK,MG,MH,MR,MU,MV,MZ,NI,NP,PW,QA,RW,SA,SL,SY,TL,TV,TZ,WS,ZM,ZW", "F": "BY,DO,GD,KG,PS,TJ,UZ", "T": "CI,KE,KR" }, "KE": { "30": "FM,MY,PH,SG,SZ", "60": "GH", "90": "BI,BJ,BS,BW,CU,GD,GM,HK,HT,KI,KN,LS,MU,MW,NA,SC,TZ,UG,VC,ZA,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM,RW", "360": "ET", "E": "AE,AL,AU,BH,BT,CM,CO,EC,GA,GE,GN,GQ,IN,IQ,KG,KR,KZ,LY,MD,MM,MN,OM,PK,QA,RU,SO,SR,ST,SV,SY,TG,TJ,VN", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ES,FI,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JP,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,MT,MX,NE,NI,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,SA,SB,SE,SI,SK,SM,TD,TH,TM,TN,TO,TR,TW,UA,US,UY,UZ,VA,VE,XK,YE", "A": "BF,BO,CD,CV,DJ,GW,ID,IR,JO,KH,KM,LA,LC,LK,MG,ML,MO,MR,MV,MZ,NG,NP,PW,SD,SL,SN,TL,TV,WS", "T": "CI,PG", "F": "ER,JM,SS,TT" }, "KI": { "30": "AO,CR,FM,KR,MO,MY,PH,RW,SG", "42": "LC", "90": "AD,AE,AT,BA,BE,BG,BS,BW,CH,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,HK,HR,HT,HU,IE,IS,IT,KN,LI,LS,LT,LU,LV,MC,MD,ME,MT,MU,MW,NL,NO,PA,PL,PT,RO,SC,SE,SI,SK,SM,TN,TZ,VA,VC,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM,PE", "E": "AL,AM,AU,BF,BH,BJ,BT,CD,CM,CO,CU,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KZ,LY,MN,NG,OM,PK,QA,SO,SS,ST,SV,SY,TG,TH,TJ,TW,UG,UZ,VN", "R": "AF,AR,AZ,BN,BR,BY,CA,CF,CG,CL,CN,DZ,ER,GT,GY,HN,IL,JP,KP,KW,LB,LR,MA,MK,ML,MM,MX,NA,NE,NR,NZ,PY,RS,RU,SA,SD,SR,SZ,TD,TM,TR,UA,US,UY,VE,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LK,MG,MH,MR,MV,MZ,NI,NP,PG,PW,SB,SL,SN,TL,TO,TV,WS", "F": "BZ,DO,JM,PS,TT", "T": "CI,GB,KE" }, "XK": { "21": "DM", "30": "FM,ME", "60": "TH", "90": "AD,AE,AG,AL,AT,BE,BG,CH,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GM,GR,HR,HT,HU,IS,IT,LI,LT,LU,LV,MC,MK,MT,NL,NO,PL,PT,RO,SE,SI,SK,SM,TR,TW,VA,VC", "R": "AF,AO,AR,AZ,BA,BB,BN,BR,BW,BY,BZ,CA,CF,CG,CL,CN,CR,DO,DZ,ER,FJ,GB,GD,GE,GT,GY,HN,IE,IL,IN,JP,KG,KI,KP,KW,KZ,LB,LC,LR,MA,ML,MM,MN,MU,MX,NA,NE,NI,NR,NZ,PA,PE,PH,PY,RU,SA,SB,SD,SN,SR,SZ,TD,TJ,TM,TN,TO,TT,UA,US,UY,UZ,VE,VU,YE,ZA", "N": "AM,CU,HK,KH,SC", "E": "AU,BF,BH,BJ,BS,BT,CD,CM,CO,EG,GA,GN,GQ,ID,IQ,KN,KR,LS,LY,MD,MW,MY,NG,OM,PG,PK,QA,SG,SL,SO,SS,ST,SV,SY,TG,UG,VN,ZM,ZW", "A": "BD,BI,BO,CV,DJ,ET,GH,GW,IR,JM,JO,KM,LA,LK,MG,MH,MO,MR,MV,MZ,NP,PW,RW,TL,TV,TZ,WS", "T": "CI,KE", "F": "PS,RS" }, "KW": { "10": "UZ", "15": "IR,ST", "21": "DM", "30": "BY,FM,HK,KR,KZ,PH,SG,SZ,TJ", "42": "LC", "60": "KG,TH", "90": "AL,BA,BB,BS,BW,EC,GT,HN,HT,JO,KN,MA,ME,MU,MY,NI,PA,PK,RS,SC,TN,TR,UA,VC,XK,ZM", "120": "VU", "180": "AM,EG,LB,SV", "360": "GE", "R": "AD,AF,AO,AR,AT,BE,BG,BR,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FJ,FR,GD,GM,GR,GY,HR,HU,IE,IL,IN,IS,IT,JM,JP,KI,KP,LI,LR,LT,LU,LV,MC,MK,ML,MT,MX,NA,NE,NL,NO,NR,PE,PL,PT,PY,RO,SE,SI,SK,SM,SR,TD,TM,TO,TT,US,UY,VA,VE,ZA", "E": "AG,AU,BF,BJ,BT,CD,CM,CO,CU,GA,GN,GQ,LS,LY,MD,MM,NG,PG,RU,SS,TG,TW,UG,VN", "A": "AZ,BD,BI,BN,BO,CV,DJ,ET,GH,GW,ID,IQ,KH,KM,LA,LK,MG,MH,MN,MO,MR,MV,MW,MZ,NP,PW,RW,SB,SL,SN,SO,TL,TV,TZ,WS,YE,ZW", "F": "AE,BH,DO,OM,PS,QA,SA,SD,SY", "T": "CI,GB,KE,NZ" }, "KG": { "15": "IR", "21": "DM", "28": "BB", "30": "FM,PH,VN", "60": "UZ", "90": "AZ,HT,KZ,MD,MN,MY,NA,RS,SC,TR,UA,VC", "180": "AG,AM", "360": "GE", "E": "AE,AL,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CO,CU,EC,ET,GA,GN,GQ,HK,ID,IN,IQ,KN,KR,LS,LY,MM,NG,OM,PG,PK,QA,SG,SO,SS,ST,SV,TG,TZ,UG,ZM", "R": "AD,AF,AO,AR,AT,BA,BE,BG,BN,BR,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GM,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JP,KI,KP,KW,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TT,TW,US,UY,VA,VE,VU,XK,YE,ZA", "A": "BD,BI,BO,CV,DJ,GH,GW,JM,JO,KH,KM,LA,LB,LC,LK,MG,MH,MO,MR,MU,MV,MW,MZ,NI,NP,PW,RW,SA,SL,SY,TH,TL,TV,WS,ZW", "F": "BY,GD,PS,RU,TJ", "T": "CI,KE" }, "LA": { "14": "MM", "21": "DM", "30": "BN,FM,ID,KH,MN,MY,PH,RU,RW,SG,VN", "60": "TH", "90": "EC,GM,HT,SC,VC", "E": "AE,AG,AL,AM,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CO,CU,ET,GA,GE,GN,GQ,HK,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,NG,OM,PG,PK,QA,SL,SO,SS,ST,SV,SY,TG,TJ,UG,UZ,ZW", "R": "AD,AF,AO,AR,AT,AZ,BA,BB,BE,BG,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MT,MU,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TR,TT,UA,US,UY,VA,VE,VU,XK,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,KM,KW,LK,MG,MO,MR,MV,MW,MZ,NP,PW,TL,TV,TZ,WS,ZM", "T": "CI,KE,TW", "F": "PS" }, "LV": { "15": "ST", "30": "AO,BY,CN,CV,JM,KZ,MN,PH,SZ,TJ,TR,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JP,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,GY,KI,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE,ZA", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LS,LY,MM,NG,PK,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MW,MZ,NA,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "LB": { "21": "DM", "30": "FM,IR,RW", "90": "BB,EC,HT,JO,MO,MY,SC,TR", "360": "GE", "E": "AE,AG,AL,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CO,CU,GA,GN,GQ,HK,ID,KG,KN,KR,KZ,LS,LY,MD,MW,NG,PG,PK,SG,SO,SS,ST,SV,TG,TH,TZ,UG,UZ,VN,ZM,ZW", "R": "AD,AF,AO,AR,AT,AZ,BA,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GM,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JP,KI,KP,KW,LC,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MM,MN,MT,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PH,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TT,TW,UA,US,UY,VA,VC,VE,VU,XK,YE,ZA", "A": "AM,BI,BO,CV,DJ,ET,GH,GW,IQ,KH,KM,LA,LK,MG,MH,MR,MU,MV,MZ,NP,OM,PW,QA,SL,TJ,TL,TV,WS", "T": "CI,KE", "F": "PS,SY" }, "LS": { "14": "HK", "28": "GY", "30": "AO,FM,MY,PH,RW,SG,SZ,ZA", "42": "LC", "60": "GH", "90": "BD,BJ,BS,BW,EC,GD,GM,HT,IE,IL,JP,KI,KN,MU,MW,NA,SC,TZ,UG,VC,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM", "E": "AE,AL,AU,BF,BH,BT,CD,CM,CO,CU,GA,GE,GN,GQ,ID,IN,IQ,KG,KZ,LY,MD,MN,OM,PK,QA,SO,SS,ST,SV,SY,TG,TJ,VN", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BR,BY,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GR,GT,HN,HR,HU,IS,IT,KP,KW,LA,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,TD,TH,TM,TN,TO,TR,TW,UA,US,UY,UZ,VA,VE,YE", "F": "BZ,JM,PS,TT", "A": "BI,BO,CV,DJ,ET,GW,IR,JO,KH,KM,LK,MG,MO,MR,MV,MZ,NG,NI,NP,PW,SL,SN,TL,TV,WS", "T": "CI,KE,KR,PG" }, "LR": { "21": "DM", "30": "FM,PH,SG", "90": "BB,BJ,CF,CI,EC,GM,HT,SC,SN,VC", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CM,CO,CU,GA,GE,GQ,HK,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MW,MY,OM,PG,PK,QA,RW,SO,SS,ST,SV,SY,TJ,UG,VN,ZA,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LA,LB,LC,LI,LT,LU,LV,MA,MC,ME,MH,MK,MM,MN,MT,MX,NI,NL,NO,NP,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE", "A": "BD,BI,BO,DJ,ET,IR,KH,KM,LK,MG,MO,MR,MU,MV,MZ,NA,PW,TL,TV,TZ,WS", "F": "BF,CV,GH,GN,GW,ML,NE,NG,SL,TG", "T": "KE" }, "LY": { "14": "MY", "21": "DM", "30": "FM,RW", "90": "BJ,DZ,GM,HT,MR,SC,TN,VC", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CM,CO,CU,EC,ET,GA,GE,GN,GQ,HK,ID,IQ,KG,KN,KR,LS,MD,MW,OM,PG,PK,QA,SG,SL,SO,SS,ST,SV,SY,TG,TH,TJ,UG,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BB,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JP,KI,KP,KW,KZ,LA,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MN,MT,MU,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PH,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TM,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BF,BI,BO,CV,DJ,GH,GW,IR,JO,KH,KM,LB,LK,MG,MO,MV,MZ,NG,NP,PW,SN,TL,TV,TZ,WS", "T": "CI,KE", "F": "PS" }, "LI": { "15": "ST", "21": "DM", "30": "BY,CN,CV,KZ,MN,PH,SG,SZ,TJ,UZ", "42": "LC", "60": "KG,TH", "90": "AE,AL,AR,BA,BN,BO,BR,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JM,JP,KI,KN,KR,MA,MD,ME,MK,MO,MU,MY,NA,NI,PA,PE,PY,RS,SB,SC,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,XK,ZA", "120": "FJ,VU", "180": "AG,AM,BB,CR,GB,MX,SV", "240": "BS", "360": "GE", "R": "AF,AO,CF,CG,DZ,ER,GY,KP,LR,ML,MM,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,IQ,LS,LY,NG,PK,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IR,JO,KH,KM,KW,LA,LB,LK,MG,MH,MR,MV,MW,MZ,NP,OM,PW,QA,RW,SA,SL,SN,SO,TZ,WS,ZM,ZW" }, "LT": { "15": "ST", "30": "AO,BY,CV,JM,KZ,MN,PH,SZ,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JP,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,CN,DZ,ER,GY,KI,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LS,LY,MM,NG,RU,SS,SY,TG,UG,VN,ZA", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MW,MZ,NA,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "LU": { "14": "LS", "15": "LA,ST", "30": "AO,BY,CN,CV,KZ,MN,PH,RW,SZ,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JM,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NA,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "240": "BS", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LB,LK,MG,MR,MV,MW,MZ,NP,OM,QA,SA,SL,SO,TZ,ZW" }, "MO": { "7": "HK", "10": "UZ", "14": "BN,KZ,PH", "21": "IR", "30": "AE,AG,BB,BY,FM,GE,KG,MY,RU,SG,TR,WS,ZA", "31": "KN", "60": "TH", "90": "AD,AL,AM,AR,AT,BA,BE,BG,BR,CH,CL,CV,CY,CZ,DE,DK,EC,EE,EG,ES,FI,FR,GD,GR,HR,HT,HU,IE,IL,IS,IT,JP,KI,KR,LI,LT,LU,LV,MA,MC,MD,ME,MK,ML,MN,MT,MU,NA,NI,NL,NO,PL,PT,RO,RS,SC,SE,SI,SK,SM,TZ,UY,VA,VC,XK", "120": "FJ,VU", "180": "DM,MX", "R": "AF,AO,BD,BZ,CA,CF,CG,CR,DZ,ER,GM,GT,GY,HN,IN,JM,KP,KW,LR,MH,NE,NR,PA,PE,PK,PY,SB,SD,SN,SR,SZ,TD,TM,TN,TT,UA,US,VE,YE", "E": "AU,AZ,BF,BJ,BS,BT,BW,CD,CM,CO,CU,ET,GA,GN,GQ,ID,IQ,LS,LY,MM,NG,SO,SS,ST,SV,SY,TG,TJ,UG,VN,ZM", "A": "BH,BI,BO,DJ,GH,GW,JO,KH,KM,LA,LB,LC,LK,MG,MR,MV,MW,MZ,NP,OM,PW,QA,RW,SA,SL,TL,TO,TV,TW,ZW", "F": "CN,DO,PS", "T": "CI,GB,KE,NZ,PG" }, "MG": { "14": "HK", "21": "DM", "30": "AO,FM,MY,PH,RW,SG,SZ", "90": "BB,BJ,EC,GM,GT,HN,HT,LS,NI,PA,SC,TZ,UG,VC,ZA,ZW", "180": "AG,SV", "E": "AE,AL,AU,BF,BH,BS,BT,BW,CD,CM,CO,CU,GA,GE,GN,GQ,ID,IN,IQ,KG,KN,KR,KZ,LY,MD,MN,OM,PG,PK,QA,SL,SO,SS,ST,SY,TG,TJ,VN", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GY,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE", "A": "BD,BI,BO,CV,DJ,ET,GH,GW,IR,KH,KM,LA,LC,LK,MO,MR,MU,MV,MW,MZ,NA,NG,NP,PW,SN,TL,TV,WS,ZM", "T": "CI,KE" }, "MW": { "30": "AO,FM,MY,PH,RW,SG,SZ,ZA", "42": "LC", "90": "BD,BJ,BS,BW,EC,GD,GM,HK,HT,IL,KI,KN,LS,MU,NA,SC,TZ,UG,VC,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM", "E": "AE,AL,AU,BF,BH,BT,CD,CM,CO,CU,GA,GE,GN,GQ,ID,IN,IQ,KG,KR,KZ,LY,MD,MN,OM,PG,PK,QA,SO,SS,ST,SV,SY,TG,TJ,VN", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BR,BY,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GR,GT,GY,HN,HR,HU,IE,IS,IT,JP,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,TD,TH,TM,TN,TO,TR,TW,UA,US,UY,UZ,VA,VE,YE", "F": "BZ,JM,MZ,PS,TT", "A": "BI,BO,CV,DJ,ET,GH,GW,IR,JO,KH,KM,LA,LK,MG,MO,MR,MV,NG,NI,NP,PW,SL,SN,TL,TV,WS", "T": "CI,KE" }, "MY": { "14": "IR", "30": "AE,AR,AZ,BN,BY,CL,CN,CR,FM,ID,KH,KZ,LA,MN,MO,PH,RW,SG,SR,SZ,TJ,TW,UY,UZ,VN", "60": "GY,TH", "90": "AD,AL,AT,BA,BE,BG,BR,BS,BW,CH,CU,CY,CZ,DE,DK,DZ,EC,EE,ES,FI,FR,GD,GM,GR,GT,HK,HN,HR,HT,HU,IE,IS,IT,JP,KG,KI,KN,LI,LS,LT,LU,LV,MA,MC,MD,ME,MK,MT,MU,MW,NA,NI,NL,NO,PA,PL,PT,RO,SC,SE,SI,SK,SM,SN,TN,TR,TZ,VA,VC,VE,XK,ZA,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM,MX,PE,SV,UG", "360": "GE", "R": "AF,AO,CA,CF,CG,ER,IL,KP,LR,ML,NE,NR,PY,RS,TD,TM,UA,US", "E": "AM,BF,BJ,BT,CD,CM,CO,ET,GA,GN,GQ,IN,IQ,LY,MM,NG,RU,SO,SS,ST,TG", "T": "AU,CI,GB,KE,KR,NZ,PG,PK", "A": "BD,BH,BI,BO,CV,DJ,EG,GH,GW,JO,KM,KW,LB,LC,LK,MG,MH,MR,MV,MZ,NP,OM,PW,QA,SA,SB,SD,SL,SY,TL,TO,TV,WS,YE", "F": "BZ,DO,JM,PS,TT" }, "MV": { "14": "BN,BT", "30": "CN,CR,FM,GY,KZ,MA,MN,MW,PH,RW,SG,SZ,TJ,ZA", "42": "LC", "60": "TH", "90": "AE,BD,BS,BW,EC,GD,GM,HK,HT,IE,IN,KI,KN,LS,MU,MY,PA,PK,RU,SC,TN,VC,VE,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM", "E": "AL,AM,AU,AZ,BF,BH,BJ,CD,CM,CO,CU,ET,GA,GE,GN,GQ,IQ,KG,KR,LY,MD,MM,NG,OM,SL,SO,SS,ST,SV,SY,TG,UG,UZ,VN", "R": "AD,AF,AO,AR,AT,BA,BE,BG,BR,BY,CA,CF,CG,CH,CL,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GR,GT,HN,HR,HU,IL,IS,IT,JP,KP,KW,LB,LI,LR,LT,LU,LV,MC,ME,MK,ML,MT,MX,NA,NE,NL,NO,NR,NZ,PE,PL,PT,PY,RO,RS,SD,SE,SI,SK,SM,SN,SR,TD,TM,TO,TW,UA,US,UY,VA,YE", "F": "BZ,JM,PS,TT", "A": "BI,BO,CV,DJ,GH,GW,ID,IR,JO,KH,KM,LA,LK,MG,MH,MO,MR,MZ,NI,NP,PW,QA,SA,SB,TL,TR,TV,TZ,WS", "T": "CI,GB,KE,PG" }, "ML": { "14": "HK", "21": "DM", "30": "FM,PH,RW", "90": "BJ,BS,CI,CM,DZ,GM,HT,MO,MR,SC,SN,TD,VC", "180": "BB", "E": "AE,AG,AL,AU,BH,BT,BW,CD,CO,CU,EC,GA,GE,GQ,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MW,MY,OM,PG,PK,QA,SG,SO,SS,ST,SV,SY,TJ,TZ,UG,VN,ZA,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LB,LI,LT,LU,LV,MC,ME,MH,MK,MM,MN,MT,MU,MX,NA,NI,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TH,TM,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE", "A": "BD,BI,BO,DJ,ET,IR,KH,KM,LA,LC,LK,MG,MV,MZ,NP,PW,TL,TV,WS", "F": "BF,CV,GH,GN,GW,LR,NE,NG,SL,TG,TN", "T": "KE,MA" }, "MT": { "15": "ST", "30": "AO,BY,CN,CV,KZ,MN,MW,PH,RW,SZ,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JP,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,TZ,UA,UG,UY,VC,VE,WS,XK,ZA,ZM,ZW", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,GY,KI,KP,LR,LS,ML,NA,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,JM,LI,LT,LU,LV,MC,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,RU,SS,SY,TG,VN", "A": "BD,BF,BH,BI,BO,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MZ,NP,OM,QA,SA,SL,SO" }, "MH": { "14": "HK", "21": "DM", "30": "AO,CR,KR,MY,PH,SG,TJ", "42": "LC", "90": "AD,AT,BA,BB,BE,BG,BS,CH,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GR,GT,HN,HR,HT,HU,IS,IT,KI,LI,LT,LU,LV,MC,MD,ME,MT,NI,NL,NO,PA,PL,PT,RO,SC,SE,SI,SK,SM,TW,UA,VA,VC,XK,ZM", "120": "FJ,VU", "180": "AG,MX,PE,SV", "360": "FM,PW", "E": "AE,AL,AM,AU,BF,BH,BJ,BT,BW,CD,CM,CU,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KN,KZ,LS,LY,MN,NG,OM,PK,QA,SL,SO,SS,ST,SY,TG,TH,UG,UZ,VN", "R": "AF,AR,AZ,BN,BR,BY,CA,CF,CG,CL,CN,DZ,ER,GD,GM,GY,IE,IL,JM,JP,KP,KW,LB,LR,MA,MK,ML,MM,NA,NE,NZ,PY,RS,RU,SA,SD,SR,SZ,TD,TM,TN,TR,TT,UY,VE,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LK,MG,MO,MR,MU,MV,MW,MZ,NP,NR,PG,RW,SB,SN,TL,TO,TV,TZ,WS,ZW", "F": "BZ,DO,PS,US", "T": "CI,GB,KE" }, "MR": { "14": "HK", "15": "IR", "21": "DM", "30": "FM,MY,PH,RW,SG", "90": "BF,BJ,CI,DZ,GM,HT,ML,NE,SC,SL,SN,TD,VC", "180": "BB", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CM,CO,CU,EC,GA,GE,GN,GQ,ID,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,MW,OM,PG,PK,QA,SO,SS,ST,SV,TG,TJ,TZ,UG,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CH,CL,CN,CR,CY,CZ,DE,DK,DO,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,MM,MT,MX,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TH,TM,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BD,BI,BO,CG,DJ,ET,GH,GW,KH,KM,LA,LB,LC,LK,MG,MO,MU,MV,MZ,NA,NG,NI,NP,PW,TL,TV,WS", "F": "CV,SY,TN", "T": "KE" }, "MU": { "15": "IR", "30": "AE,AO,CR,FM,MY,PH,SG,SZ,ZA", "42": "LC", "60": "CN,GH,RU,TH", "90": "AD,AL,AT,BA,BE,BG,BJ,BS,BW,CH,CL,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GA,GD,GM,GR,HK,HR,HT,HU,IL,IS,IT,JP,KI,KN,LI,LS,LT,LU,LV,MC,MD,ME,MK,MO,MT,MW,NA,NL,NO,PA,PL,PT,RO,RW,SC,SE,SI,SK,SM,SN,TN,TZ,UG,VA,VC,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM", "360": "GE", "R": "AF,AM,AR,BD,BN,BR,BY,CA,CF,CG,DZ,EG,ER,GT,GY,HN,IE,KP,KW,LB,LR,MA,ML,MX,NE,NR,PE,PY,RS,SB,SD,SR,TD,TM,TO,UA,US,UY,VE,YE", "E": "AU,AZ,BF,BH,BT,CM,CO,CU,GN,GQ,ID,IN,IQ,KG,KZ,LY,MM,MN,OM,PK,SO,SS,ST,SV,SY,TG,TJ,TW,UZ,VN", "F": "BZ,DO,JM,MZ,PS,TT", "A": "BI,BO,CD,CV,DJ,ET,GW,JO,KH,KM,LA,LK,MG,MH,MR,MV,NG,NI,NP,PW,QA,SA,SL,TL,TR,TV,WS", "T": "CI,GB,KE,KR,NZ,PG" }, "MX": { "15": "IR", "28": "BB", "30": "AO,BY,BZ,FM,KZ,MY,PH,SG,TJ,UZ", "42": "LC", "60": "KG,TH", "90": "AD,AL,AR,AT,BA,BE,BG,BO,BR,BS,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GR,GT,HK,HN,HR,HT,HU,IE,IL,IS,IT,JM,JP,KI,KN,LI,LT,LU,LV,MA,MC,MD,ME,MK,MO,MT,MU,NI,NL,NO,PA,PL,PT,PY,RO,RS,SC,SE,SI,SK,SM,TN,TT,UY,VA,VC,VE,XK", "120": "FJ,VU", "180": "AE,AG,CR,DM,PE,SV", "360": "GE", "R": "AF,BD,BN,CA,CF,CG,CN,DZ,ER,GM,GY,KP,KW,LR,ML,NE,NR,SA,SB,SD,SN,SR,SZ,TD,TM,TO,TW,UA,US,YE", "A": "AM,BH,BI,CV,DJ,EG,ET,GH,GW,ID,JO,KH,KM,LA,LB,LK,MG,MH,MR,MV,MW,MZ,NA,NP,PW,QA,RW,TL,TV,TZ,WS,ZM,ZW", "E": "AU,AZ,BF,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,IQ,LS,LY,MM,MN,NG,OM,PK,RU,SL,SO,SS,ST,SY,TG,TR,UG,VN,ZA", "T": "CI,GB,KE,KR,NZ,PG", "F": "DO,PS" }, "FM": { "14": "HK", "21": "DM", "30": "AO,BY,CR,KR,MY,PH,SG", "42": "LC", "90": "AD,AT,BA,BB,BE,BG,CH,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,HR,HT,HU,IL,IS,IT,KI,LI,LT,LU,LV,MC,MD,ME,MH,MT,NL,NO,PA,PL,PT,RO,SC,SE,SI,SK,SM,VA,VC,XK", "120": "FJ,VU", "180": "MX,PE", "360": "PW", "E": "AE,AG,AL,AM,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CU,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KN,KZ,LS,LY,MN,NG,OM,PK,QA,SL,SO,SS,ST,SV,SY,TG,TH,TJ,UG,UZ,VN", "R": "AF,AR,AZ,BN,BR,CA,CF,CG,CL,CN,DZ,ER,GT,GY,HN,IE,JM,JO,JP,KP,KW,LB,LR,MA,MK,ML,MM,NA,NE,NZ,PY,RS,RU,SA,SD,SR,SZ,TD,TM,TN,TR,TT,TW,UA,UY,VE,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,KH,KM,LA,LK,MG,MO,MR,MU,MV,MW,MZ,NI,NP,NR,PG,RW,SB,SN,TL,TO,TV,TZ,WS,ZM,ZW", "F": "BZ,DO,PS,US", "T": "CI,GB,KE" }, "MD": { "21": "DM", "28": "BB", "30": "FM,MY,RW", "90": "AD,AL,AT,AZ,BA,BE,BG,BR,BS,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GM,GR,HR,HT,HU,IL,IS,IT,KN,KZ,LI,LT,LU,LV,MC,ME,MK,MO,MT,NA,NL,NO,PA,PL,PT,RO,RS,RU,SC,SE,SI,SK,TN,TR,VA,VC", "120": "FJ", "180": "AG,PE", "360": "GE", "R": "AF,AO,AR,BN,BZ,CA,CF,CG,CN,CR,DO,DZ,ER,GB,GT,GY,HN,IE,JO,JP,KI,KP,KW,LC,LR,MA,MH,ML,MM,MX,NE,NR,NZ,PH,PY,SA,SB,SD,SN,SR,SZ,TD,TH,TM,TO,TT,TW,US,UY,VE,VU,XK,YE,ZA", "F": "AM,BY,GD,KG,PS,SM,TJ,UA,UZ", "E": "AE,AU,BF,BH,BJ,BT,BW,CD,CM,CU,EG,ET,GA,GN,GQ,HK,ID,IN,IQ,KR,LS,LY,MN,NG,PG,PK,SG,SO,SS,ST,SV,TG,UG,VN", "A": "BD,BI,BO,CV,DJ,GH,GW,IR,JM,KH,KM,LA,LB,LK,MG,MR,MU,MV,MW,MZ,NI,NP,OM,PW,QA,SL,SY,TL,TV,TZ,WS,ZM,ZW", "T": "CI,KE" }, "MC": { "15": "ST", "21": "DM", "30": "AE,AO,BY,CN,CV,FM,JM,KR,KZ,MN,MO,MY,PH,RW,SG,SZ,TJ,UZ", "42": "LC", "60": "KG,TH", "90": "AL,AR,AT,BA,BB,BE,BG,BO,BR,BS,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,GT,HK,HN,HR,HT,HU,IE,IL,IS,IT,JP,KN,LI,LT,LU,LV,MA,MD,ME,MK,MT,MU,NI,NL,NO,PA,PL,PT,PY,RO,RS,SC,SE,SI,SK,SM,TN,TR,TW,UA,UY,VA,VC,VE,XK,ZA", "120": "FJ,VU", "180": "AG,AM,CR,GB,MX,PE,SV", "360": "GE", "R": "AF,BN,CF,CG,DZ,ER,GY,KI,KP,LR,ML,NA,NE,NR,SD,SR,TD,TM,TT,YE", "F": "AD,BZ,DO,PS", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BF,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,IQ,LS,LY,MM,NG,RU,SL,SS,SY,TG,UG,VN", "A": "BD,BH,BI,DJ,EG,ET,GH,GW,ID,IR,JO,KH,KM,KW,LA,LB,LK,MG,MH,MR,MV,MW,MZ,NP,OM,PW,QA,SA,SB,SN,SO,TL,TO,TV,TZ,WS,ZM,ZW" }, "MN": { "14": "HK", "21": "DM", "30": "AE,CN,CU,FM,LA,MV,MY,PH,RU,SG,TJ,TR,UY,UZ,VN", "60": "TH", "90": "AR,BB,BR,BY,CL,EC,HT,IL,KG,KZ,MO,PA,PE,PY,RS,SC,VC", "E": "AG,AL,AM,AU,AZ,BF,BH,BJ,BS,BT,BW,CD,CM,CO,ET,GA,GE,GN,GQ,IN,IQ,JP,KN,KR,LS,LY,MD,MM,NG,OM,PG,PK,QA,SL,SO,SS,ST,SV,SY,TG,UG,ZW", "R": "AD,AF,AO,AT,BA,BE,BG,BN,BZ,CA,CF,CG,CH,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GM,GR,GT,GY,HN,HR,HU,IE,IS,IT,JM,JO,KI,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MT,MX,NA,NE,NI,NL,NO,NR,NZ,PL,PT,RO,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TT,TW,UA,US,VA,VE,VU,XK,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,ID,IR,KH,KM,LC,LK,MG,MH,MR,MU,MW,MZ,NP,PW,RW,TL,TV,TZ,WS,ZM", "T": "CI,KE", "F": "PS" }, "ME": { "14": "HK", "21": "DM", "30": "BY,CN,FM,RU,SG,SZ,TJ,UZ", "42": "LC", "60": "KG", "90": "AD,AE,AL,AR,AT,AZ,BA,BB,BE,BG,BR,CH,CL,CO,CU,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GM,GR,HR,HT,HU,IL,IS,IT,LI,LT,LU,LV,MC,MD,MK,MO,MT,NL,NO,PA,PE,PL,PT,RO,RS,SC,SE,SI,SK,TN,TR,TT,UA,UY,VA,VC,XK,ZM", "180": "AM,CR", "360": "GE", "R": "AF,AO,BN,BZ,CA,CF,CG,DO,DZ,ER,FJ,GB,GT,GY,HN,IE,JP,KI,KP,KW,LR,MA,MH,ML,MM,MX,NA,NE,NR,NZ,PH,PY,SB,SD,SN,SR,TD,TM,TO,US,VE,VU,YE,ZA", "E": "AG,AU,BF,BH,BJ,BS,BT,BW,CD,CM,GA,GN,GQ,ID,IN,IQ,KN,KZ,LS,LY,MN,MY,NG,PG,PK,SL,SO,SS,ST,SV,SY,TG,TH,TW,UG,VN,ZW", "A": "BD,BI,BO,CV,DJ,EG,ET,GH,GW,IR,JM,JO,KH,KM,LA,LB,LK,MG,MR,MU,MV,MW,MZ,NI,NP,OM,PW,QA,RW,SA,TL,TV,TZ,WS", "T": "CI,KE,KR", "F": "GD,PS,SM" }, "MA": { "15": "ST", "21": "DM", "30": "AO,BZ,FM,GA,HK,PH,RW", "60": "TH", "90": "AZ,BB,BF,BJ,BR,CI,CO,CV,EC,GD,GM,HT,KI,ML,MO,MY,NE,SC,SN,TG,TR,VC", "120": "VU", "E": "AE,AG,AL,AM,AU,BH,BS,BT,BW,CD,CM,CU,GE,GQ,IN,IQ,KG,KN,KZ,LS,LY,MD,MM,MW,OM,PG,PK,QA,SG,SL,SS,SV,UG,UZ,VN,ZA,ZM,ZW", "R": "AD,AF,AR,AT,BA,BD,BE,BG,BN,BY,CA,CF,CH,CL,CN,CR,CY,CZ,DE,DK,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JP,KP,KW,LC,LI,LR,LT,LU,LV,MC,ME,MK,MN,MT,MX,NA,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TM,TO,TT,TW,UA,US,UY,VA,VE,XK,YE", "A": "BI,BO,CG,DJ,ET,GH,GW,ID,IR,JO,KH,KM,LA,LB,LK,MG,MH,MR,MU,MV,MZ,NG,NI,NP,PW,SO,TJ,TL,TV,TZ,WS", "F": "DO,GN,PS,SY,TN", "T": "KE,KR" }, "MZ": { "14": "HK", "30": "FM,PH,RW,SG,SZ,ZA", "90": "BB,BJ,BW,EC,GD,GM,HT,KI,MU,MW,NA,SC,TZ,VC,ZM,ZW", "120": "VU", "180": "DM", "E": "AE,AG,AL,AU,BF,BH,BS,BT,CD,CM,CO,CU,GA,GE,GN,GQ,IN,IQ,KG,KN,KR,KZ,LY,MD,MN,MY,OM,PG,QA,SO,SS,SV,SY,TG,TJ,UG,VN", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JO,JP,KP,KW,LA,LB,LI,LR,LS,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SN,SR,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,XK,YE", "A": "BD,BI,BO,CV,DJ,ET,GH,GW,ID,IR,KH,KM,LC,LK,MG,MO,MR,MV,NG,NI,NP,PW,SL,TL,TV,WS", "T": "CI,KE,PK", "F": "JM,ST" }, "MM": { "14": "BN,LA,TH", "21": "DM", "30": "FM,ID,PH,SG,VN", "90": "HT,SC,VC", "E": "AE,AG,AL,AM,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CO,CU,EC,ET,GA,GE,GN,GQ,HK,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,MY,NG,OM,PG,PK,QA,RU,SL,SO,SS,ST,SV,SY,TG,TJ,UG,ZW", "R": "AD,AF,AO,AR,AT,AZ,BA,BB,BD,BE,BG,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GM,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JP,KI,KP,KW,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MT,MX,NA,NE,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PW,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TR,TT,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BI,BO,CV,DJ,GH,GW,IR,JO,KH,KM,LK,MG,MH,MO,MR,MU,MV,MW,MZ,NI,NP,RW,TL,TV,TZ,WS,ZM", "T": "CI,KE,TW" }, "NA": { "30": "FM,MO,MY,PH,RW,SG,SZ", "42": "LC", "90": "BB,BJ,BR,BS,BW,EC,GD,GM,HK,HT,KI,LS,MU,MW,PA,RU,SC,TN,TZ,VC,XK,ZA,ZM,ZW", "120": "VU", "180": "AG,DM", "E": "AE,AL,AU,BF,BH,BT,CD,CM,CO,GA,GE,GQ,ID,IN,IQ,KG,KN,KR,KZ,LY,MD,MN,OM,PK,QA,SO,SS,ST,SV,SY,TG,TJ,UG,VN", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BY,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JO,JP,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PE,PL,PS,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SR,TD,TM,TO,TR,TW,UA,US,UY,UZ,VA,VE,YE", "F": "AO,BZ,CU,DO,GN,JM,TT", "A": "BD,BI,BO,CV,DJ,ET,GH,GW,IR,KH,KM,LA,LK,MG,MR,MV,MZ,NG,NI,NP,PW,SL,SN,TH,TL,TV,WS", "T": "CI,KE,PG" }, "NR": { "14": "RU", "30": "AO,CR,FM,KR,MY,RW,SG,SZ,TW", "42": "LC", "90": "AE,BB,BS,BW,EC,GD,GM,HK,HT,IE,IL,KI,KN,LS,MU,MW,PA,SC,TZ,VC,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,DM,PE", "E": "AL,AM,AU,BF,BH,BJ,BT,CD,CM,CO,CU,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KZ,LY,MD,MN,NG,OM,PK,QA,SO,SS,ST,SV,SY,TG,TJ,UG,UZ,VN", "R": "AD,AF,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FR,GR,GT,GY,HN,HR,HU,IS,IT,JP,KP,KW,LA,LB,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MM,MT,MX,NA,NE,NL,NO,NZ,PH,PL,PT,PY,RO,RS,SA,SD,SE,SI,SK,SM,SN,SR,TD,TM,TN,TR,UA,US,UY,VA,VE,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LK,MG,MH,MO,MR,MV,MZ,NI,NP,PG,PW,SB,SL,TH,TL,TO,TV,WS", "T": "CI,GB,KE", "F": "DO,JM,PS,TT" }, "NP": { "21": "DM", "30": "FM,PH,PK,SG", "90": "BB,GM,HT,SC,VC", "E": "AE,AG,AL,AU,AZ,BF,BH,BJ,BS,BT,BW,CD,CM,CO,EC,ET,GA,GE,GN,GQ,HK,ID,IQ,KG,KN,KR,KZ,LS,LY,MD,MM,MN,MW,MY,NG,OM,PG,QA,SL,SO,SR,SS,ST,SV,SY,TG,TJ,UG,UZ,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MO,MT,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SZ,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,VA,VE,VU,XK,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,KH,KM,LA,LK,MG,MR,MU,MV,MZ,PW,RW,SN,TL,TV,TZ,WS", "T": "CI,KE", "F": "IN,PS" }, "NL": { "14": "LS", "15": "ST", "30": "AO,BY,CN,CV,KZ,MN,MW,MZ,PH,SZ,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JM,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NA,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "NZ": { "14": "LS", "30": "AE,AO,BN,BY,CN,FM,KZ,MN,MW,PH,RW,SZ,TJ,UZ", "42": "LC", "60": "KG,TH", "90": "AD,AL,AR,AT,BA,BE,BG,BO,BR,BS,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,GT,GY,HK,HN,HR,HT,HU,IE,IL,IS,IT,JP,KI,KN,KR,LI,LT,LU,LV,MA,MC,MD,ME,MK,MO,MT,MU,MY,NA,NI,NL,NO,OM,PA,PL,PT,PY,RO,RS,SC,SE,SG,SI,SK,SM,TN,TR,TW,UA,UY,VA,VC,VE,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,BB,CR,DM,MX,PE,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,RU,SD,SR,TD,TM,YE", "F": "AU,BZ,DO,JM,PS", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,SO,SS,ST,SY,TG,UG,VN", "A": "BD,BF,BH,BI,CV,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MH,MR,MV,MZ,NP,PW,QA,SA,SB,SL,SN,TL,TO,TT,TV,TZ,WS,ZW", "T": "CA,CI,GB,KE,PG,PK,US" }, "NI": { "21": "DM", "28": "BB", "30": "BY,BZ,FM,MY,PH,SG,UZ", "90": "AD,AL,AR,AT,BA,BE,BG,BR,BS,CH,CL,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GR,GT,HN,HR,HT,HU,IE,IS,IT,KN,LI,LT,LU,LV,MC,MD,ME,MK,MT,NL,NO,PA,PL,PT,PY,RO,RU,SC,SE,SI,SK,SM,TR,TT,TW,UY,VA,VC,VE,XK", "180": "SV", "R": "AF,AO,AZ,BN,CA,CF,CG,CN,CR,DZ,ER,FJ,GM,GY,IL,JM,JP,KI,KP,KW,LB,LR,MA,ML,MM,MX,NE,NR,NZ,PE,RS,SA,SB,SD,SN,SR,SZ,TD,TH,TM,TN,TO,UA,US,VU,YE,ZA", "E": "AE,AG,AM,AU,BF,BH,BJ,BT,BW,CD,CM,CO,CU,ET,GA,GE,GN,GQ,HK,ID,IN,IQ,KG,KZ,LS,LY,MN,NG,OM,PG,PK,QA,SL,SO,SS,ST,SY,TG,TJ,UG,VN", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LC,LK,MG,MH,MO,MR,MU,MV,MW,MZ,NA,NP,PW,RW,TL,TV,TZ,WS,ZM,ZW", "T": "CI,GB,KE,KR", "F": "DO,PS" }, "NE": { "14": "HK", "21": "DM", "30": "FM,PH,RW,SG", "90": "BB,BJ,CF,CI,EC,GM,HT,MA,MR,SC,SN,TD,VC", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CM,CO,CU,GA,GE,GQ,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MW,MY,OM,PG,PK,QA,SO,SS,ST,SV,SY,TJ,TZ,UG,VN,ZA,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LA,LB,LC,LI,LT,LU,LV,MC,ME,MH,MK,MM,MN,MT,MX,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TH,TM,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE", "A": "BD,BI,BO,CG,DJ,ET,IR,KH,KM,LK,MG,MO,MU,MV,MZ,NA,NI,NP,PW,TL,TV,WS", "F": "BF,CV,GH,GN,GW,LR,ML,NG,SL,TG,TN", "T": "KE" }, "NG": { "30": "FM,RW", "90": "BJ,CI,CM,GM,HT,KI,KN,SC,SN,TD", "120": "FJ,VU", "180": "BB,DM", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CO,EC,ET,GA,GE,GQ,HK,ID,IQ,KG,KR,KZ,LS,LY,MD,MW,MY,OM,PG,PK,QA,SG,SO,SR,SS,ST,SV,SY,TJ,TZ,UG,VN,ZA,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KP,KW,LA,LC,LI,LK,LT,LU,LV,MA,MC,ME,MH,MK,MM,MN,MO,MT,MX,NA,NI,NL,NO,NP,NR,NZ,PA,PE,PH,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SZ,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VC,VE,XK,YE", "A": "BI,BO,DJ,IR,KH,KM,LB,MG,MR,MU,MV,MZ,PW,TL,TV,WS", "F": "BF,CV,GH,GN,GW,LR,ML,NE,SL,TG", "T": "KE" }, "KP": { "21": "DM", "30": "FM", "90": "GM,GY,HT,SC,VC", "E": "AE,AG,AL,AU,BF,BJ,BS,BT,BW,CD,CM,CO,CU,EC,GA,GE,GN,GQ,HK,ID,IQ,KN,KR,KZ,LS,LY,MD,NG,OM,PG,PK,QA,RU,SG,SL,SO,SS,ST,SV,SY,TG,TH,TJ,UG,VN,ZM,ZW", "R": "AD,AF,AO,AR,AT,AZ,BA,BB,BE,BG,BH,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GR,GT,HN,HR,HU,IE,IL,IN,IS,IT,JM,KI,KW,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MN,MT,MU,MX,MY,NA,NE,NL,NO,NR,NZ,PA,PE,PH,PL,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "AM,BD,BI,BO,CV,DJ,EG,ET,GH,GW,IR,JO,KH,KM,LA,MG,MO,MR,MV,MW,MZ,NI,NP,PW,RW,TL,TV,TZ,WS", "T": "CI,KE", "N": "JP,LK", "F": "KG,PS" }, "MK": { "14": "HK", "21": "DM", "30": "BY,CN,FM,MY,RW,SG", "60": "KG,TR", "90": "AD,AL,AR,AT,BA,BB,BE,BG,BR,BS,CH,CL,CO,CU,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GE,GM,GR,GT,HN,HR,HT,HU,IL,IS,IT,JP,KN,LI,LT,LU,LV,MC,MD,ME,MO,MT,NI,NL,NO,PA,PL,PT,RO,RS,SC,SE,SI,SK,SM,TN,TW,UA,VA,VC,XK", "180": "AG,PE,SV", "R": "AF,AO,BN,BZ,CA,CF,CG,CR,DZ,ER,FJ,GB,GY,IE,KI,KP,KW,LC,LR,MA,ML,MM,MX,NA,NE,NR,NZ,PH,PY,SA,SB,SD,SN,SR,SZ,TD,TH,TM,TO,TT,US,UY,VE,VU,YE,ZA", "A": "AM,BD,BI,BO,CV,DJ,EG,ET,GH,GW,IR,JM,JO,KH,KM,LA,LB,LK,MG,MH,MR,MU,MV,MW,MZ,NP,OM,PW,QA,TL,TV,TZ,WS,ZM,ZW", "E": "AE,AU,AZ,BF,BH,BJ,BT,BW,CD,CM,GA,GN,GQ,ID,IN,IQ,KR,KZ,LS,LY,MN,NG,PG,PK,RU,SL,SO,SS,ST,SY,TG,TJ,UG,UZ,VN", "T": "CI,KE", "F": "DO,GD,PS" }, "NO": { "14": "LS", "15": "LA,ST", "30": "AO,BY,CN,CV,KZ,MN,MW,MZ,PH,SZ,TJ,UZ", "45": "VN", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JM,JP,KI,KN,KR,LC,MA,MD,ME,MK,MO,MU,MY,NA,NI,PA,PE,PY,RS,SB,SC,SG,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "240": "BS", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,RU,SS,SY,TG,UG", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LB,LK,MG,MH,MR,MV,NP,OM,PW,QA,RW,SA,SL,SN,SO,TZ,WS,ZW" }, "OM": { "10": "UZ", "21": "DM", "30": "BN,BY,HK,KR,KZ,PH,SG,TJ", "60": "KG,TH", "90": "AL,BB,BS,BW,CO,EC,FM,HT,IR,JO,MA,MU,MY,PK,RS,SC,TN,TR,UA,VC,XK,ZM", "120": "VU", "180": "EG,LB", "360": "GE", "R": "AD,AF,AO,AR,AT,BA,BE,BG,BR,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GD,GM,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JP,KI,KP,LC,LI,LR,LT,LU,LV,MC,ME,MH,MK,ML,MM,MN,MT,MX,NA,NE,NL,NO,NR,PA,PE,PL,PT,RO,SB,SD,SE,SI,SK,SM,SR,SZ,TD,TM,TO,TT,US,UY,VA,VE", "E": "AG,AU,BF,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,KN,LS,LY,MD,MW,NG,PG,RU,SS,ST,SV,TG,TW,UG,VN,ZA,ZW", "A": "AM,AZ,BD,BI,BO,CV,DJ,ET,GH,GW,ID,IQ,KH,KM,LA,LK,MG,MO,MR,MV,MZ,NI,NP,PW,PY,RW,SL,SN,SO,TL,TV,TZ,WS,YE", "F": "AE,BH,KW,PS,QA,SA,SY", "T": "CI,GB,KE,NZ" }, "PK": { "30": "FM,RW", "90": "BB,GM,HT,SC,VC", "120": "VU", "180": "DM", "E": "AE,AG,AL,AU,AZ,BF,BH,BJ,BS,BT,BW,CD,CM,CO,EC,ET,GA,GE,GN,GQ,HK,ID,IQ,KG,KN,KR,LS,MD,MM,MW,MY,MZ,NG,OM,PG,SG,SO,SR,SS,ST,SV,SY,TG,TJ,TZ,UG,VN,ZA,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,BA,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IR,IS,IT,JM,JO,JP,KI,KP,KW,KZ,LA,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MN,MO,MT,MU,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PH,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SZ,TD,TH,TM,TN,TO,TR,TW,UA,US,UY,UZ,VA,VE,XK,YE", "A": "BI,BO,CV,DJ,GH,GW,KH,KM,LK,MG,MR,MV,NP,PW,QA,SL,SN,TL,TV,WS", "T": "CI,KE", "N": "LY", "F": "TT" }, "PW": { "14": "HK", "21": "DM", "30": "AO,CR,KR,MY,PH,RU,SG", "90": "AD,AT,BA,BB,BE,BG,CH,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,HR,HT,HU,IL,IS,IT,KI,LI,LT,LU,LV,MC,MD,ME,MT,NL,NO,PA,PL,PT,RO,RS,SC,SE,SI,SK,SM,TW,VA,VC,XK", "120": "FJ,VU", "180": "MX,PE", "360": "FM", "E": "AE,AG,AL,AM,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CU,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KN,KZ,LS,LY,MN,NG,OM,PK,QA,SL,SO,SS,ST,SV,SY,TG,TJ,UG,UZ,VN", "R": "AF,AR,AZ,BN,BR,BY,CA,CF,CG,CL,CN,DO,DZ,ER,GT,GY,HN,IE,JM,JP,KP,KW,LB,LR,MA,MK,ML,MM,NA,NE,NZ,PY,SA,SD,SR,SZ,TD,TH,TM,TN,TR,TT,UA,UY,VE,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LC,LK,MG,MO,MR,MU,MV,MW,MZ,NI,NP,NR,PG,RW,SB,SN,TL,TO,TV,TZ,WS,ZM,ZW", "F": "BZ,MH,PS,US", "T": "CI,GB,KE" }, "PS": { "21": "DM", "30": "FM,JO,MY,SZ", "90": "BO,EC,NI,SC,VE,ZA", "E": "AE,AG,AL,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CO,CU,ET,GA,GE,GN,GQ,HK,IN,IQ,KG,KN,KR,LS,LY,MD,MW,NG,OM,PG,PK,QA,SG,SL,SO,SS,ST,SV,TG,TJ,TZ,UG,VN,ZM", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BB,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GM,GR,GT,GY,HN,HR,HT,HU,IE,IL,IS,IT,JM,JP,KI,KP,KW,KZ,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MN,MT,MU,MX,NA,NE,NL,NO,NP,NR,NZ,PA,PE,PH,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VC,VU,XK,YE", "A": "BD,BI,CV,DJ,GH,GW,ID,IR,KH,KM,LA,LK,MO,MR,MV,MZ,PW,RW,SN,TL,TV,WS,ZW", "T": "CI,KE", "N": "MG,SY" }, "PA": { "21": "DM", "28": "BB", "30": "AO,BY,BZ,FM,HK,JM,MY,PH,SG,UZ", "42": "LC", "60": "TH", "90": "AD,AL,AR,AT,BA,BE,BG,BO,BR,BS,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JP,KI,KN,LI,LT,LU,LV,MC,MD,ME,MK,MT,NI,NL,NO,PL,PT,PY,RO,RU,SC,SE,SI,SK,SM,TR,TT,UA,UY,VA,VC,VN,XK,ZA", "180": "AG,CR,MX,PE,SV", "360": "GE", "R": "AF,BN,CA,CF,CG,CN,DZ,ER,FJ,GD,GM,HT,KP,KW,LR,MA,MH,ML,NA,NE,NR,NZ,RS,SB,SD,SL,SN,SR,SZ,TD,TM,TN,TO,US,VE,VU,YE", "A": "AM,BD,BI,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LB,LK,MG,MO,MR,MU,MV,MW,MZ,NP,PW,QA,RW,SA,TL,TV,TZ,WS,ZM,ZW", "E": "AE,AU,AZ,BF,BH,BJ,BT,BW,CD,CM,CU,ET,GA,GN,GQ,ID,IN,IQ,KG,KZ,LS,LY,MM,MN,NG,OM,PG,PK,SO,SS,ST,SY,TG,TJ,TW,UG", "T": "CI,GB,KE,KR", "F": "DO,PS" }, "PG": { "30": "AO,FM,MW,MY,PH,RW,SG,SZ", "60": "TH", "90": "BD,BS,BW,CO,EC,GD,GM,HK,HT,IL,KI,KN,LS,MU,PA,SC,TZ,VC,XK", "120": "FJ,VU", "180": "AG,DM,PE", "E": "AE,AL,AM,AU,BF,BH,BJ,BT,CD,CM,CU,ET,GA,GE,GN,GQ,IN,IQ,KG,KR,KZ,LY,MD,MN,NG,OM,PK,QA,RU,SO,SS,ST,SV,SY,TG,TJ,UG,VN,ZM", "R": "AD,AF,AR,AT,AZ,BA,BB,BE,BG,BN,BR,BY,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FR,GR,GT,GY,HN,HR,HU,IE,IS,IT,JO,JP,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MM,MT,MX,NA,NE,NL,NO,NZ,PL,PT,PY,RO,RS,SA,SD,SE,SI,SK,SM,SR,TD,TM,TN,TR,TT,TW,UA,US,UY,UZ,VA,VE,YE,ZA", "F": "BZ,DO,JM,PS", "A": "BI,BO,CV,DJ,EG,GH,GW,ID,IR,KH,KM,LA,LC,LK,MG,MH,MO,MR,MV,MZ,NI,NP,NR,PW,SB,SL,SN,TL,TO,TV,WS,ZW", "T": "CA,CI,GB,KE" }, "PY": { "21": "DM", "30": "BZ,FM,HK,JM,MY,PH,RS,SG", "90": "AD,AE,AL,AR,AT,BA,BB,BE,BG,BO,BR,BS,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GE,GR,GT,HN,HR,HT,HU,IE,IL,IS,IT,KI,KN,LI,LT,LU,LV,MC,MD,ME,MK,MN,MT,MU,NI,NL,NO,PA,PL,PT,RO,RU,SC,SE,SI,SK,SM,TR,TW,UA,UY,VA,VC,VE,XK,ZA", "120": "FJ", "180": "CR,MX,PE,SV", "R": "AF,AO,BD,BN,BY,CA,CF,CG,CN,DZ,ER,GD,GM,GY,JP,KP,KW,LR,MA,ML,MM,NE,NR,NZ,SA,SB,SD,SN,SR,SZ,TD,TM,TN,TO,US,VU,YE", "E": "AG,AM,AU,BJ,BT,CD,CM,CU,ET,GA,GN,GQ,ID,IN,IQ,KG,KZ,LS,LY,NG,PG,SL,SO,SS,ST,SY,TG,TJ,UG,UZ,VN", "A": "AZ,BF,BH,BI,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LB,LC,LK,MG,MH,MO,MR,MV,MW,MZ,NA,NP,OM,PW,QA,RW,TH,TL,TT,TV,TZ,WS,ZM,ZW", "T": "CI,GB,KE,KR,PK", "F": "DO,PS" }, "PE": { "14": "BN", "15": "IR", "21": "DM", "28": "BB", "30": "BY,BZ,FM,HK,HN,JM,ME,PH,SG,ZA", "60": "TH", "90": "AD,AE,AL,AR,AT,BA,BE,BG,BO,BR,BS,BW,CH,CL,CO,CY,CZ,DE,DK,EE,ES,FI,FR,GD,GE,GR,GT,GY,HR,HT,HU,IL,IS,IT,KI,KN,LI,LT,LU,LV,MA,MC,MD,MK,MN,MT,MY,NL,NO,PA,PL,PT,PY,RO,RS,RU,SC,SE,SI,SK,SM,TR,TT,UA,UY,VA,VC", "120": "FJ,VU", "180": "AG,CR,EC,SV", "R": "AF,AO,CA,CF,CG,CN,DZ,ER,GM,IE,JP,KP,KW,LR,ML,MX,NE,NR,NZ,SA,SB,SD,SN,SR,SZ,TD,TM,TN,TO,US,VE,XK,YE", "A": "AM,BD,BH,BI,CV,DJ,EG,GH,GW,ID,JO,KH,KM,LA,LB,LC,LK,MG,MH,MO,MR,MU,MV,MW,MZ,NA,NI,NP,PW,QA,RW,TL,TV,TZ,WS,ZM,ZW", "E": "AU,AZ,BF,BJ,BT,CD,CM,CU,ET,GA,GN,GQ,IN,IQ,KG,KZ,LS,LY,MM,NG,OM,PK,SL,SO,SS,ST,SY,TG,TJ,TW,UG,UZ,VN", "T": "CI,GB,KE,KR,PG", "F": "DO,PS" }, "PH": { "14": "BN,HK,MM,TW", "21": "DM,MN,VN", "30": "CR,FM,ID,KZ,LA,MO,MY,SG,SR,TJ", "60": "TH", "90": "BB,BO,BR,CI,CO,GM,HT,IL,KI,MA,RW,SC,VC", "120": "FJ,VU", "180": "PE", "E": "AE,AG,AL,AM,AU,BF,BH,BJ,BS,BT,BW,CD,CM,EC,GA,GE,GN,GQ,IN,IQ,KN,KR,LS,LY,MD,NG,OM,QA,RU,SL,SO,SS,ST,SV,SY,TG,UG,UZ,ZA,ZM,ZW", "R": "AD,AF,AO,AR,AT,AZ,BA,BD,BE,BG,BY,BZ,CA,CF,CG,CH,CL,CN,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IS,IT,JM,JO,JP,KP,LB,LI,LR,LT,LU,LV,MC,ME,MK,ML,MT,MX,NA,NE,NL,NO,NR,NZ,PA,PL,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SZ,TD,TM,TN,TO,TR,UA,US,UY,VA,VE,XK,YE", "A": "BI,CV,DJ,ET,GH,GW,IR,KG,KM,LC,LK,MG,MH,MR,MU,MV,MW,MZ,NI,NP,PW,SN,TL,TT,TV,TZ,WS", "F": "KH,PS", "T": "KE,PG,PK", "N": "KW" }, "PL": { "15": "ST", "30": "AO,BY,CN,CV,JM,KZ,MN,MW,PH,SZ,TJ,UZ,ZA", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,GY,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LS,LY,MM,NG,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MZ,NA,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "PT": { "14": "LS", "15": "ST", "30": "AO,BY,CN,CV,JM,KZ,MN,MW,MZ,PH,SZ,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NA,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,PK,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "QA": { "10": "UZ", "15": "IR,ST", "21": "DM", "30": "AO,AZ,BY,CN,FM,HK,IL,JP,KZ,PH,SD,SG,SZ,TJ", "60": "KG,TH", "90": "AL,AR,BA,BB,BR,BS,BW,CO,EC,GT,HN,HT,JO,KI,KN,KR,MA,ME,MU,MY,NI,PA,PK,RS,RU,RW,SC,TN,TR,UA,VC,VE,XK,ZA,ZM", "120": "VU", "180": "AM,CR,EG,LB,SV", "360": "GE", "R": "AD,AF,AT,BE,BG,BZ,CA,CF,CG,CH,CL,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FJ,FR,GD,GM,GR,GY,HR,HU,IE,IN,IS,IT,JM,KP,LC,LI,LR,LT,LU,LV,MC,MH,MK,ML,MT,MX,NA,NE,NL,NO,NR,PE,PL,PT,RO,SB,SE,SI,SK,SM,SN,SR,TD,TM,TO,TT,UY,VA", "E": "AG,AU,BF,BJ,BT,CD,CM,CU,GA,GN,GQ,LS,LY,MD,MM,MW,NG,PG,SS,TG,TW,UG,VN,ZW", "F": "AE,BH,DO,KW,OM,PS,SA,SY", "A": "BD,BI,BN,BO,CV,DJ,ET,GH,GW,ID,IQ,KH,KM,LA,LK,MG,MN,MO,MR,MV,MZ,NP,PW,PY,SL,SO,TL,TV,TZ,WS,YE", "T": "CI,GB,KE,NZ,US" }, "RO": { "15": "ST", "30": "AO,BY,CN,CV,KZ,MN,PH,RW,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BN,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,TZ,UA,UY,VC,VE,WS,XK,ZM", "120": "FJ,VU", "180": "AG,AM,BB,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,GY,KP,LR,ML,NE,NR,SD,SR,SZ,TD,TM,US,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LS,LY,MM,NG,PK,RU,SS,SY,TG,UG,VN,ZA", "A": "BD,BF,BH,BI,BO,DJ,EG,ET,GH,GW,ID,IQ,IR,JM,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MW,MZ,NA,NP,OM,QA,SA,SL,SO,ZW" }, "RU": { "14": "BN,HK", "15": "ST", "21": "DM", "30": "AO,BA,CR,FM,LA,ME,MM,MN,MO,MY,MZ,PH,PW,RS,SZ", "42": "LC", "45": "VN", "60": "CV,TH,TR", "90": "AE,AG,AR,AZ,BB,BO,BR,BS,BW,CL,CO,CU,EC,GD,GM,GT,GY,HN,HT,IL,JM,KI,KN,KZ,MA,MD,MU,MV,MW,NA,NI,NR,PA,PY,SC,TN,TT,UY,VC,VE,WS,ZA", "120": "FJ,VU", "180": "AM,PE,SV", "360": "GE", "E": "AL,AU,BF,BJ,BT,CD,CM,GA,GN,GQ,IN,LS,LY,NG,SG,SS,SY,TG,UG", "R": "AD,AF,AT,BE,BG,BZ,CA,CF,CG,CH,CN,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FR,GB,GR,HR,HU,IE,IS,IT,JP,KP,KW,LI,LR,LT,LU,LV,MC,MK,ML,MT,NE,NL,NO,NZ,PL,PT,RO,SB,SD,SE,SI,SK,SM,SR,TD,TM,TW,UA,US,VA,XK,YE", "A": "BD,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,LB,LK,MG,MH,MR,NP,OM,QA,RW,SA,SL,SN,SO,TL,TO,TV,TZ,ZM,ZW", "F": "BY,DO,KG,PS,TJ,UZ", "T": "CI,KE,KR,MX,PG,PK" }, "RW": { "15": "ST", "30": "AO,FM,PH,SG", "60": "GH", "90": "BB,BI,BJ,CF,EC,GD,GM,HT,KI,MU,SC,SN,TD,TZ,UG,VC", "120": "VU", "180": "DM", "E": "AE,AG,AL,AU,BF,BH,BS,BT,BW,CM,CO,CU,GA,GE,GQ,HK,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,MW,MY,OM,SO,SV,SY,TG,TJ,VN", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JP,KP,KW,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,MM,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,XK,YE,ZA", "A": "BD,BO,CG,CV,DJ,ET,GW,ID,IR,JO,KH,KM,LA,LK,MG,ML,MO,MR,MV,MZ,NA,NG,NI,NP,PW,QA,SL,SS,TL,TV,WS,ZM,ZW", "F": "CD,GN,KE,PS", "T": "CI,PG,PK" }, "KN": { "30": "AO,BY,CR,CU,FM,MY,PH,SG,TJ,TW,UZ", "90": "AD,AL,AR,AT,BA,BD,BE,BG,BR,BS,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GM,GR,GT,GY,HK,HN,HR,HT,HU,IE,IL,IS,IT,KI,LI,LS,LT,LU,LV,MC,MD,ME,MK,MT,MU,MW,NI,NL,NO,PA,PL,PT,RO,RS,RU,RW,SC,SE,SI,SK,SM,TN,TR,TZ,UA,UY,VA,VE,XK,ZM,ZW", "120": "FJ,VU", "180": "BB,PE,SR,SV", "R": "AF,AZ,BN,CA,CF,CG,CN,DZ,EG,ER,JP,KP,KW,LR,MA,ML,MM,MX,NA,NE,NR,NZ,PY,SD,SZ,TD,TM,US,YE,ZA", "F": "AG,BZ,DM,DO,GD,JM,LC,PS,TT,VC", "E": "AE,AM,AU,BF,BH,BJ,BT,CD,CM,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KZ,LY,MN,NG,OM,QA,SO,SS,ST,SY,TG,TH,UG,VN", "A": "BI,BO,CV,DJ,GH,GW,IR,JO,KH,KM,LA,LB,LK,MG,MH,MO,MR,MV,MZ,NP,PW,SA,SB,SL,SN,TL,TO,TV,WS", "T": "CI,GB,KE,KR,PG,PK" }, "LC": { "30": "AO,CR,CU,FM,MY,PH,RW,SG,SZ,TJ,TW,UZ", "90": "AD,AR,AT,BA,BE,BG,BR,BS,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GM,GR,GT,GY,HK,HN,HR,HT,HU,IE,IL,IS,IT,KI,LI,LS,LT,LU,LV,MC,MD,ME,MT,MU,MW,NI,NL,NO,PA,PL,PT,RO,SC,SE,SI,SK,SM,TN,TZ,VA,VE,XK,ZM,ZW", "120": "FJ,VU", "180": "BB,PE,SR,SV", "E": "AE,AL,AM,AU,BF,BH,BJ,BT,CD,CM,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KZ,LY,MN,NG,OM,QA,SO,SS,ST,SY,TG,TH,UG,VN", "R": "AF,AZ,BN,BY,CA,CF,CG,CN,DZ,ER,JP,KP,KW,LB,LR,MA,MH,MK,ML,MM,MX,NA,NE,NR,NZ,PY,RS,RU,SA,SD,TD,TM,UA,US,UY,YE,ZA", "F": "AG,BZ,DM,DO,GD,JM,KN,PS,TT,VC", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LK,MG,MO,MR,MV,MZ,NP,PW,SB,SL,SN,TL,TO,TR,TV,WS", "T": "CI,GB,KE,KR,PG,PK" }, "WS": { "30": "CR,FM,HK,KR,MO,MY,PH,PK,RW,SG,SZ", "42": "LC", "60": "RU", "90": "AD,AT,BA,BD,BE,BG,BS,BW,CH,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,HR,HT,HU,IE,IL,IS,IT,KI,LI,LS,LT,LU,LV,MC,MD,ME,MT,MU,MW,NL,NO,PA,PL,PT,RO,SC,SE,SI,SK,SM,TZ,VA,VC,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM,PE", "E": "AE,AL,AM,AO,AU,BF,BH,BJ,BT,CD,CM,CU,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KN,KZ,LY,MN,NG,OM,QA,SO,SS,ST,SV,SY,TG,TH,TJ,UG,UZ,VN", "R": "AF,AR,AZ,BN,BR,BY,CF,CG,CL,CN,DO,DZ,ER,GT,GY,HN,JP,KP,KW,LR,MA,MK,ML,MM,MX,NA,NE,NZ,PY,RS,SA,SD,SR,TD,TM,TN,TR,TW,UA,US,UY,VE,YE,ZA", "F": "BZ,JM,PS,TT", "A": "BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LB,LK,MG,MH,MR,MV,MZ,NI,NP,NR,PG,PW,SB,SL,SN,TL,TO,TV", "T": "CA,CI,GB,KE" }, "SM": { "15": "ST", "21": "DM", "30": "BY,CV,FM,KR,MO,PH,SG,SZ,TJ,UZ", "42": "LC", "60": "KG,TH", "90": "AD,AE,AL,AR,AT,BA,BE,BG,BR,BW,BZ,CH,CL,CN,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,GT,HK,HN,HR,HT,HU,IE,IL,IS,IT,JM,JP,LI,LS,LT,LU,LV,MA,MC,MD,ME,MK,MT,MU,MY,NI,NL,NO,PA,PL,PT,RO,RS,SC,SE,SI,SK,TN,TR,TW,UA,UY,VA,VC,VE,XK,ZA", "120": "VU", "180": "AG,AM,BB,CR,GB,MX,PE,SV", "240": "BS", "360": "GE", "R": "AF,AO,BN,CF,CG,DZ,ER,FJ,GY,KI,KP,LR,MH,ML,MM,NA,NE,NR,PY,SD,SR,TD,TM,TO,TT,YE", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BF,BJ,BT,CD,CM,CU,ET,GA,GN,GQ,IN,IQ,KN,KZ,LY,MN,NG,PK,RU,SL,SS,SY,TG,UG,VN", "A": "BD,BH,BI,BO,DJ,EG,GH,GW,ID,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MW,MZ,NP,OM,PW,QA,RW,SA,SB,SN,SO,TL,TV,TZ,WS,ZM,ZW", "F": "DO,PS" }, "ST": { "14": "HK", "21": "DM", "30": "AO,CR,FM,MY,PH,SG", "90": "BB,BJ,BS,EC,GM,GT,HN,HT,NI,PA,RW,SC,VC,XK,ZA", "180": "SV", "E": "AE,AG,AL,AU,BH,BT,BW,CD,CM,CO,CU,GA,GE,GN,GQ,ID,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,OM,PG,PK,QA,SL,SO,SS,SY,TG,TJ,UG,VN", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GR,GY,HR,HU,IE,IL,IN,IS,IT,JM,JP,KI,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PE,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,YE", "A": "BD,BF,BI,BO,CV,DJ,EG,ET,GH,GW,IR,JO,KH,KM,LA,LC,LK,MG,MO,MR,MU,MV,MW,MZ,NA,NG,NP,PW,TL,TV,TZ,WS,ZM,ZW", "T": "CI,KE", "F": "PS" }, "SA": { "15": "IR", "21": "DM", "30": "AO,BY,FM,HK,KR,KZ,MZ,PH,TJ", "60": "KG,TH", "90": "AL,BB,BW,EC,GM,GT,HN,HT,JO,KI,KN,MA,MU,MY,NI,PA,PK,SC,TN,TR,UA,UZ,VC,XK,ZA,ZM", "120": "VU", "180": "EG,LB,SV", "360": "GE", "R": "AD,AF,AR,AT,BA,BE,BG,BR,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GD,GR,GY,HR,HU,IE,IL,IS,IT,JM,KP,LC,LI,LR,LT,LU,LV,MC,ME,MH,MK,ML,MT,MX,NA,NE,NL,NO,NR,PE,PL,PT,PY,RO,RS,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TO,TT,US,UY,VA,VE", "E": "AG,AM,AU,BF,BJ,BS,BT,CD,CM,CO,CU,GA,GN,GQ,IN,JP,LS,LY,MD,MM,MN,NG,PG,RU,SS,ST,TG,TW,UG,VN,ZW", "A": "AZ,BD,BI,BN,BO,CV,DJ,ET,GH,GW,ID,IQ,KH,KM,LA,LK,MG,MO,MR,MV,MW,NP,PW,RW,SL,SO,TL,TV,TZ,WS,YE", "F": "AE,BH,KW,OM,PS,QA,SG,SY", "T": "CI,GB,KE,NZ" }, "SN": { "21": "DM", "30": "FM,MY,MZ,PH,SG", "90": "BB,BJ,CF,CI,GM,HT,MA,MR,RW,SC,TD,TN,VC", "120": "FJ", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CM,CO,CU,EC,GA,GE,GQ,HK,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,MW,OM,PG,PK,QA,SO,SS,ST,SV,SY,TJ,TZ,UG,UZ,VN,ZA,ZM", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KI,KP,KW,LA,LB,LI,LT,LU,LV,MC,ME,MH,MK,MM,MT,MX,NA,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TH,TM,TO,TR,TT,TW,UA,US,UY,VA,VE,VU,XK,YE", "A": "BD,BI,BO,CG,DJ,ET,IR,KH,KM,LC,LK,MG,MO,MU,MV,NI,NP,PW,TL,TV,WS,ZW", "F": "BF,CV,GH,GN,GW,LR,ML,NE,NG,PS,SL,TG", "T": "KE" }, "RS": { "14": "HK", "15": "IR", "21": "DM", "30": "BY,CN,FM,KZ,RU,SG,SR,SZ,TJ,TT,UA,UZ", "90": "AD,AE,AL,AR,AT,AZ,BA,BB,BE,BG,BR,CH,CL,CO,CU,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,HR,HT,HU,IL,IS,IT,JP,KG,LI,LT,LU,LV,MC,MD,ME,MK,MN,MO,MT,NL,NO,PA,PE,PL,PT,RO,SC,SE,SI,SK,SM,TR,UY,VA,VC,XK,ZM", "120": "FJ,VU", "180": "AG,AM,CR", "360": "GE", "R": "AF,AO,BN,BZ,CA,CF,CG,DZ,ER,GB,GT,GY,HN,IE,KI,KP,LC,LR,MA,MH,ML,MX,NA,NE,NR,NZ,PH,PY,SA,SB,SD,SN,TD,TM,TN,TO,TW,US,VE,YE,ZA", "E": "AU,BF,BH,BJ,BS,BT,BW,CD,CM,ET,GA,GN,GQ,IN,IQ,KN,LS,LY,MM,MW,MY,NG,PG,PK,SL,SO,SS,ST,SV,SY,TG,UG,VN", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,ID,JM,JO,KH,KM,KW,LA,LB,LK,MG,MR,MU,MV,MZ,NI,NP,OM,PW,QA,RW,TH,TL,TV,TZ,WS,ZW", "T": "CI,KE,KR", "F": "DO,PS" }, "SC": { "15": "IR", "30": "AO,BY,CN,CR,FM,KZ,MO,MY,PH,RU,SG,SZ,ZA", "42": "LC", "60": "GH", "90": "AD,AE,AL,AT,BA,BD,BE,BG,BJ,BR,BS,BW,CH,CI,CY,CZ,DE,DK,DZ,EC,EE,ES,FI,FR,GD,GM,GR,HK,HR,HT,HU,IE,IS,IT,KI,KN,LI,LK,LS,LT,LU,LV,MC,MD,ME,MK,MT,MU,MW,NA,NG,NL,NO,PA,PL,PT,RO,RS,RW,SE,SI,SK,SM,TN,TR,TZ,UG,UY,VA,VC,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM", "360": "GE", "R": "AF,AM,AR,BN,CA,CF,CG,CL,ER,GT,GY,HN,IL,JP,KP,KW,LB,LR,MA,ML,MM,MX,NE,NR,PE,PY,SB,SD,SR,TD,TM,TW,UA,US,VE,YE", "E": "AU,AZ,BF,BH,BT,CD,CM,CO,CU,GA,GN,GQ,IN,IQ,KG,LY,MN,PK,SO,SS,ST,SV,SY,TG,TJ,UZ,VN", "F": "BZ,DO,JM,PS,TT", "A": "BI,BO,CV,DJ,EG,ET,GW,ID,JO,KH,KM,LA,MG,MH,MR,MV,MZ,NI,NP,OM,PW,QA,SA,SL,SN,TH,TL,TO,TV,WS", "T": "GB,KE,KR,NZ,PG" }, "SL": { "30": "FM,MW,MY,SG,SZ", "90": "BD,BJ,BS,BW,CI,GD,GM,HT,KI,KN,LS,MU,RW,SC,SN,UG,VC", "120": "FJ,VU", "180": "BB,DM", "E": "AE,AG,AL,AU,BH,BT,CD,CM,CO,EC,GA,GE,GQ,HK,ID,IN,IQ,KG,KR,KZ,LY,MD,MN,OM,PG,PK,QA,SO,SS,ST,SV,SY,TJ,TZ,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JO,JP,KP,KW,LA,LB,LI,LT,LU,LV,MA,MC,ME,MH,MK,MM,MT,MX,NI,NL,NO,NR,NZ,PA,PE,PH,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,TD,TH,TM,TN,TO,TR,TW,UA,US,UY,UZ,VA,VE,XK,YE,ZA", "F": "BF,BZ,CV,GH,GN,GW,JM,LR,ML,NE,NG,TG,TT", "A": "BI,BO,DJ,ET,IR,KH,KM,LC,LK,MG,MO,MR,MV,MZ,NA,NP,PW,TL,TV,WS", "T": "KE" }, "SG": { "15": "IR,LC", "30": "AE,AO,BF,BN,BR,BY,CL,CN,CU,CV,FM,GN,GY,ID,KH,KZ,LA,LK,MA,MM,MN,MO,MW,MY,MZ,PH,PY,SZ,TJ,TW,UZ,VN", "60": "GH,KG,TH", "90": "AD,AL,AR,AT,BA,BE,BG,BS,BW,CH,CI,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,GT,HK,HN,HR,HT,HU,IE,IL,IS,IT,JP,KI,KN,KR,LI,LS,LU,LV,MC,MD,ME,MK,MT,MU,NA,NI,NL,NO,PA,PL,PT,RO,RS,RW,SC,SE,SI,SK,SM,SN,TN,TR,TZ,UG,UY,VA,VC,XK,ZA,ZM,ZW", "120": "FJ,VU", "180": "AG,AM,BB,CR,DM,MX,PE,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,UA,VE,YE", "T": "AU,CA,GB,KE,NZ,PG,PK,US", "A": "AZ,BD,BH,BI,BO,EG,ET,GW,JO,KM,KW,LB,MG,MH,MR,MV,NP,OM,PW,QA,SA,SB,SL,TL,TO,TV,WS", "F": "BZ,DJ,DO,JM,LT,PS,TT", "E": "BJ,BT,CD,CM,GA,GQ,IN,IQ,LY,NG,RU,SO,SS,ST,SY,TG" }, "SK": { "15": "ST", "30": "AO,BY,CN,CV,JM,KZ,MN,PH,SZ,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,GY,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LS,LY,MM,NG,PK,RU,SS,SY,TG,UG,VN,ZA", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MW,MZ,NA,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "SI": { "15": "ST", "30": "AO,BY,CN,CV,JM,KZ,MN,PH,SZ,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,HK,HN,HT,IL,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,GY,KP,LR,ML,NA,NE,NR,SD,SR,TD,TM,YE,ZA", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LS,LY,MM,NG,PK,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,MW,MZ,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "SB": { "30": "AO,CN,CR,FM,MW,MY,PH,RW,SG,SZ,TJ", "42": "LC", "90": "AD,AE,AT,BA,BE,BG,BS,BW,CH,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,GT,HN,HR,HT,HU,IE,IL,IS,IT,KI,KN,LI,LS,LT,LU,LV,MC,MD,ME,MT,MU,NI,NL,NO,PA,PL,PT,RO,SC,SE,SI,SK,SM,TZ,UG,VA,VC,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM,PE,SV", "E": "AL,AM,AU,BF,BH,BJ,BT,CD,CM,CU,ET,GA,GE,GN,GQ,HK,ID,IN,IQ,KG,LY,MN,NG,OM,PK,QA,SO,SS,ST,SY,TG,TH,TR,TW,UZ,VN", "R": "AF,AR,AZ,BN,BR,BY,CF,CG,CL,DZ,ER,GY,JP,KP,KW,KZ,LB,LR,MA,MK,ML,MM,MX,NA,NE,NZ,PY,RS,RU,SA,SD,SR,TD,TM,TN,UA,US,UY,VE,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LK,MG,MH,MO,MR,MV,MZ,NP,NR,PW,SL,SN,TL,TO,TV,WS", "F": "BZ,DO,JM,PS,TT", "T": "CA,CI,GB,KE,KR,PG" }, "SO": { "21": "DM", "30": "FM,MY,RW", "90": "BJ,GM,HT,SC,VC", "E": "AE,AG,AL,BH,BS,BT,BW,CD,CM,CO,DJ,EC,ET,GA,GE,GN,GQ,HK,ID,IQ,KG,KN,KR,LS,LY,MD,MW,MZ,OM,PG,QA,SG,SL,SR,SS,ST,SV,SY,TG,TJ,TZ,UG,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BB,BE,BG,BN,BR,BY,BZ,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IR,IS,IT,JM,JO,JP,KI,KP,KW,KZ,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MN,MT,MU,MX,NA,NE,NI,NL,NO,NP,NR,NZ,PA,PE,PH,PK,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SN,SZ,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "N": "AU,CA", "A": "BD,BF,BI,BO,CV,GH,GW,KH,KM,LA,LB,LK,MG,MO,MR,MV,NG,PW,TL,TV,WS", "T": "CI", "F": "KE,PS" }, "ZA": { "30": "AO,FM,GA,GY,HK,MO,PH,RW,SG,SZ", "42": "LC", "60": "TH", "90": "AR,BJ,BR,BS,BW,CL,EC,GD,GH,GM,GT,HN,HT,IL,KI,KN,MU,MW,MY,NA,NI,PA,PY,RU,SC,TN,TT,TZ,UY,VC,VE,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,CR,DM,PE,SV", "360": "GE", "E": "AE,AL,AU,AZ,BF,BH,BT,CD,CM,CO,CU,GN,GQ,IN,IQ,JP,KZ,LY,MD,MM,MN,SR,SS,ST,SY,TG,TR,UG,VN", "R": "AD,AF,AT,BA,BD,BE,BG,BN,BY,CA,CF,CG,CH,CN,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FR,GB,GR,HR,HU,IE,IS,IT,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MT,MX,NE,NL,NO,NR,NZ,PL,PT,RO,RS,SB,SD,SE,SI,SK,SM,TD,TM,TO,TW,UA,US,UZ,VA,XK,YE", "A": "AM,BI,BO,CV,DJ,EG,ET,GW,ID,IR,JO,KG,KH,KM,LA,LK,MG,MH,MR,MV,NG,NP,OM,PW,QA,SA,SL,SN,SO,TJ,TL,TV,WS", "F": "BZ,DO,JM,LS,MZ,PS", "T": "CI,KE,KR,PG,PK" }, "KR": { "14": "LS", "15": "ST", "30": "AO,BN,BY,CN,FM,GY,KZ,LA,MZ,PH,PY,SZ,TJ,UZ,ZA", "42": "LC", "45": "VN", "60": "KG,RU,TH", "90": "AD,AE,AL,AR,AT,BA,BB,BE,BG,BR,BS,BW,BZ,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,GT,HK,HN,HR,HT,HU,IE,IL,IS,IT,JM,JP,KI,KN,LI,LT,LU,LV,MA,MC,MD,ME,MK,MN,MO,MT,MU,MY,NI,NL,NO,PA,PL,PT,RO,RS,SC,SE,SG,SI,SK,SM,SN,TN,TR,TT,TW,UA,UY,VA,VC,VE,XK,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,MX,PE,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "T": "AU,CA,CI,GB,KE,NZ,PG,PK,US", "A": "AZ,BD,BH,BI,BO,CV,DJ,EG,ET,GH,GW,ID,IN,IQ,IR,JO,KH,KM,KW,LB,LK,MG,MH,MR,MV,MW,NA,NP,OM,PW,QA,RW,SA,SB,SL,TL,TO,TV,TZ,WS,ZW", "E": "BF,BJ,BT,CD,CM,CU,GA,GN,GQ,LY,MM,NG,SO,SS,SY,TG,UG", "F": "DO,PS" }, "SS": { "21": "DM", "30": "FM,MY,SG", "90": "BB,BI,BJ,BW,GM,HT,SC,TZ,VC", "180": "RW,UG", "E": "AE,AG,AL,AU,BF,BH,BS,BT,CD,CM,CO,CU,EC,GA,GE,GN,GQ,HK,ID,IQ,KG,KN,KR,LS,LY,MD,MN,MW,OM,PG,PK,QA,SL,ST,SV,SY,TG,TJ,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,KZ,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MU,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PH,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BD,BO,CV,DJ,EG,ET,GH,GW,IR,KH,KM,LA,LK,MG,MO,MR,MV,MZ,NG,NP,PW,SO,TL,TV,WS", "T": "CI", "F": "KE,PS" }, "ES": { "14": "LS", "15": "LA,ST", "30": "AO,BY,CN,CV,KZ,MN,MZ,PH,SZ,TJ,UZ", "45": "VN", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JM,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NA,NI,NR,PA,PE,PW,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,RU,SS,SY,TG,UG", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LB,LK,MG,MR,MV,MW,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "LK": { "30": "FM,RW,SG,TJ", "60": "TH", "90": "BS,GD,GM,HT,KI,KN,MW,SC,VC,VE", "120": "VU", "180": "BB,DM", "E": "AE,AG,AL,AU,AZ,BF,BH,BJ,BT,BW,CD,CM,CO,EC,ET,GA,GE,GN,GQ,HK,ID,IN,IQ,KG,KR,KZ,LY,MD,MM,MY,MZ,NG,OM,PG,QA,SO,SR,SS,ST,SV,SY,TG,UG,UZ,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,BA,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KP,KW,LB,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MN,MO,MT,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PH,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SN,SZ,TD,TM,TN,TO,TR,TT,TW,UA,US,UY,VA,XK,YE,ZA", "A": "BI,BO,CV,DJ,GH,GW,IR,KH,KM,LA,MG,MR,MU,MV,NP,PW,SL,TL,TV,TZ,WS", "T": "CI,KE,PK", "F": "LS" }, "VC": { "30": "AO,BY,CR,FM,MY,PH,RS,RW,SG,TJ,TW,UZ", "60": "CU", "90": "AD,AE,AR,AT,BA,BE,BG,BR,BS,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GH,GM,GR,GT,HK,HN,HR,HT,HU,IE,IL,IS,IT,KI,LI,LS,LT,LU,LV,MC,MD,ME,MT,MU,MW,NI,NL,NO,PA,PL,PT,RO,RU,SC,SE,SI,SK,SM,TZ,UA,UG,UY,VA,VE,XK,ZA,ZM,ZW", "120": "FJ,VU", "180": "BB,GY,PE,SR,SV", "360": "GE", "E": "AL,AU,BF,BH,BJ,BT,CD,CM,ET,GA,GN,GQ,ID,IN,IQ,KG,KZ,LY,MN,NG,OM,PK,QA,SO,SS,ST,TG,TH,VN", "R": "AF,AZ,BN,CA,CF,CG,CN,DZ,ER,JP,KP,KW,LB,LR,MA,MK,ML,MM,MX,NA,NE,NR,NZ,PY,SA,SD,SZ,TD,TM,TN,US,YE", "F": "AG,BZ,DM,DO,GD,JM,KN,LC,PS,SY,TT", "A": "AM,BD,BI,BO,CV,DJ,EG,GW,IR,JO,KH,KM,LA,LK,MG,MH,MO,MR,MV,MZ,NP,PW,SB,SL,SN,TL,TO,TR,TV,WS", "T": "CI,GB,KE,KR,PG" }, "SD": { "21": "DM", "30": "FM,RW", "90": "BB,BJ,GH,GM,HT,MY,SC,VC", "E": "AE,AG,AL,AU,BF,BH,BO,BS,BT,BW,CD,CM,CO,CU,EC,ET,GA,GE,GN,GQ,HK,ID,IQ,KG,KN,KR,LS,MW,OM,PG,PK,QA,SG,SL,SS,ST,SV,TG,TH,TJ,UG,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,KZ,LI,LR,LT,LU,LV,MA,MC,MD,ME,MH,MK,ML,MM,MN,MT,MU,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PH,PL,PS,PT,PY,RO,RS,RU,SA,SB,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BD,BI,CV,DJ,ER,GW,IR,KH,KM,LA,LB,LC,LK,MG,MO,MR,MV,MZ,NG,NP,PW,SO,TL,TV,TZ,WS", "T": "CI,KE", "N": "LY", "F": "SY" }, "SR": { "14": "HK", "30": "AO,CN,CR,FM,ID,MY,PH,RS,SG", "42": "LC", "90": "AR,BR,BS,CO,EC,GD,GM,HT,IL,JM,JP,KI,MU,RU,SC,VC", "180": "AG,BB,DM,GY,KN,PE", "E": "AE,AL,AM,AU,BF,BJ,BT,BW,CD,CM,CU,ET,GA,GE,GN,GQ,IN,IQ,KG,KZ,LS,LY,MD,MN,NG,PG,PK,SL,SO,SS,ST,SV,SY,TG,TH,TJ,TR,UG,UZ,VN", "R": "AD,AF,AT,AZ,BA,BE,BG,BN,BY,CA,CF,CG,CH,CL,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FJ,FR,GB,GR,GT,HN,HR,HU,IE,IS,IT,KP,KW,LA,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NA,NE,NL,NO,NR,NZ,PA,PL,PT,PY,RO,SA,SB,SD,SE,SI,SK,SM,SZ,TD,TM,TN,TO,TW,UA,US,UY,VA,VE,VU,XK,YE,ZA", "A": "BD,BH,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LK,MG,MO,MR,MV,MW,MZ,NI,NP,OM,PW,QA,RW,SN,TL,TV,TZ,WS,ZM,ZW", "F": "BZ,DO,PS,TT", "T": "CI,KE,KR" }, "SE": { "14": "LS", "15": "LA,ST", "30": "AO,BY,CV,KZ,MN,MW,MZ,PH,SZ,TJ,UZ", "45": "VN", "60": "KG,TH", "90": "AE,AL,AR,BA,BB,BN,BO,BR,BS,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JM,JP,KI,KN,KR,LC,MA,MD,ME,MH,MK,MO,MU,MY,NA,NI,PA,PE,PW,PY,RS,SB,SC,SG,SN,SR,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,WS,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,CR,DM,GB,MX,SV", "360": "GE", "R": "AF,CF,CG,CN,DZ,ER,KP,LR,ML,NE,NR,SD,TD,TM,YE", "F": "AD,AT,BE,BG,BZ,CH,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,RU,SS,SY,TG,UG", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LB,LK,MG,MR,MV,NP,OM,QA,RW,SA,SL,SO,TZ,ZW" }, "CH": { "14": "LS", "15": "LA,ST", "30": "AO,BY,BZ,CN,CV,KZ,MN,MZ,PH,RW,SZ,TJ,UZ", "60": "KG,TH", "90": "AE,AL,AR,BA,BN,BO,BR,BW,CL,CO,EC,FM,GD,GM,GT,GY,HK,HN,HT,IL,JM,JP,KI,KN,KR,LC,MA,MD,ME,MK,MO,MU,MY,NA,NI,PA,PE,PY,RS,SB,SC,SG,SN,TL,TN,TO,TR,TT,TV,TW,UA,UY,VC,VE,XK,ZA", "120": "FJ,VU", "180": "AG,AM,BB,CR,DM,GB,MX,SV", "240": "BS", "360": "GE", "R": "AF,CF,CG,DZ,ER,KP,LR,ML,NE,NR,SD,SR,TD,TM,YE", "F": "AD,AT,BE,BG,CY,CZ,DE,DK,DO,EE,ES,FI,FR,GR,HR,HU,IE,IS,IT,LI,LT,LU,LV,MC,MT,NL,NO,PL,PS,PT,RO,SE,SI,SK,SM,VA", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,RU,SS,SY,TG,UG,VN", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,IR,JO,KH,KM,KW,LB,LK,MG,MH,MR,MV,MW,NP,OM,PW,QA,SA,SL,SO,TZ,WS,ZM,ZW" }, "SY": { "21": "DM", "30": "FM", "90": "HT,IR,MY,SC", "R": "AD,AF,AL,AM,AO,AR,AT,AZ,BA,BB,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,ET,FI,FJ,FR,GB,GD,GM,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,KZ,LA,LC,LI,LK,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MN,MR,MT,MU,MX,NA,NE,NI,NL,NO,NP,NR,NZ,PA,PE,PH,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SN,SZ,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VC,VE,VU,XK,ZA", "E": "AE,AG,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CO,EC,GA,GE,GN,GQ,HK,ID,IQ,KG,KN,KR,LS,MD,MW,NG,OM,PG,PK,QA,SG,SL,SO,SR,SS,ST,SV,TG,TJ,TZ,UG,VN,ZM,ZW", "A": "BI,BO,CV,DJ,GH,GW,KH,KM,LB,MG,MO,MV,MZ,PW,RW,TL,TV,WS,YE", "T": "CI,KE", "N": "LY", "F": "PS" }, "TW": { "30": "AG,CR,FM,HK,MY,SG,SZ", "42": "LC", "60": "TH", "90": "AD,AL,AT,BA,BE,BG,BZ,CH,CL,CY,CZ,DE,DK,EE,ES,FI,FR,GM,GR,GT,HN,HR,HT,HU,IE,IL,IS,IT,JP,KN,KR,LI,LT,LU,LV,MC,ME,MH,MK,MT,NI,NL,NO,PA,PL,PT,PW,PY,RO,SC,SE,SI,SK,SM,TV,VA,VC,XK", "120": "FJ,VU", "180": "DM,PE", "R": "AF,AO,AR,AZ,BB,BR,BY,CF,CG,DZ,ER,GD,GY,JM,KI,KP,KW,KZ,LB,LR,MA,ML,MX,NA,NE,NR,PH,PK,RS,SD,SN,SR,TD,TM,TN,TO,TT,UA,UY,UZ,VE,YE,ZA", "E": "AE,AM,BH,BJ,BS,BT,BW,CD,CM,CO,CU,EC,GA,GN,GQ,IN,IQ,KG,LS,LY,MD,MM,MN,NG,RU,SL,SS,ST,SV,SY,TG,TJ,TR,UG,VN,ZM,ZW", "T": "AU,CA,CI,GB,KE,NZ,PG,US", "A": "BD,BF,BI,BN,BO,CV,DJ,EG,ET,GH,GW,ID,IR,JO,KH,KM,LA,LK,MG,MR,MU,MV,MW,MZ,NP,OM,QA,RW,SA,SB,SO,TL,TZ,WS", "F": "CN,DO,MO,PS", "N": "GE" }, "TJ": { "21": "DM", "28": "BB", "30": "FM,IR,KZ,MY,PH,UZ", "90": "AZ,GM,HT,MD,NA,RU,SC,UA,VC", "180": "AG,AM", "360": "GE", "E": "AE,AL,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CO,CU,EC,ET,GA,GN,GQ,HK,ID,IN,IQ,KN,KR,LS,LY,MW,NG,OM,PG,QA,SG,SO,SS,ST,SV,TG,TH,TZ,UG,VN,ZM", "R": "AD,AF,AO,AR,AT,BA,BE,BG,BN,BR,BZ,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JP,KI,KP,KW,LC,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MM,MN,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TR,TT,TW,US,UY,VA,VE,VU,XK,YE,ZA", "A": "BD,BI,BO,CV,DJ,GH,GW,JM,JO,KH,KM,LA,LB,LK,MG,MH,MO,MR,MU,MV,MZ,NI,NP,PW,RW,SA,SL,SY,TL,TV,WS,ZW", "F": "BY,GD,PS", "T": "CI,KE,PK", "N": "KG" }, "TZ": { "15": "IR", "30": "AO,FM,MY,PH,SG,SZ", "42": "LC", "90": "BD,BI,BJ,BS,BW,EC,GD,GH,GM,HK,HT,KI,KN,LS,MO,MU,MW,NA,SC,UG,VC,ZA,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM,RW", "E": "AE,AL,AU,BF,BH,BT,CM,CO,CU,GA,GE,GN,GQ,IN,IQ,KG,KR,KZ,LY,MD,MN,OM,PG,QA,SO,ST,SV,SY,TG,TJ,VN", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BR,BY,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JO,JP,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,XK,YE", "F": "BZ,JM,KE,MZ,SS", "A": "BO,CD,CV,DJ,ET,GW,ID,KH,KM,LA,LK,MG,MR,MV,NG,NI,NP,PW,SL,SN,TL,TV,WS", "T": "CI,PK" }, "TH": { "14": "BN,KH,MM,TW", "15": "JP", "21": "DM", "30": "CN,FM,HK,ID,KZ,LA,MN,MO,MY,PH,RU,SG,TJ,TR,VN,ZA", "60": "KG", "90": "AL,AR,BB,BR,CL,EC,HT,KI,PA,SC,VC", "120": "FJ,VU", "180": "PE", "360": "GE", "R": "AD,AF,AO,AT,BA,BD,BE,BG,BY,BZ,CA,CF,CG,CH,CR,CY,CZ,DE,DK,DZ,EE,EG,ER,ES,FI,FR,GB,GD,GM,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,KP,KW,LB,LI,LR,LT,LU,LV,MC,ME,MK,ML,MT,MX,NE,NL,NO,NR,NZ,PL,PT,PY,RO,RS,SD,SE,SI,SK,SM,SR,SZ,TD,TM,TN,TO,TT,UA,US,UY,VA,VE,XK,YE", "E": "AE,AG,AU,AZ,BF,BJ,BS,BT,BW,CD,CM,CO,CU,GA,GN,GQ,IN,IQ,KN,LS,LY,MA,MD,NG,SO,SS,ST,SV,SY,TG,UG,UZ,ZW", "A": "AM,BH,BI,BO,CV,DJ,ET,GH,GW,IR,JO,KM,LC,LK,MG,MH,MR,MU,MV,MW,MZ,NA,NI,NP,OM,PW,QA,RW,SA,SB,SL,SN,TL,TV,TZ,WS,ZM", "T": "CI,KE,KR,PG,PK", "F": "DO,PS" }, "TL": { "7": "HK", "21": "DM", "28": "BB", "30": "AO,FM,ID,MY,SG,SZ,TH", "90": "AD,AT,BA,BE,BG,CH,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GM,GR,HR,HT,HU,IS,IT,KI,LI,LT,LU,LV,MC,MD,ME,MT,NL,NO,PL,PT,RO,SC,SE,SI,SK,SM,VA,VC,XK", "E": "AE,AG,AL,AM,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CN,CO,CU,ET,GA,GE,GN,GQ,IQ,KG,KN,KR,LS,LY,MN,NG,OM,PG,PK,QA,SO,SS,SV,SY,TG,TJ,TR,UG,VN,ZM,ZW", "R": "AF,AR,AZ,BN,BR,BY,BZ,CA,CF,CG,CL,CR,DO,DZ,ER,FJ,GB,GD,GT,GY,HN,IE,IL,IN,JM,JP,KP,KW,KZ,LB,LR,MA,MK,ML,MM,MX,NA,NE,NI,NR,NZ,PA,PE,PH,PY,RS,RU,SA,SB,SD,SN,SR,TD,TM,TN,TO,TT,TW,UA,US,UY,UZ,VE,VU,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LC,LK,MG,MH,MO,MR,MU,MV,MW,MZ,NP,PW,RW,SL,TV,TZ,WS", "T": "CI,KE", "F": "PS,ST" }, "TG": { "21": "DM", "30": "FM,MY,PH,RW,SG", "90": "BB,BJ,CI,EC,GM,HT,KI,MA,SC,SN,ST,TD,VC", "E": "AE,AG,AL,AU,BH,BS,BT,BW,CD,CM,CO,CU,GA,GE,GQ,HK,ID,IN,IQ,KG,KN,KR,KZ,LS,LY,MD,MN,MW,OM,PG,PK,QA,SO,SS,SV,SY,TJ,UG,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,JP,KP,KW,LB,LI,LT,LU,LV,MC,ME,MH,MK,MM,MT,MX,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,SZ,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BD,BI,BO,CG,DJ,ET,IR,KH,KM,LA,LC,LK,MG,MO,MR,MU,MV,MZ,NA,NI,NP,PW,TL,TV,TZ,WS", "F": "BF,CV,GH,GN,GW,LR,ML,NE,NG,SL", "T": "KE" }, "TO": { "30": "AO,CN,CR,FM,KR,MW,MY,RW,SG,SZ", "42": "LC", "60": "TH", "90": "AD,AT,BA,BD,BE,BG,BS,BW,CH,CL,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,HK,HR,HT,HU,IE,IL,IS,IT,KI,KN,LI,LS,LU,LV,MC,MD,ME,MT,MU,NL,NO,PA,PL,PT,RO,SC,SE,SI,SK,SM,TZ,UG,VA,VC,XK,ZM,ZW", "120": "FJ,VU", "180": "BB,DM,PE", "E": "AE,AG,AL,AM,AU,BF,BH,BJ,BT,CD,CM,CO,CU,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KZ,LY,MN,NG,OM,QA,RU,SO,SS,ST,SV,SY,TG,TJ,UZ,VN", "R": "AF,AR,AZ,BN,BR,BY,CA,CF,CG,DZ,ER,GT,GY,HN,JP,KP,KW,LA,LB,LR,MA,MK,ML,MM,MX,NA,NE,NZ,PH,PY,RS,SA,SD,SN,SR,TD,TM,TN,TR,TW,UA,US,UY,VE,YE,ZA", "F": "BZ,DO,JM,LT,PS,TT", "A": "BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LK,MG,MH,MO,MR,MV,MZ,NI,NP,NR,PG,PW,SB,SL,TL,TV,WS", "T": "CI,GB,KE,PK" }, "TT": { "30": "AO,FM,MY,PH,RW,SG,SZ,UZ", "42": "LC", "60": "GH,TH", "90": "AD,AL,AR,AT,BA,BE,BG,BR,BS,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,GT,HK,HN,HR,HT,HU,IE,IL,IS,IT,KI,LI,LS,LU,LV,MC,MD,ME,MT,MU,MW,NI,NL,NO,PA,PL,PT,RO,RS,SC,SE,SI,SK,SM,TR,TZ,UG,UY,VA,VE,XK,ZA,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,CR,DM,GY,KN,MX,PE,SR,SV,VC", "R": "AF,BN,BY,CA,CF,CG,CN,DZ,ER,JP,KP,KW,LB,LR,MA,MH,MK,ML,MM,NA,NE,NR,NZ,PY,SA,SD,TD,TM,TN,TO,TW,UA,US,YE", "E": "AE,AM,AU,AZ,BF,BH,BJ,BT,CD,CM,CU,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KZ,LY,MN,NG,OM,QA,RU,SO,SS,ST,TG,TJ,VN", "A": "BD,BI,BO,CV,DJ,EG,GW,IR,JO,KH,KM,LA,LK,MG,MO,MR,MV,MZ,NP,PW,SB,SL,SN,TL,TV,WS", "F": "BZ,DO,JM,LT,PS,SY", "T": "CI,GB,KE,KR,PG,PK" }, "TN": { "15": "IR", "21": "DM", "30": "FM,GQ,HK,PH,RW", "90": "BJ,BR,CI,DZ,EC,GM,HT,JP,MA,ML,MR,MU,MY,NE,SC,SN,SR,TR,VC,ZA", "120": "FJ,VU", "180": "BB", "E": "AE,AG,AL,AM,AU,BH,BS,BT,BW,CD,CM,CO,CU,GE,IQ,KG,KN,KZ,LS,MD,MW,OM,PG,QA,SG,SL,SS,ST,SV,TG,UG,UZ,VN,ZM,ZW", "R": "AD,AF,AO,AR,AT,AZ,BA,BD,BE,BG,BN,BY,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,EE,EG,ER,ES,FI,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,KI,KP,KW,LC,LI,LR,LT,LU,LV,MC,ME,MH,MK,MM,MN,MT,MX,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SZ,TD,TM,TO,TT,TW,UA,US,UY,VA,VE,XK,YE", "F": "BZ,GA,GN,LY,PS,SY", "A": "BF,BI,BO,CV,DJ,ET,GH,GW,ID,JO,KH,KM,LA,LB,LK,MG,MO,MV,MZ,NA,NG,NI,NP,PW,SO,TH,TJ,TL,TV,TZ,WS", "T": "KE,KR,PK" }, "TR": { "15": "ST", "21": "DM", "30": "AO,BN,BY,CR,FM,KZ,MN,MO,PH,SG,SZ,UZ,ZA", "42": "LC", "60": "TH", "90": "AR,AZ,BA,BO,BR,BW,BZ,CL,CO,EC,GM,GQ,GT,HK,HN,HT,IR,JM,JO,JP,KG,KN,MA,MD,ME,MK,MU,MY,NI,PA,PY,RS,SC,SY,TN,TT,UA,UY,VC,VE,XK", "120": "FJ,VU", "180": "AG,BB,PE,SV", "240": "BS", "360": "GE", "F": "AL,DO,PS", "R": "AD,AF,AT,BE,BG,CA,CF,CG,CH,CN,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FR,GB,GD,GR,GY,HR,HU,IE,IL,IN,IS,IT,KI,KP,LI,LR,LT,LU,LV,MC,ML,MT,NE,NL,NO,NR,NZ,PL,PT,RO,SB,SE,SI,SK,SM,SR,TD,TM,US,VA,YE", "A": "AM,BD,BF,BI,CV,DJ,EG,ET,GH,GW,ID,KH,KM,KW,LA,LB,LK,MG,MH,MR,MV,MZ,NA,NP,OM,PW,QA,RW,SA,SD,SL,SN,SO,TL,TO,TV,TW,TZ,WS,ZM,ZW", "E": "AE,AU,BH,BJ,BT,CD,CM,CU,GA,GN,IQ,LS,LY,MM,MW,NG,PG,RU,SS,TG,TJ,UG,VN", "T": "CI,KE,KR,MX,PK" }, "TM": { "21": "DM", "28": "BB", "30": "FM,PH", "90": "EC,GM,HT,MY,NA,SC,VC", "180": "AG", "360": "GE", "E": "AE,AL,AM,AU,AZ,BF,BH,BJ,BS,BT,BW,CD,CM,CN,CO,CU,ET,GA,GN,GQ,HK,ID,IQ,KG,KN,KR,KZ,LS,LY,MD,MW,NG,OM,PG,PK,QA,RU,SG,SO,SS,ST,SV,TG,TZ,UG,VN,ZM", "R": "AD,AF,AO,AR,AT,BA,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JP,KI,KP,KW,LC,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MM,MN,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TH,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,YE,ZA", "A": "BD,BI,BO,CV,DJ,GH,GW,IR,JM,JO,KH,KM,LA,LB,LK,MG,MH,MO,MR,MU,MV,MZ,NI,NP,PW,RW,SL,SY,TJ,TL,TV,WS,ZW", "T": "CI,KE", "F": "GD,PS" }, "TV": { "30": "AO,CR,FM,KR,MY,PH,SG,SZ", "42": "LC", "90": "AD,AT,BA,BE,BG,BS,BW,CH,CY,CZ,DE,DK,EC,EE,ES,FI,GD,GM,GR,GT,HK,HN,HR,HT,HU,IE,IS,IT,KI,KN,LI,LS,LT,LU,LV,MC,MD,ME,MT,MU,MW,NI,NL,NO,PA,PL,PT,RO,SC,SE,SI,SK,SM,TW,TZ,VA,VC,XK,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM,PE,SV", "E": "AE,AL,AM,AU,BF,BH,BJ,BT,CD,CM,CO,CU,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KZ,LY,MN,NG,OM,PK,QA,RW,SO,SS,ST,SY,TG,TH,TJ,UG,VN", "R": "AF,AR,AZ,BN,BR,BY,CA,CF,CG,CL,CN,DZ,ER,GY,IL,JP,KP,KW,LB,LR,MA,MK,ML,MM,MX,NA,NE,NZ,PY,RS,RU,SA,SD,SR,TD,TM,TN,TR,UA,US,UY,UZ,VE,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LK,MG,MH,MO,MR,MV,MZ,NP,NR,PG,PW,SB,SL,SN,TL,TO,WS", "F": "BZ,DO,FR,JM,PS,TT", "T": "CI,GB,KE" }, "UG": { "30": "FM,HK,MY,PH,SG,SZ", "90": "BI,BJ,BS,BW,EC,GD,GH,GM,HT,KI,KN,LS,MW,SC,TZ,VC,ZM,ZW", "120": "FJ,VU", "180": "AG,BB,DM,RW", "E": "AE,AL,AU,BF,BH,BT,CD,CM,CO,CU,GA,GE,GN,GQ,ID,IN,IQ,KG,KR,KZ,LY,MD,MM,MN,OM,PG,PK,QA,ST,SV,SY,TG,TJ,VN,ZA", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BE,BG,BN,BR,BY,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ES,FI,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JO,JP,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MT,MU,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,SR,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,XK,YE", "A": "BD,BO,CV,DJ,ET,GW,IR,KH,KM,LA,LC,LK,MG,MO,MR,MV,MZ,NA,NG,NI,NP,PW,SL,SN,SO,TL,TV,WS", "F": "BZ,ER,JM,KE,SS", "T": "CI" }, "UA": { "14": "HK", "28": "BB", "30": "AE,BA,BN,FM,JM,MY,MZ,SZ", "60": "TH", "90": "AD,AL,AR,AT,AZ,BE,BG,BR,CH,CL,CO,CY,CZ,DE,DK,DM,EC,EE,ES,FI,FR,GD,GM,GR,GT,HN,HR,HT,HU,IE,IL,IS,IT,KG,KI,KN,KZ,LI,LT,LU,LV,MC,MD,ME,MK,MT,MU,NA,NI,NL,NO,PA,PL,PT,PY,RO,RS,RU,SC,SE,SI,SK,SM,TJ,TN,TR,UY,VA,VC,XK", "120": "FJ,VU", "180": "AG,CR,PE,SV", "360": "GE", "R": "AF,AO,BZ,CA,CF,CG,CN,DZ,ER,GB,GY,JP,KP,LC,LR,MA,ML,MN,NE,NR,NZ,PH,SB,SD,SR,TD,TM,TT,TW,US,VE,YE,ZA", "F": "AM,BY,DO,PS,UZ", "E": "AU,BF,BJ,BS,BT,BW,CD,CM,CU,GA,GN,GQ,IN,IQ,KR,LS,LY,MM,MW,NG,PG,PK,SG,SO,SS,ST,SY,TG,UG,VN", "A": "BD,BH,BI,BO,CV,DJ,EG,ET,GH,GW,ID,IR,JO,KH,KM,KW,LA,LB,LK,MG,MH,MO,MR,MV,NP,OM,PW,QA,RW,SA,SL,SN,TL,TO,TV,TZ,WS,ZM,ZW", "T": "CI,KE,MX" }, "AE": { "15": "IR,ST", "30": "AO,BN,CN,FM,HK,JP,KZ,MN,MZ,PH,SG,TJ,UZ", "60": "KG,LC,TH,TO", "90": "AD,AG,AL,AR,AT,AZ,BA,BB,BE,BG,BR,BS,BW,BY,CH,CL,CO,CU,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GE,GM,GQ,GR,GT,HN,HR,HT,HU,IE,IL,IS,IT,JO,KI,KN,KR,LI,LT,LU,LV,MA,MC,MD,ME,MK,ML,MO,MT,MU,MY,NI,NL,NO,PA,PE,PK,PL,PT,PY,RO,RS,RU,SB,SC,SE,SI,SK,SM,SN,TN,TR,UA,UY,VA,VC,XK,ZA,ZM", "120": "FJ,VU", "180": "AM,CR,DM,EG,LB,MX,SV", "R": "AF,BZ,DZ,ER,KP,LR,MM,NE,SR,SZ,TM,TT,US,VE", "E": "AU,BJ,BT,CD,CM,GA,LS,LY,MW,NG,PG,SS,TG,TW,UG,VN", "F": "BF,BH,DO,KW,NR,OM,PS,QA,SA,SD,SY,TD", "A": "BD,BI,BO,CF,CG,CV,DJ,ET,GH,GN,GW,GY,ID,IN,IQ,JM,KH,KM,LA,LK,MG,MH,MR,MV,NA,NP,PW,RW,SL,SO,TL,TV,TZ,WS,YE,ZW", "T": "CA,CI,GB,KE,NZ" }, "GB": { "15": "ST", "30": "AE,AO,BY,CV,FM,KZ,MN,MW,MZ,PH,RW,SZ,UZ", "42": "LC", "45": "VN", "60": "KG,TH", "90": "AD,AL,AR,AT,BA,BE,BG,BN,BO,BR,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,GT,GY,HR,HT,HU,IL,IS,IT,JP,KI,KR,LI,LT,LU,LV,MA,MC,MD,ME,MH,MK,MT,MU,NA,NI,NL,NO,PA,PL,PT,PY,RO,RS,SC,SE,SI,SK,SM,SN,TN,TR,TW,UA,UY,VA,VE,XK,ZA,ZM", "120": "FJ,VU", "180": "AG,AM,BB,CR,DM,HK,KN,MO,MX,PE,SV,VC", "240": "BS", "360": "GE", "R": "AF,CF,CG,CN,DZ,ER,HN,IR,KP,LR,ML,NE,NR,RU,SD,SR,TD,TM,YE", "T": "AU,CA,CI,KE,NZ,PG,PK,US", "E": "AZ,BJ,BT,CD,CM,CU,GA,GN,GQ,IN,LY,MM,NG,SS,SY,TG,UG", "A": "BD,BF,BH,BI,DJ,EG,ET,GH,GW,ID,IQ,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,NP,OM,PW,QA,SA,SB,SL,SO,TJ,TL,TO,TV,TZ,WS,ZW", "F": "BZ,DO,IE,JM,LS,MY,PS,SG,TT" }, "US": { "15": "ST", "30": "AE,AO,CV,FM,KZ,MO,MW,MZ,PH,SZ,TJ", "42": "LC", "60": "KG,TH", "90": "AD,AR,AT,BA,BE,BG,BN,BR,BW,CH,CL,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GR,GT,GY,HK,HN,HR,HT,HU,IE,IL,IS,IT,JP,KI,KR,LI,LT,LU,LV,MA,MC,MD,ME,MK,MN,MT,MU,NA,NI,NL,NO,PL,PT,PY,QA,RO,RS,SC,SE,SI,SK,SM,SN,TT,TW,UA,UY,VA,XK,ZA,ZM", "120": "FJ,TN,VU", "180": "AG,AM,BB,BZ,CA,CR,DM,JM,KN,MX,PA,PE,SV,VC", "240": "BS", "360": "AL,GE,PW", "R": "AF,BY,CF,CG,DZ,ER,IR,KP,LR,ML,NE,NR,RU,SD,SR,TD,TM,VE,YE", "T": "AU,CI,GB,KE,NZ,PG,PK", "E": "AZ,BJ,BT,CD,CM,CN,CU,GA,GN,GQ,IN,LY,MM,NG,SS,SY,TG,UG,UZ,VN", "A": "BD,BF,BH,BI,BO,DJ,EG,ET,GH,GM,GW,ID,IQ,JO,KH,KM,KW,LA,LB,LK,MG,MR,MV,NP,OM,RW,SA,SB,SL,SO,TL,TO,TV,TZ,WS,ZW", "F": "CO,DO,LS,MH,MY,PS,SG,TR" }, "UY": { "21": "DM", "30": "AO,BY,FM,JM,MN,PH,SG,SZ", "42": "LC", "60": "TH", "90": "AD,AE,AL,AR,AT,BA,BB,BE,BG,BO,BR,BS,BW,CH,CL,CO,CY,DE,DK,EC,EE,ES,FI,FR,GD,GE,GR,GT,GY,HK,HN,HR,HT,HU,IE,IL,IS,IT,JP,KI,KN,LI,LT,LU,LV,MC,MD,ME,MK,MO,MT,MY,NI,NL,NO,PA,PL,PT,PY,RO,RS,RU,SC,SE,SI,SK,SM,TR,TT,UA,VA,VC,VE,XK,ZA", "120": "FJ,VU", "180": "AM,CR,MX,PE,SV", "R": "AF,AZ,BN,CA,CF,CG,CN,DZ,ER,GM,KP,KW,LR,MA,ML,NE,NR,SA,SB,SD,SN,SR,TD,TM,TN,TO,TW,US,YE", "E": "AG,AU,BF,BJ,BT,CD,CM,CU,ET,GA,GN,GQ,ID,IN,IQ,KG,KZ,LS,LY,MM,NG,PK,SL,SO,SS,ST,SY,TG,TJ,UG,UZ,VN", "A": "BD,BH,BI,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LB,LK,MG,MH,MR,MU,MV,MW,MZ,NA,NP,OM,PW,QA,RW,TL,TV,TZ,WS,ZM,ZW", "F": "BZ,CZ,DO,PS", "T": "CI,GB,KE,KR,NZ,PG" }, "UZ": { "14": "OM", "15": "IR", "21": "DM", "28": "BB", "30": "AE,FM,KZ,MN,MY,PH,TJ", "60": "KG,TH", "90": "AZ,GM,HT,MD,NA,RU,SC,TR,VC", "180": "AG,AM", "360": "GE", "E": "AL,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CO,EC,ET,GA,GN,GQ,HK,IN,IQ,KN,KR,LS,LY,MM,MW,NG,PG,PK,SG,SO,SS,ST,SV,TG,TZ,UG,VN,ZM", "R": "AD,AF,AO,AR,AT,BA,BD,BE,BG,BN,BR,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JP,KI,KP,KW,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PT,PY,RO,RS,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TT,TW,US,UY,VA,VE,VU,XK,YE,ZA", "F": "BY,GD,PS,UA", "A": "BI,BO,CV,DJ,GH,GW,ID,JM,JO,KH,KM,LA,LB,LK,MG,MO,MR,MU,MV,MZ,NI,NP,PW,QA,RW,SA,SL,SY,TL,TV,WS,ZW", "T": "CI,KE" }, "VU": { "30": "AO,BY,CR,FM,MY,PH,RW,SG,SZ", "42": "LC", "90": "BA,BS,BW,EC,GD,GM,GT,HK,HN,HT,IL,KI,KN,LS,MD,ME,MU,NI,PA,RU,SC,TZ,UG,VC,XK,ZM,ZW", "120": "FJ", "180": "AG,BB,DM,PE,SV", "E": "AE,AL,AM,AU,BF,BH,BJ,BT,CD,CM,CO,CU,ET,GA,GE,GN,GQ,ID,IN,IQ,KG,KR,KZ,LY,MN,NG,OM,PK,QA,SO,SS,ST,SY,TG,TJ,UZ,VN", "R": "AD,AF,AR,AT,AZ,BE,BG,BN,BR,CA,CF,CG,CH,CL,CN,CY,CZ,DE,DK,DZ,EE,ER,ES,FI,FR,GB,GR,GY,HR,HU,IE,IS,IT,JP,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,MK,ML,MM,MT,MX,NA,NE,NL,NO,NZ,PL,PT,PY,RO,RS,SA,SD,SE,SI,SK,SM,SR,TD,TM,TN,TR,TW,UA,US,UY,VA,VE,YE,ZA", "A": "BD,BI,BO,CV,DJ,EG,GH,GW,IR,JO,KH,KM,LA,LK,MG,MH,MO,MR,MV,MW,MZ,NP,NR,PW,SB,SL,SN,TH,TL,TO,TV,WS", "F": "BZ,DO,JM,PS,TT", "T": "CI,KE,PG" }, "VA": { "14": "HK", "15": "ST", "21": "DM", "30": "AE,AO,BY,CV,FM,KR,KZ,MY,PH,SG,SZ,TJ,UZ", "60": "KG", "90": "AD,AL,AR,AT,BA,BE,BG,BO,BR,BS,BW,CH,CL,CO,CY,CZ,DE,DK,EC,EE,ES,FI,FR,GD,GM,GR,GT,HN,HR,HT,HU,IE,IL,IS,IT,KN,LI,LT,LU,LV,MC,MD,ME,MK,MT,MU,NL,NO,PA,PL,PT,RO,RS,SC,SE,SI,SK,SM,TN,TR,TW,UA,UY,VC,XK", "120": "FJ,VU", "180": "AG,AM,CR,GB,PE,SV", "360": "GE", "R": "AF,BB,BN,CF,CG,CN,DZ,ER,GY,JM,JP,KI,KP,LB,LC,LR,MA,ML,MM,MX,NE,NR,PY,SA,SB,SD,SR,TD,TM,TO,TT,US,VE,YE,ZA", "T": "AU,CA,CI,KE,NZ,PG", "E": "AZ,BF,BJ,BT,CD,CM,CU,ET,GA,GN,GQ,IN,IQ,LS,LY,MN,NG,PK,RU,SL,SO,SS,SY,TG,TH,UG,VN,ZM", "A": "BD,BH,BI,DJ,EG,GH,GW,ID,IR,JO,KH,KM,KW,LA,LK,MG,MH,MO,MR,MV,MW,MZ,NA,NP,OM,PW,QA,RW,SN,TL,TV,TZ,WS,ZW", "F": "BZ,DO,NI,PS" }, "VE": { "15": "IR", "28": "BB", "30": "FM,JM,MY,PH,SG", "60": "BR", "90": "AD,AL,AR,AT,BA,BE,BG,BO,BS,BW,BY,CH,CO,CY,CZ,DE,DK,EE,ES,FI,FR,GD,GM,GR,HK,HR,HT,HU,IS,IT,KI,KN,LI,LT,LU,LV,MC,MD,ME,MK,MT,NL,NO,PL,PT,PY,RO,RU,SC,SE,SI,SK,SM,TR,UY,VA,VC,XK,ZA", "120": "FJ", "180": "AG,DM", "R": "AF,AZ,BN,BZ,CA,CF,CG,CL,CN,CR,DO,DZ,ER,GB,GT,GY,HN,IE,IL,JP,KP,KW,LC,LR,MA,MH,ML,MX,NE,NI,NR,NZ,PA,PE,RS,SA,SB,SD,SN,SZ,TD,TM,TN,TO,TT,TW,UA,US,VU,YE", "E": "AE,AM,AO,AU,BJ,BT,CD,CM,CU,EC,ET,GA,GE,GN,GQ,IN,IQ,KZ,LS,LY,MM,MN,NG,PG,PK,SL,SO,SR,SS,ST,SV,SY,TG,UG,UZ,VN", "A": "BD,BF,BH,BI,CV,DJ,EG,GH,GW,ID,JO,KG,KH,KM,LA,LB,LK,MG,MO,MR,MU,MV,MW,MZ,NA,NP,OM,PW,QA,RW,TH,TJ,TL,TV,TZ,WS,ZM,ZW", "T": "CI,KE,KR", "F": "PS" }, "VN": { "14": "BN,MM", "15": "IR", "21": "DM", "30": "FM,ID,KH,KZ,LA,MN,MY,PH,RW,SG", "60": "KG,TH", "90": "BB,CL,HT,PA,SC,VC", "E": "AE,AG,AL,AM,AU,AZ,BF,BH,BJ,BS,BT,BW,CD,CM,CO,CU,EC,ET,GA,GE,GN,GQ,HK,IN,IQ,JP,KN,KR,LS,LY,MD,NG,OM,PK,QA,RU,SO,SS,ST,SV,SY,TG,UG,UZ,ZM,ZW", "R": "AD,AF,AO,AR,AT,BA,BD,BE,BG,BR,BY,BZ,CA,CF,CG,CH,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GM,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JO,KI,KP,KW,LB,LI,LR,LT,LU,LV,MA,MC,ME,MK,ML,MO,MT,MX,NE,NI,NL,NO,NR,NZ,PE,PL,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SN,SR,SZ,TD,TM,TN,TO,TR,TT,UA,US,UY,VA,VE,VU,XK,YE,ZA", "A": "BI,BO,CV,DJ,GH,GW,KM,LC,LK,MG,MH,MR,MU,MV,MW,MZ,NA,NP,PW,SL,TJ,TL,TV,TZ,WS", "T": "CI,KE,PG,TW", "F": "PS" }, "YE": { "21": "DM", "30": "FM,SD", "90": "HT,MY,SC,VC", "E": "AE,AG,AL,AU,BF,BH,BJ,BS,BT,BW,CD,CM,CO,EC,ET,GA,GE,GN,GQ,HK,ID,IQ,KG,KN,KR,LS,MD,MW,NG,OM,PG,PK,QA,SG,SL,SO,SS,ST,SV,TG,TZ,UG,VN,ZM,ZW", "R": "AD,AF,AM,AO,AR,AT,AZ,BA,BB,BD,BE,BG,BN,BR,BY,BZ,CA,CF,CG,CH,CL,CN,CR,CU,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FJ,FR,GB,GD,GM,GR,GT,GY,HN,HR,HU,IE,IL,IN,IS,IT,JM,JO,JP,KI,KP,KW,KZ,LC,LI,LR,LT,LU,LV,MA,MC,ME,MH,MK,ML,MM,MN,MT,MU,MX,NA,NE,NI,NL,NO,NR,NZ,PA,PE,PH,PL,PT,PY,RO,RS,RU,SA,SB,SE,SI,SK,SM,SN,SR,SZ,TD,TH,TM,TN,TO,TR,TT,TW,UA,US,UY,UZ,VA,VE,VU,XK,ZA", "A": "BI,BO,CV,DJ,GH,GW,IR,KH,KM,LA,LB,LK,MG,MO,MR,MV,MZ,NP,PW,RW,TJ,TL,TV,WS", "T": "CI,KE", "N": "LY", "F": "PS,SY" }, "ZM": { "30": "AO,FM,MY,PH,RW,SG,SZ", "42": "LC", "90": "BD,BJ,BS,BW,EC,GD,GM,HK,HT,KI,KN,LS,MU,MW,NA,SC,TZ,UG,VC,ZA,ZW", "120": "FJ,VU", "180": "AG,BB,DM", "E": "AE,AL,AU,BF,BH,BT,CD,CM,CO,CU,GA,GE,GN,GQ,ID,IN,IQ,KG,KR,KZ,LY,MN,OM,QA,SO,SR,SS,ST,SV,SY,TG,TJ,VN", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BR,BY,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JO,JP,KP,KW,LA,LB,LI,LR,LT,LU,LV,MA,MC,MD,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NR,NZ,PA,PE,PL,PS,PT,PY,RO,RS,RU,SA,SB,SD,SE,SI,SK,SM,TD,TH,TM,TN,TO,TR,TW,UA,US,UY,UZ,VA,VE,XK,YE", "F": "BZ,JM,MZ,TT", "A": "BI,BO,CV,DJ,ET,GH,GW,IR,KH,KM,LK,MG,MO,MR,MV,NG,NI,NP,PW,SL,SN,TL,TV,WS", "T": "CI,KE,PG,PK" }, "ZW": { "15": "IR", "21": "DM", "30": "AO,FM,MY,PH,RW,SG,SZ", "60": "GH", "90": "BJ,BS,BW,CD,EC,GM,HK,HT,KN,MU,MW,NA,SC,TZ,UG,VC,ZA,ZM", "120": "FJ,VU", "180": "BB", "E": "AE,AG,AL,AU,BF,BH,BT,CM,CO,CU,GA,GE,GN,GQ,ID,IN,IQ,KG,KR,KZ,LY,MN,OM,PG,PK,QA,RU,SL,SO,SS,ST,SV,SY,TG,TJ,VN", "R": "AD,AF,AM,AR,AT,AZ,BA,BE,BG,BN,BR,BY,CA,CF,CG,CH,CL,CN,CR,CY,CZ,DE,DK,DO,DZ,EE,EG,ER,ES,FI,FR,GB,GD,GR,GT,GY,HN,HR,HU,IE,IL,IS,IT,JM,JP,KI,KP,KW,LA,LB,LI,LR,LT,LU,LV,MA,MC,MD,ME,MH,MK,ML,MM,MT,MX,NE,NL,NO,NP,NR,NZ,PA,PE,PL,PT,PY,RO,RS,SA,SB,SD,SE,SI,SK,SM,SR,TD,TH,TM,TN,TO,TR,TW,UA,US,UY,UZ,VA,VE,XK,YE", "A": "BD,BI,BO,CV,DJ,ET,GW,JO,KH,KM,LC,LK,MG,MO,MR,MV,NG,NI,PW,SN,TL,TV,WS", "F": "BZ,LS,MZ,PS,TT", "T": "CI,KE" } };
@@ -2441,7 +2966,7 @@ function exceedsAllowance(check, tripDays) {
 }
 
 // src/travel/advice.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 
 // src/data/adviceSlugs.ts
 var ADVICE_SLUGS = { "AD": "andorra", "AE": "verenigde-arabische-emiraten", "AF": "afghanistan", "AG": "antigua-en-barbuda", "AI": "anguilla", "AL": "albanie", "AM": "armenie", "AN": "curacao", "AO": "angola", "AQ": "antarctica", "AR": "argentinie", "AS": "amerikaans-samoa", "AT": "oostenrijk", "AU": "australie", "AW": "aruba", "AZ": "azerbeidzjan", "BA": "bosnie-en-herzegovina", "BB": "barbados", "BD": "bangladesh", "BE": "belgie", "BF": "burkina-faso", "BG": "bulgarije", "BH": "bahrein", "BI": "burundi", "BJ": "benin", "BO": "bolivia", "BR": "brazilie", "BT": "bhutan", "BW": "botswana", "BZ": "belize", "CA": "canada", "CF": "centraal-afrikaanse-republiek", "CH": "zwitserland", "CI": "ivoorkust", "CK": "cookeilanden", "CL": "chili", "CM": "kameroen", "CN": "china", "CO": "colombia", "CR": "costa-rica", "CS": "servie", "CU": "cuba", "CV": "kaapverdie", "CW": "curacao", "CY": "cyprus", "CZ": "tsjechie", "DD": "duitsland", "DE": "duitsland", "DJ": "djibouti", "DK": "denemarken", "DM": "dominica", "DO": "dominicaanse-republiek", "DY": "benin", "DZ": "algerije", "EC": "ecuador", "EE": "estland", "EG": "egypte", "ER": "eritrea", "ES": "spanje", "ET": "ethiopie", "FI": "finland", "FJ": "fiji", "FM": "micronesia", "FO": "faeroer", "FR": "frankrijk", "FX": "frankrijk", "GA": "gabon", "GB": "verenigd-koninkrijk", "GD": "grenada", "GE": "georgie", "GF": "frans-guyana", "GH": "ghana", "GL": "groenland", "GM": "gambia", "GN": "guinee", "GP": "guadeloupe", "GQ": "equatoriaal-guinea", "GR": "griekenland", "GT": "guatemala", "GW": "guinee-bissau", "GY": "guyana", "HN": "honduras", "HR": "kroatie", "HT": "haiti", "HU": "hongarije", "HV": "burkina-faso", "ID": "indonesie", "IE": "ierland", "IL": "israel", "IN": "india", "IQ": "irak", "IR": "iran", "IS": "ijsland", "IT": "italie", "JM": "jamaica", "JO": "jordanie", "JP": "japan", "KE": "kenia", "KG": "kirgizie", "KH": "cambodja", "KI": "kiribati", "KM": "comoren", "KN": "saint-kitts-en-nevis", "KP": "noord-korea", "KR": "zuid-korea", "KW": "koeweit", "KY": "kaaimaneilanden", "KZ": "kazachstan", "LA": "laos", "LB": "libanon", "LC": "saint-lucia", "LI": "liechtenstein", "LK": "sri-lanka", "LR": "liberia", "LS": "lesotho", "LT": "litouwen", "LU": "luxemburg", "LV": "letland", "LY": "libie", "MA": "marokko", "MC": "monaco", "MD": "moldavie", "ME": "montenegro", "MG": "madagaskar", "MH": "marshalleilanden", "MK": "noord-macedonie", "ML": "mali", "MN": "mongolie", "MQ": "martinique", "MR": "mauritanie", "MS": "montserrat", "MT": "malta", "MU": "mauritius", "MV": "maldiven", "MW": "malawi", "MX": "mexico", "MY": "maleisie", "MZ": "mozambique", "NA": "namibie", "NC": "nieuw-caledonie", "NE": "niger", "NG": "nigeria", "NH": "vanuatu", "NI": "nicaragua", "NO": "noorwegen", "NP": "nepal", "NR": "nauru", "NU": "niue", "NZ": "nieuw-zeeland", "OM": "oman", "PA": "panama", "PE": "peru", "PF": "frans-polynesie", "PG": "papoea-nieuw-guinea", "PH": "filipijnen", "PK": "pakistan", "PL": "polen", "PN": "pitcairneilanden", "PR": "puerto-rico", "PS": "palestijnse-gebieden", "PT": "portugal", "PW": "palau", "PY": "paraguay", "QA": "qatar", "RE": "reunion", "RH": "zimbabwe", "RO": "roemenie", "RS": "servie", "RU": "rusland", "RW": "rwanda", "SA": "saoedi-arabie", "SB": "salomonseilanden", "SC": "seychellen", "SE": "zweden", "SG": "singapore", "SI": "slovenie", "SK": "slowakije", "SL": "sierra-leone", "SM": "san-marino", "SN": "senegal", "SO": "somalie", "SR": "suriname", "ST": "sao-tome-en-principe", "SU": "rusland", "SV": "el-salvador", "SX": "sint-maarten", "SY": "syrie", "SZ": "eswatini", "TC": "turks-en-caicoseilanden", "TD": "tsjaad", "TG": "togo", "TH": "thailand", "TJ": "tadzjikistan", "TL": "oost-timor", "TM": "turkmenistan", "TN": "tunesie", "TO": "tonga", "TP": "oost-timor", "TR": "turkije", "TT": "trinidad-en-tobago", "TV": "tuvalu", "TW": "taiwan", "TZ": "tanzania", "UA": "oekraine", "UK": "verenigd-koninkrijk", "US": "verenigde-staten-van-amerika", "UY": "uruguay", "UZ": "oezbekistan", "VC": "saint-vincent-en-de-grenadines", "VD": "vietnam", "VE": "venezuela", "VG": "britse-maagdeneilanden", "VI": "amerikaanse-maagdeneilanden", "VN": "vietnam", "VU": "vanuatu", "WF": "wallis-en-futuna", "WS": "samoa", "XK": "kosovo", "YD": "jemen", "YE": "jemen", "YU": "servie", "ZA": "zuid-afrika", "ZM": "zambia", "ZW": "zimbabwe" };
@@ -2485,7 +3010,7 @@ async function fetchAdvice(country) {
       `No Dutch travel advice page is published for ${country}.`
     );
   }
-  const response = await (0, import_obsidian7.requestUrl)({ url, throw: false });
+  const response = await (0, import_obsidian10.requestUrl)({ url, throw: false });
   if (response.status === 404) {
     throw new AdviceUnavailable(`No travel advice found for ${country}.`);
   }
@@ -2536,7 +3061,7 @@ function renderVisa(parent, ctx) {
     const tooLong = exceedsAllowance(check, tripDays);
     const tone = check.outcome === "no-admission" ? "bad" : check.actionNeeded || tooLong ? "warn" : check.outcome === "unknown" ? "unknown" : "good";
     const row2 = list3.createDiv({ cls: `tp-doc-item is-${tone}` });
-    (0, import_obsidian8.setIcon)(
+    (0, import_obsidian11.setIcon)(
       row2.createDiv({ cls: "tp-doc-item-icon" }),
       tone === "good" ? "check-circle" : tone === "unknown" ? "help-circle" : "alert-triangle"
     );
@@ -2561,7 +3086,7 @@ function renderAdvice(parent, ctx) {
   const list3 = parent.createDiv({ cls: "tp-doc-list-rows" });
   if (!advice) {
     const row3 = list3.createDiv({ cls: "tp-doc-item is-unknown" });
-    (0, import_obsidian8.setIcon)(row3.createDiv({ cls: "tp-doc-item-icon" }), "help-circle");
+    (0, import_obsidian11.setIcon)(row3.createDiv({ cls: "tp-doc-item-icon" }), "help-circle");
     const body2 = row3.createDiv({ cls: "tp-doc-item-body" });
     body2.createDiv({ cls: "tp-doc-item-title", text: "Dutch government travel advice" });
     body2.createDiv({
@@ -2573,7 +3098,7 @@ function renderAdvice(parent, ctx) {
   }
   const meaning = ADVICE_MEANING[advice.colour];
   const row2 = list3.createDiv({ cls: `tp-doc-item is-advice-${advice.colour}` });
-  (0, import_obsidian8.setIcon)(
+  (0, import_obsidian11.setIcon)(
     row2.createDiv({ cls: "tp-doc-item-icon" }),
     advice.colour === "groen" ? "check-circle" : advice.colour === "rood" ? "octagon-x" : "alert-triangle"
   );
@@ -2588,7 +3113,7 @@ function renderAdvice(parent, ctx) {
 }
 function appendLink(row2, url) {
   const link = row2.createEl("a", { cls: "tp-doc-link", href: url, attr: { target: "_blank" } });
-  (0, import_obsidian8.setIcon)(link, "external-link");
+  (0, import_obsidian11.setIcon)(link, "external-link");
   link.setAttribute("aria-label", "Open the official advice");
 }
 
@@ -2603,7 +3128,7 @@ function renderTripNotes(parent, ctx) {
     onClick: () => ctx.openFile(trip.file)
   });
   const exportBtn = head.createEl("button", { cls: "tp-dash-action" });
-  (0, import_obsidian9.setIcon)(exportBtn.createSpan(), "file-down");
+  (0, import_obsidian12.setIcon)(exportBtn.createSpan(), "file-down");
   exportBtn.createSpan({ text: "Export to PDF" });
   exportBtn.addEventListener("click", () => plugin.exportTrip(trip));
   if (subNotes.length === 0) {
@@ -2618,7 +3143,7 @@ function renderTripNotes(parent, ctx) {
     const cell = grid.createDiv({ cls: `tp-note-cell is-${state}` });
     const head2 = cell.createDiv({ cls: "tp-note-head" });
     const markEl = head2.createDiv({ cls: "tp-mark" });
-    (0, import_obsidian9.setIcon)(markEl, mark.icon);
+    (0, import_obsidian12.setIcon)(markEl, mark.icon);
     markEl.setAttribute("aria-label", mark.label);
     markEl.setAttribute("title", mark.label);
     head2.createDiv({ cls: "tp-note-name", text: sub.label });
@@ -2629,7 +3154,7 @@ function renderTripNotes(parent, ctx) {
     const actions = cell.createDiv({ cls: "tp-note-actions" });
     if (sub.id) {
       const fill = actions.createEl("button", { cls: "tp-note-btn is-cta" });
-      (0, import_obsidian9.setIcon)(fill.createSpan(), "wand-2");
+      (0, import_obsidian12.setIcon)(fill.createSpan(), "wand-2");
       fill.createSpan({ text: state === "empty" ? "Fill in" : "Add" });
       fill.addEventListener("click", (evt) => {
         evt.stopPropagation();
@@ -2637,7 +3162,7 @@ function renderTripNotes(parent, ctx) {
       });
     }
     const open = actions.createEl("button", { cls: "tp-note-btn" });
-    (0, import_obsidian9.setIcon)(open.createSpan(), "file-text");
+    (0, import_obsidian12.setIcon)(open.createSpan(), "file-text");
     open.createSpan({ text: "Open" });
     open.addEventListener("click", (evt) => {
       evt.stopPropagation();
@@ -2645,7 +3170,7 @@ function renderTripNotes(parent, ctx) {
     });
     cell.addEventListener("contextmenu", (evt) => {
       evt.preventDefault();
-      const menu = new import_obsidian9.Menu();
+      const menu = new import_obsidian12.Menu();
       menu.addItem(
         (i) => i.setTitle("Open").setIcon("file-text").onClick(() => ctx.openFile(sub.file))
       );
@@ -2658,7 +3183,7 @@ function renderTripNotes(parent, ctx) {
       menu.addItem(
         (i) => i.setTitle("Remove this note").setIcon("trash-2").onClick(async () => {
           await ctx.app.fileManager.trashFile(sub.file);
-          new import_obsidian9.Notice(`Removed ${sub.label}.`);
+          new import_obsidian12.Notice(`Removed ${sub.label}.`);
           plugin.store.invalidate();
           ctx.refresh();
         })
@@ -2740,7 +3265,7 @@ function renderOverview(parent, ctx) {
     for (const booking of upcoming) {
       const row2 = list3.createDiv({ cls: "tp-next-row" });
       const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
-      (0, import_obsidian9.setIcon)(row2.createDiv({ cls: "tp-next-icon" }), def?.icon ?? "ticket");
+      (0, import_obsidian12.setIcon)(row2.createDiv({ cls: "tp-next-icon" }), def?.icon ?? "ticket");
       const text = row2.createDiv({ cls: "tp-next-text" });
       text.createDiv({ cls: "tp-next-title", text: booking.title });
       text.createDiv({
@@ -2778,13 +3303,13 @@ function renderOverview(parent, ctx) {
   sectionTitle(parent, "Needs attention");
   if (attention.length === 0) {
     const done = parent.createDiv({ cls: "tp-all-clear" });
-    (0, import_obsidian9.setIcon)(done.createSpan(), "check-circle");
+    (0, import_obsidian12.setIcon)(done.createSpan(), "check-circle");
     done.createSpan({ text: "Everything's filled in. Have a good trip." });
   } else {
     const list3 = parent.createDiv({ cls: "tp-attention-list" });
     for (const item of attention) {
       const row2 = list3.createDiv({ cls: `tp-attention-row${item.action ? " is-clickable" : ""}` });
-      (0, import_obsidian9.setIcon)(row2.createSpan({ cls: "tp-attention-icon" }), "alert-circle");
+      (0, import_obsidian12.setIcon)(row2.createSpan({ cls: "tp-attention-icon" }), "alert-circle");
       row2.createSpan({ text: item.text });
       if (item.action) row2.addEventListener("click", item.action);
     }
@@ -2843,13 +3368,13 @@ function renderOverview(parent, ctx) {
 }
 
 // src/ui/dashboard/tabs/trips.ts
-var import_obsidian11 = require("obsidian");
+var import_obsidian14 = require("obsidian");
 
 // src/ui/dashboard/tripMenu.ts
-var import_obsidian10 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 function showTripMenu(evt, trip, ctx) {
   const { plugin } = ctx;
-  const menu = new import_obsidian10.Menu();
+  const menu = new import_obsidian13.Menu();
   menu.addItem(
     (item) => item.setTitle("Open trip note").setIcon("file-text").onClick(() => ctx.openFile(trip.file))
   );
@@ -2892,7 +3417,7 @@ function showTripMenu(evt, trip, ctx) {
   menu.addItem(
     (item) => item.setTitle("Copy folder path").setIcon("clipboard-copy").onClick(async () => {
       await navigator.clipboard.writeText(trip.folderPath);
-      new import_obsidian10.Notice(`Copied ${trip.folderPath}`);
+      new import_obsidian13.Notice(`Copied ${trip.folderPath}`);
     })
   );
   menu.addSeparator();
@@ -2963,7 +3488,7 @@ function renderTrips(parent, ctx, onSelect) {
     const def = kindDef(trip.kind);
     const card = grid.createDiv({ cls: `tp-card is-${trip.status}` });
     const head = card.createDiv({ cls: "tp-card-head" });
-    (0, import_obsidian11.setIcon)(head.createDiv({ cls: "tp-card-icon" }), def.icon);
+    (0, import_obsidian14.setIcon)(head.createDiv({ cls: "tp-card-icon" }), def.icon);
     const headText = head.createDiv({ cls: "tp-card-head-text" });
     headText.createDiv({ cls: "tp-card-title", text: trip.title });
     headText.createDiv({
@@ -2996,7 +3521,7 @@ function renderTrips(parent, ctx, onSelect) {
       const state = plugin.progress.peek(sub.file)?.state ?? "empty";
       const mark = stateMark(state);
       const el = marks.createDiv({ cls: `tp-mark is-small is-${state}` });
-      (0, import_obsidian11.setIcon)(el, mark.icon);
+      (0, import_obsidian14.setIcon)(el, mark.icon);
       el.setAttribute("title", `${sub.label}: ${mark.label}`);
       el.setAttribute("aria-label", `${sub.label}: ${mark.label}`);
     }
@@ -3004,7 +3529,7 @@ function renderTrips(parent, ctx, onSelect) {
       cls: "tp-icon-btn tp-card-menu",
       attr: { "aria-label": "Trip actions" }
     });
-    (0, import_obsidian11.setIcon)(menuBtn, "more-vertical");
+    (0, import_obsidian14.setIcon)(menuBtn, "more-vertical");
     menuBtn.addEventListener("click", (evt) => {
       evt.stopPropagation();
       showTripMenu(evt, trip, ctx);
@@ -3018,33 +3543,44 @@ function renderTrips(parent, ctx, onSelect) {
 }
 
 // src/ui/dashboard/tabs/itinerary.ts
-var import_obsidian12 = require("obsidian");
-var WEEKDAYS2 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+var import_obsidian15 = require("obsidian");
+
+// src/store/dayPlan.ts
+var BAND = {
+  Arrive: 0,
+  CheckIn: 1,
+  During: 2,
+  CheckOut: 3,
+  Depart: 4
+};
+var SLOT_RANK = { morning: 0, afternoon: 1, evening: 2 };
 function eventsFor(booking, date) {
   const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
   const icon = def?.icon ?? "ticket";
   const cost = booking.cost ? formatMoney(booking.cost) : "";
+  const slot = booking.slot ?? "";
+  const base = { icon, file: booking.file, kind: booking.kind, slot };
   const out = [];
   if (booking.kind === "stay") {
     if (date === booking.date) {
       out.push({
+        ...base,
         time: booking.time,
         title: booking.title,
         detail: "Check in",
-        icon,
         cost,
-        file: booking.file
+        band: BAND.CheckIn
       });
     }
     if (booking.endDate && date === booking.endDate && booking.endDate !== booking.date) {
       out.push({
+        ...base,
         time: booking.endTime,
         title: booking.title,
         detail: "Check out",
-        icon,
         // The price belongs to the stay, and it is already shown at check-in.
         cost: "",
-        file: booking.file
+        band: BAND.CheckOut
       });
     }
     return out;
@@ -3052,34 +3588,34 @@ function eventsFor(booking, date) {
   if (booking.kind === "flight") {
     if (date === booking.date) {
       out.push({
+        ...base,
         time: booking.time,
         title: booking.title,
         detail: [booking.from, booking.to].filter(Boolean).join(" \u2192 ") || "Outbound",
-        icon,
         cost,
-        file: booking.file
+        band: BAND.Arrive
       });
     }
     if (booking.returnDate && date === booking.returnDate) {
       out.push({
+        ...base,
         time: booking.returnTime,
         title: booking.title,
         detail: `Return \xB7 ${[booking.to, booking.from].filter(Boolean).join(" \u2192 ")}`,
-        icon,
         cost: "",
-        file: booking.file
+        band: BAND.Depart
       });
     }
     return out;
   }
   if (date !== booking.date) return out;
   out.push({
+    ...base,
     time: booking.time,
     title: booking.title,
     detail: booking.slot ? booking.slot : booking.to ?? "",
-    icon,
     cost,
-    file: booking.file
+    band: BAND.During
   });
   return out;
 }
@@ -3091,6 +3627,17 @@ function ongoingFor(booking, date) {
   const night = datesInRange(booking.date, date).length - 1;
   return { title: booking.title, night, nights, file: booking.file };
 }
+function dayEvents(bookings, date) {
+  return bookings.flatMap((b) => eventsFor(b, date)).sort(
+    (a, b) => a.band - b.band || (a.time || "99:99").localeCompare(b.time || "99:99") || (SLOT_RANK[a.slot] ?? 9) - (SLOT_RANK[b.slot] ?? 9) || a.title.localeCompare(b.title)
+  );
+}
+function ongoingOn(bookings, date) {
+  return bookings.map((b) => ongoingFor(b, date)).filter((o) => o !== null);
+}
+
+// src/ui/dashboard/tabs/itinerary.ts
+var WEEKDAYS2 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 function renderItinerary(parent, ctx) {
   const { trip, plugin } = ctx;
   if (!trip) {
@@ -3119,8 +3666,8 @@ function renderItinerary(parent, ctx) {
   const timeline = parent.createDiv({ cls: "tp-timeline" });
   for (const [index, date] of days.entries()) {
     const parsed = parseISO(date);
-    const events = bookings.flatMap((b) => eventsFor(b, date)).sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
-    const ongoing = bookings.map((b) => ongoingFor(b, date)).filter((o) => o !== null);
+    const events = dayEvents(bookings, date);
+    const ongoing = ongoingOn(bookings, date);
     const row2 = timeline.createDiv({
       cls: `tp-day${date === today ? " is-today" : ""}${date < today ? " is-past" : ""}`
     });
@@ -3137,7 +3684,7 @@ function renderItinerary(parent, ctx) {
     if (date === today) head.createSpan({ cls: "tp-day-today", text: "Today" });
     for (const stay of ongoing) {
       const rail = body.createDiv({ cls: "tp-day-ongoing" });
-      (0, import_obsidian12.setIcon)(rail.createSpan({ cls: "tp-day-ongoing-icon" }), "bed");
+      (0, import_obsidian15.setIcon)(rail.createSpan({ cls: "tp-day-ongoing-icon" }), "bed");
       rail.createSpan({ text: `${stay.title} \xB7 night ${stay.night} of ${stay.nights}` });
       rail.addEventListener("click", () => ctx.openFile(stay.file));
     }
@@ -3152,10 +3699,11 @@ function renderItinerary(parent, ctx) {
     for (const [position, event] of events.entries()) {
       const item = list3.createDiv({ cls: "tp-day-item" });
       item.createDiv({ cls: "tp-day-item-time", text: event.time || "\u2014" });
-      (0, import_obsidian12.setIcon)(item.createDiv({ cls: "tp-day-item-icon" }), event.icon);
+      (0, import_obsidian15.setIcon)(item.createDiv({ cls: "tp-day-item-icon" }), event.icon);
       const text = item.createDiv({ cls: "tp-day-item-text" });
       text.createDiv({ cls: "tp-day-item-title", text: event.title });
-      if (event.detail) text.createDiv({ cls: "tp-day-item-meta", text: event.detail });
+      const detail = [event.detail, flightDetail(event, ctx)].filter(Boolean).join(" \xB7 ");
+      if (detail) text.createDiv({ cls: "tp-day-item-meta", text: detail });
       if (event.cost) item.createDiv({ cls: "tp-day-item-cost", text: event.cost });
       item.addEventListener("click", () => ctx.openFile(event.file));
       const next = events[position + 1];
@@ -3164,6 +3712,15 @@ function renderItinerary(parent, ctx) {
       }
     }
   }
+}
+function flightDetail(event, ctx) {
+  if (event.kind !== "flight") return "";
+  const fm = ctx.app.metadataCache.getFileCache(event.file)?.frontmatter;
+  const legs = readLegs(event.band === BAND.Depart ? fm?.return_legs : fm?.legs);
+  if (legs.length === 0) return "";
+  const summary = summariseFlight(legs);
+  const arrival = summary.arrival ? `lands ${summary.arrival}` : "";
+  return [summary.label, ...summary.layovers, arrival].filter(Boolean).join(" \xB7 ");
 }
 function makeRouter(ctx) {
   const { trip, plugin } = ctx;
@@ -3181,8 +3738,13 @@ function makeRouter(ctx) {
       const legs = plugin.travel.peekLegs(from, [to], modes).get(to.id);
       if (!legs || legs.length === 0) return;
       const reference = legs.find((l) => l.mode === "walking") ?? legs[0];
-      const row2 = parent.createDiv({ cls: "tp-leg" });
-      (0, import_obsidian12.setIcon)(row2.createSpan({ cls: "tp-leg-icon" }), "move-right");
+      const row2 = parent.createDiv({ cls: "tp-leg is-clickable" });
+      row2.setAttribute("title", "Measure between two other places");
+      row2.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        new RouteModal(ctx.app, plugin, trip, { from, to }).open();
+      });
+      (0, import_obsidian15.setIcon)(row2.createSpan({ cls: "tp-leg-icon" }), "move-right");
       row2.createSpan({
         cls: "tp-leg-text",
         text: [
@@ -3198,7 +3760,7 @@ function makeRouter(ctx) {
 }
 
 // src/ui/dashboard/tabs/bookings.ts
-var import_obsidian13 = require("obsidian");
+var import_obsidian16 = require("obsidian");
 function renderBookings(parent, ctx) {
   const { trip, plugin } = ctx;
   if (!trip) {
@@ -3244,7 +3806,7 @@ function renderRow2(parent, booking, ctx) {
   const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
   const status = BOOKING_STATUSES.find((s) => s.id === booking.status);
   const row2 = parent.createDiv({ cls: `tp-booking is-${booking.status}` });
-  (0, import_obsidian13.setIcon)(row2.createDiv({ cls: "tp-booking-icon" }), def?.icon ?? "ticket");
+  (0, import_obsidian16.setIcon)(row2.createDiv({ cls: "tp-booking-icon" }), def?.icon ?? "ticket");
   const body = row2.createDiv({ cls: "tp-booking-body" });
   body.createDiv({ cls: "tp-booking-title", text: booking.title });
   const meta = body.createDiv({ cls: "tp-booking-meta" });
@@ -3255,7 +3817,7 @@ function renderRow2(parent, booking, ctx) {
   if (booking.seat) meta.createSpan({ text: `Seat ${booking.seat}` });
   if (booking.attachments.length) {
     const attach = meta.createSpan({ cls: "tp-booking-attach" });
-    (0, import_obsidian13.setIcon)(attach.createSpan(), "paperclip");
+    (0, import_obsidian16.setIcon)(attach.createSpan(), "paperclip");
     attach.createSpan({ text: String(booking.attachments.length) });
   }
   const right = row2.createDiv({ cls: "tp-booking-right" });
@@ -3270,7 +3832,7 @@ function renderRow2(parent, booking, ctx) {
   row2.addEventListener("click", () => ctx.openFile(booking.file));
   row2.addEventListener("contextmenu", (evt) => {
     evt.preventDefault();
-    const menu = new import_obsidian13.Menu();
+    const menu = new import_obsidian16.Menu();
     menu.addItem(
       (i) => i.setTitle("Open").setIcon("file-text").onClick(() => ctx.openFile(booking.file))
     );
@@ -3289,7 +3851,7 @@ function renderRow2(parent, booking, ctx) {
 }
 
 // src/ui/dashboard/tabs/costs.ts
-var import_obsidian14 = require("obsidian");
+var import_obsidian17 = require("obsidian");
 function renderCosts(parent, ctx) {
   const { trip, plugin } = ctx;
   if (!trip) {
@@ -3369,7 +3931,7 @@ function renderCosts(parent, ctx) {
     const list3 = parent.createDiv({ cls: "tp-cost-lines" });
     for (const line of lines2) {
       const row2 = list3.createDiv({ cls: `tp-cost-line${line.counted ? "" : " is-excluded"}` });
-      (0, import_obsidian14.setIcon)(
+      (0, import_obsidian17.setIcon)(
         row2.createDiv({ cls: "tp-cost-icon" }),
         line.source === "booking" ? "ticket" : "receipt"
       );
@@ -3386,11 +3948,11 @@ function renderCosts(parent, ctx) {
 }
 
 // src/ui/dashboard/tabs/gallery.ts
-var import_obsidian16 = require("obsidian");
+var import_obsidian19 = require("obsidian");
 
 // src/ui/modals/lightbox.ts
-var import_obsidian15 = require("obsidian");
-var Lightbox = class extends import_obsidian15.Modal {
+var import_obsidian18 = require("obsidian");
+var Lightbox = class extends import_obsidian18.Modal {
   constructor(app, files, start) {
     super(app);
     this.files = files;
@@ -3413,7 +3975,7 @@ var Lightbox = class extends import_obsidian15.Modal {
     const controls = bar2.createDiv({ cls: "tp-lightbox-controls" });
     const button = (icon, label, onClick) => {
       const btn = controls.createEl("button", { cls: "tp-icon-btn", attr: { "aria-label": label } });
-      (0, import_obsidian15.setIcon)(btn, icon);
+      (0, import_obsidian18.setIcon)(btn, icon);
       btn.addEventListener("click", onClick);
       return btn;
     };
@@ -3430,13 +3992,13 @@ var Lightbox = class extends import_obsidian15.Modal {
         cls: "tp-lightbox-nav is-prev",
         attr: { "aria-label": "Previous" }
       });
-      (0, import_obsidian15.setIcon)(prev, "chevron-left");
+      (0, import_obsidian18.setIcon)(prev, "chevron-left");
       prev.addEventListener("click", () => this.step(-1));
       const next = contentEl.createEl("button", {
         cls: "tp-lightbox-nav is-next",
         attr: { "aria-label": "Next" }
       });
-      (0, import_obsidian15.setIcon)(next, "chevron-right");
+      (0, import_obsidian18.setIcon)(next, "chevron-right");
       next.addEventListener("click", () => this.step(1));
     }
     this.scope.register([], "ArrowLeft", () => this.step(-1));
@@ -3487,7 +4049,7 @@ var Lightbox = class extends import_obsidian15.Modal {
       return;
     }
     const box = this.stageEl.createDiv({ cls: "tp-lightbox-fallback" });
-    (0, import_obsidian15.setIcon)(box.createDiv(), "file");
+    (0, import_obsidian18.setIcon)(box.createDiv(), "file");
     box.createDiv({ text: file.name });
     const open = box.createEl("button", { cls: "tp-dash-empty-btn is-cta", text: "Open in a tab" });
     open.addEventListener("click", () => {
@@ -3532,7 +4094,7 @@ var Lightbox = class extends import_obsidian15.Modal {
 };
 function openAttachment(app, files, file) {
   if (files.length === 0) {
-    new import_obsidian15.Notice("Nothing to show.");
+    new import_obsidian18.Notice("Nothing to show.");
     return;
   }
   new Lightbox(app, files, file).open();
@@ -3586,9 +4148,9 @@ function renderGallery(parent, ctx) {
   const attachFolder = app.vault.getAbstractFileByPath(
     `${trip.folderPath}/${plugin.settings.attachmentsFolder}`
   );
-  if (attachFolder instanceof import_obsidian16.TFolder) {
+  if (attachFolder instanceof import_obsidian19.TFolder) {
     const loose = attachFolder.children.filter(
-      (child) => child instanceof import_obsidian16.TFile && child.extension !== "md" && !seen.has(child.path)
+      (child) => child instanceof import_obsidian19.TFile && child.extension !== "md" && !seen.has(child.path)
     );
     if (loose.length > 0) {
       groups.push({
@@ -3616,7 +4178,7 @@ function renderGallery(parent, ctx) {
   for (const group of groups) {
     const box = parent.createDiv({ cls: "tp-gallery-group" });
     const head = box.createDiv({ cls: "tp-gallery-head" });
-    (0, import_obsidian16.setIcon)(head.createDiv({ cls: "tp-gallery-head-icon" }), group.icon);
+    (0, import_obsidian19.setIcon)(head.createDiv({ cls: "tp-gallery-head-icon" }), group.icon);
     const headText = head.createDiv({ cls: "tp-gallery-head-text" });
     headText.createDiv({ cls: "tp-gallery-head-title", text: group.title });
     if (group.detail) headText.createDiv({ cls: "tp-gallery-head-detail", text: group.detail });
@@ -3638,7 +4200,7 @@ function renderGallery(parent, ctx) {
         img.loading = "lazy";
       } else {
         const doc = cell.createDiv({ cls: "tp-gallery-doc" });
-        (0, import_obsidian16.setIcon)(doc, file.extension === "pdf" ? "file-text" : "file");
+        (0, import_obsidian19.setIcon)(doc, file.extension === "pdf" ? "file-text" : "file");
         doc.createSpan({ cls: "tp-gallery-doc-ext", text: file.extension.toUpperCase() });
       }
       cell.createDiv({ cls: "tp-gallery-caption", text: file.name });
@@ -3657,7 +4219,7 @@ var TABS = [
   { id: "costs", label: "Costs", icon: "wallet" },
   { id: "gallery", label: "Gallery", icon: "image" }
 ];
-var TravelDashboardView = class extends import_obsidian17.ItemView {
+var TravelDashboardView = class extends import_obsidian20.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -3787,20 +4349,20 @@ var TravelDashboardView = class extends import_obsidian17.ItemView {
         cls: "tp-icon-btn tp-dash-tripmenu",
         attr: { "aria-label": "Trip actions" }
       });
-      (0, import_obsidian17.setIcon)(menuBtn, "more-vertical");
+      (0, import_obsidian20.setIcon)(menuBtn, "more-vertical");
       menuBtn.addEventListener("click", (evt) => showTripMenu(evt, trip, this.context()));
     }
     const actions = top.createDiv({ cls: "tp-dash-quick" });
     if (trip) {
       const plan = actions.createEl("button", { cls: "tp-dash-quick-btn is-cta" });
-      (0, import_obsidian17.setIcon)(plan.createSpan(), "wand-2");
+      (0, import_obsidian20.setIcon)(plan.createSpan(), "wand-2");
       plan.createSpan({ text: "Plan trip" });
       plan.addEventListener("click", () => this.plugin.openPlanWizard(trip));
       const add = actions.createEl("button", { cls: "tp-dash-quick-btn" });
-      (0, import_obsidian17.setIcon)(add.createSpan(), "plus");
+      (0, import_obsidian20.setIcon)(add.createSpan(), "plus");
       add.createSpan({ text: "Add" });
       add.addEventListener("click", (evt) => {
-        const menu = new import_obsidian17.Menu();
+        const menu = new import_obsidian20.Menu();
         for (const def of BOOKING_KINDS) {
           menu.addItem(
             (i) => i.setTitle(def.label).setIcon(def.icon).onClick(() => this.plugin.openBookingWizard(trip, def.id))
@@ -3818,7 +4380,7 @@ var TravelDashboardView = class extends import_obsidian17.ItemView {
       const el = tabs.createDiv({
         cls: `tp-dash-tab${tab.id === this.tab ? " is-active" : ""}`
       });
-      (0, import_obsidian17.setIcon)(el.createSpan({ cls: "tp-dash-tab-icon" }), tab.icon);
+      (0, import_obsidian20.setIcon)(el.createSpan({ cls: "tp-dash-tab-icon" }), tab.icon);
       el.createSpan({ text: tab.label });
       el.addEventListener("click", () => {
         this.tab = tab.id;
@@ -3829,26 +4391,10 @@ var TravelDashboardView = class extends import_obsidian17.ItemView {
 };
 
 // src/ui/modals/bookingWizard.ts
-var import_obsidian20 = require("obsidian");
-
-// src/ui/modalUtils.ts
-function keepOpenOnBackgroundClick(modal) {
-  modal.containerEl.addEventListener(
-    "click",
-    (evt) => {
-      const target = evt.target;
-      if (!target) return;
-      const onBackground = target === modal.containerEl || target.classList.contains("modal-bg");
-      if (!onBackground) return;
-      evt.preventDefault();
-      evt.stopImmediatePropagation();
-    },
-    true
-  );
-}
+var import_obsidian23 = require("obsidian");
 
 // src/ui/components/attachmentField.ts
-var import_obsidian18 = require("obsidian");
+var import_obsidian21 = require("obsidian");
 var AttachmentField = class {
   constructor(container, options = {}) {
     this.container = container;
@@ -3875,7 +4421,7 @@ var AttachmentField = class {
   render() {
     const wrap = this.container.createDiv({ cls: "tp-attach" });
     const drop = wrap.createDiv({ cls: "tp-attach-drop" });
-    (0, import_obsidian18.setIcon)(drop.createDiv({ cls: "tp-attach-icon" }), "paperclip");
+    (0, import_obsidian21.setIcon)(drop.createDiv({ cls: "tp-attach-icon" }), "paperclip");
     drop.createDiv({ cls: "tp-attach-label", text: this.label });
     drop.createDiv({ cls: "tp-attach-hint", text: "Drop files here, paste with Cmd+V, or click to choose" });
     this.inputEl = wrap.createEl("input", { cls: "tp-attach-input" });
@@ -3932,14 +4478,14 @@ var AttachmentField = class {
     this.listEl.empty();
     for (const [index, file] of this.files.entries()) {
       const chip = this.listEl.createDiv({ cls: "tp-attach-chip" });
-      (0, import_obsidian18.setIcon)(
+      (0, import_obsidian21.setIcon)(
         chip.createSpan({ cls: "tp-attach-chip-icon" }),
         /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(file.name) ? "image" : "file-text"
       );
       chip.createSpan({ cls: "tp-attach-chip-name", text: file.name });
       chip.createSpan({ cls: "tp-attach-chip-size", text: formatSize(file.size) });
       const remove = chip.createSpan({ cls: "tp-attach-chip-remove", attr: { "aria-label": "Remove" } });
-      (0, import_obsidian18.setIcon)(remove, "x");
+      (0, import_obsidian21.setIcon)(remove, "x");
       remove.addEventListener("click", (evt) => {
         evt.stopPropagation();
         this.files.splice(index, 1);
@@ -3978,7 +4524,7 @@ function formatSize(bytes) {
 }
 
 // src/ui/components/legsField.ts
-var import_obsidian19 = require("obsidian");
+var import_obsidian22 = require("obsidian");
 var LegsField = class {
   constructor(opts) {
     this.opts = opts;
@@ -3998,7 +4544,7 @@ var LegsField = class {
     }
     const add = container.createEl("button", { cls: "tp-leg-add" });
     add.type = "button";
-    (0, import_obsidian19.setIcon)(add.createSpan(), "plus");
+    (0, import_obsidian22.setIcon)(add.createSpan(), "plus");
     add.createSpan({ text: this.legs.length === 1 ? "Add a connecting flight" : "Add another leg" });
     add.addEventListener("click", () => {
       const previous = this.legs[this.legs.length - 1];
@@ -4012,7 +4558,7 @@ var LegsField = class {
   renderLayover(parent, previous, next) {
     const minutes = layoverMinutes(previous, next);
     const row2 = parent.createDiv({ cls: "tp-layover" });
-    (0, import_obsidian19.setIcon)(row2.createSpan({ cls: "tp-layover-icon" }), "hourglass");
+    (0, import_obsidian22.setIcon)(row2.createSpan({ cls: "tp-layover-icon" }), "hourglass");
     if (minutes === null) {
       row2.createSpan({ cls: "tp-layover-text", text: "Layover \u2014 add times to work it out" });
       return;
@@ -4032,7 +4578,7 @@ var LegsField = class {
     if (this.legs.length > 1) {
       const remove = head.createEl("button", { cls: "tp-icon-btn", attr: { "aria-label": "Remove leg" } });
       remove.type = "button";
-      (0, import_obsidian19.setIcon)(remove, "trash-2");
+      (0, import_obsidian22.setIcon)(remove, "trash-2");
       remove.addEventListener("click", () => {
         this.legs.splice(index, 1);
         this.render();
@@ -4403,7 +4949,7 @@ var FIELDS = {
 };
 var STEPS = ["Details", "When", "Cost", "Attachments"];
 var FLIGHT_STEPS = ["Flights", "Cost", "Attachments"];
-var BookingWizard = class extends import_obsidian20.Modal {
+var BookingWizard = class extends import_obsidian23.Modal {
   constructor(app, settings, trip, kind, currency, stars, onSubmit) {
     super(app);
     this.settings = settings;
@@ -4458,7 +5004,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
     this.modalEl.addClass("tp-modal-shell");
     const def = BOOKING_KINDS.find((k) => k.id === this.draft.kind);
     const head = contentEl.createDiv({ cls: "tp-wizard-head" });
-    (0, import_obsidian20.setIcon)(head.createDiv({ cls: "tp-wizard-icon" }), def?.icon ?? "ticket");
+    (0, import_obsidian23.setIcon)(head.createDiv({ cls: "tp-wizard-icon" }), def?.icon ?? "ticket");
     const headText = head.createDiv();
     headText.createDiv({ cls: "tp-modal-title", text: `Add ${def?.label.toLowerCase() ?? "booking"}` });
     headText.createDiv({
@@ -4472,7 +5018,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
       baseName: this.trip.title,
       startIndex: countAttachmentsNamed(this.app, this.settings, this.trip, this.trip.title)
     });
-    new import_obsidian20.Setting(contentEl).setClass("tp-wizard-nav").addButton((btn) => {
+    new import_obsidian23.Setting(contentEl).setClass("tp-wizard-nav").addButton((btn) => {
       this.backBtn = btn;
       btn.setButtonText("Back").onClick(() => this.go(this.step - 1));
     }).addButton((btn) => {
@@ -4522,7 +5068,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
         this.renderCityField(spec);
         continue;
       }
-      const setting = new import_obsidian20.Setting(this.bodyEl).setName(spec.label);
+      const setting = new import_obsidian23.Setting(this.bodyEl).setName(spec.label);
       if (spec.key === "address") {
         setting.setDesc("Used to work out travel times from your accommodation.");
       }
@@ -4535,7 +5081,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
     this.renderStatusAndNotes();
   }
   renderStatusAndNotes() {
-    new import_obsidian20.Setting(this.bodyEl).setName("Status").addDropdown((dd) => {
+    new import_obsidian23.Setting(this.bodyEl).setName("Status").addDropdown((dd) => {
       for (const s of BOOKING_STATUSES) dd.addOption(s.id, s.label);
       dd.setValue(this.draft.status);
       dd.onChange((v) => this.draft.status = v);
@@ -4546,7 +5092,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
         text: `For ${this.trip.travellers.join(", ")} \u2014 change this on the trip.`
       });
     }
-    new import_obsidian20.Setting(this.bodyEl).setName("Notes").addTextArea((ta) => {
+    new import_obsidian23.Setting(this.bodyEl).setName("Notes").addTextArea((ta) => {
       ta.inputEl.rows = 2;
       ta.setValue(this.draft.notes);
       ta.onChange((v) => this.draft.notes = v);
@@ -4563,7 +5109,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
   renderConfirmationHint() {
     const row2 = this.bodyEl.createDiv({ cls: "tp-confirm-row" });
     if (this.readSummary) {
-      (0, import_obsidian20.setIcon)(row2.createSpan({ cls: "tp-confirm-row-icon is-done" }), "check");
+      (0, import_obsidian23.setIcon)(row2.createSpan({ cls: "tp-confirm-row-icon is-done" }), "check");
       row2.createSpan({ cls: "tp-confirm-row-done", text: this.readSummary });
       const again = row2.createEl("button", { cls: "tp-confirm-link", text: "read another" });
       again.type = "button";
@@ -4573,7 +5119,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
       });
       return;
     }
-    (0, import_obsidian20.setIcon)(row2.createSpan({ cls: "tp-confirm-row-icon" }), "clipboard-paste");
+    (0, import_obsidian23.setIcon)(row2.createSpan({ cls: "tp-confirm-row-icon" }), "clipboard-paste");
     row2.createSpan({ text: "Paste your booking confirmation to fill this in" });
     const file = row2.createEl("input");
     file.type = "file";
@@ -4623,7 +5169,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
     if (!text.trim()) return;
     const parsed = parseConfirmation(text);
     if (!parsed || parsed.legs.length === 0) {
-      new import_obsidian20.Notice(
+      new import_obsidian23.Notice(
         name ? `Could not find any flights in ${name}.` : "Could not find any flights in that. Fill the legs in by hand.",
         7e3
       );
@@ -4656,7 +5202,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
       parsed.amount !== null ? formatMoney({ amount: parsed.amount, currency: this.draft.currency }) : ""
     ].filter(Boolean);
     this.readSummary = `Read ${detail.join(" \xB7 ")}${parsed.source === "ics" ? " from the calendar invite" : ""}`;
-    new import_obsidian20.Notice(
+    new import_obsidian23.Notice(
       parsed.source === "ics" ? "Filled in from the calendar invite." : "Filled in from the confirmation \u2014 check the times before saving.",
       6e3
     );
@@ -4674,7 +5220,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
       nearby: () => ({ country: this.trip.country, city: this.trip.city }),
       onChange: () => this.syncFromLegs()
     });
-    new import_obsidian20.Setting(this.bodyEl).setName("Return flight").setDesc("Same ticket, coming back.").addToggle((t) => {
+    new import_obsidian23.Setting(this.bodyEl).setName("Return flight").setDesc("Same ticket, coming back.").addToggle((t) => {
       t.setValue(this.hasReturn);
       t.onChange((value) => {
         this.hasReturn = value;
@@ -4737,7 +5283,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
   }
   /** Text field backed by a picker, with a star button for the ones you reuse. */
   renderPickerField(spec, kind) {
-    const setting = new import_obsidian20.Setting(this.bodyEl).setName(spec.label).setDesc(
+    const setting = new import_obsidian23.Setting(this.bodyEl).setName(spec.label).setDesc(
       kind === "airline" ? "Star the airlines you fly and they stay at the top." : "Search by code, city or airport name. Star the ones you use often."
     );
     let input;
@@ -4778,7 +5324,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
       const value = this.draft[spec.key];
       const starred = value.length > 0 && this.stars.isStarred(kind, value);
       starBtn.empty();
-      (0, import_obsidian20.setIcon)(starBtn, "star");
+      (0, import_obsidian23.setIcon)(starBtn, "star");
       starBtn.toggleClass("is-starred", starred);
       starBtn.toggleClass("is-disabled", value.length === 0);
       starBtn.setAttribute("aria-label", starred ? `Unstar ${value}` : `Star ${value || spec.label}`);
@@ -4795,7 +5341,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
   }
   /** Stations and stops are best described by their city. */
   renderCityField(spec) {
-    new import_obsidian20.Setting(this.bodyEl).setName(spec.label).addText((t) => {
+    new import_obsidian23.Setting(this.bodyEl).setName(spec.label).addText((t) => {
       t.setPlaceholder(spec.placeholder);
       t.setValue(this.draft[spec.key]);
       t.onChange((v) => this.draft[spec.key] = v.trim());
@@ -4850,7 +5396,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
     });
   }
   renderCost() {
-    new import_obsidian20.Setting(this.bodyEl).setName("Cost").setDesc("Entered once here \u2014 it flows straight into the trip's Costs tab.").addText((t) => {
+    new import_obsidian23.Setting(this.bodyEl).setName("Cost").setDesc("Entered once here \u2014 it flows straight into the trip's Costs tab.").addText((t) => {
       t.setPlaceholder("450");
       t.setValue(this.amountRaw);
       t.inputEl.inputMode = "decimal";
@@ -4868,7 +5414,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
         this.renderCostPreview();
       });
     });
-    new import_obsidian20.Setting(this.bodyEl).setName("Category").setDesc("Which budget line this counts against.").addDropdown((dd) => {
+    new import_obsidian23.Setting(this.bodyEl).setName("Category").setDesc("Which budget line this counts against.").addDropdown((dd) => {
       for (const c of allCategories(this.settings.customCategories, [this.draft.category])) {
         dd.addOption(c, c);
       }
@@ -4951,7 +5497,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
   async submit() {
     if (this.submitting) return;
     if (!isValidISODate(this.draft.date)) {
-      new import_obsidian20.Notice("Pick a valid date on the When step.");
+      new import_obsidian23.Notice("Pick a valid date on the When step.");
       this.go(1);
       return;
     }
@@ -4961,7 +5507,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
       await this.onSubmit({ ...this.draft, title: this.effectiveTitle() }, this.attachments.getFiles());
       this.close();
     } catch (err) {
-      new import_obsidian20.Notice(err instanceof Error ? err.message : "Could not save the booking.");
+      new import_obsidian23.Notice(err instanceof Error ? err.message : "Could not save the booking.");
       console.error("[travel-planner]", err);
       this.submitting = false;
       this.nextBtn.setDisabled(false).setButtonText("Save booking");
@@ -4977,8 +5523,8 @@ var BookingWizard = class extends import_obsidian20.Modal {
 };
 
 // src/ui/modals/expenseModal.ts
-var import_obsidian21 = require("obsidian");
-var ExpenseModal = class extends import_obsidian21.Modal {
+var import_obsidian24 = require("obsidian");
+var ExpenseModal = class extends import_obsidian24.Modal {
   constructor(app, settings, trip, currency, onSubmit) {
     super(app);
     this.settings = settings;
@@ -5005,12 +5551,12 @@ var ExpenseModal = class extends import_obsidian21.Modal {
     contentEl.addClass("tp-modal");
     contentEl.createEl("h2", { text: "Log an expense", cls: "tp-modal-title" });
     contentEl.createDiv({ cls: "tp-wizard-sub", text: this.trip.title });
-    new import_obsidian21.Setting(contentEl).setName("What was it?").addText((t) => {
+    new import_obsidian24.Setting(contentEl).setName("What was it?").addText((t) => {
       t.setPlaceholder("Dinner at Proto");
       t.onChange((v) => this.draft.description = v.trim());
       window.setTimeout(() => t.inputEl.focus(), 0);
     });
-    new import_obsidian21.Setting(contentEl).setName("Amount").addText((t) => {
+    new import_obsidian24.Setting(contentEl).setName("Amount").addText((t) => {
       t.setPlaceholder("62,50");
       t.inputEl.inputMode = "decimal";
       t.onChange((v) => this.draft.amount = parseAmount(v) ?? 0);
@@ -5020,19 +5566,19 @@ var ExpenseModal = class extends import_obsidian21.Modal {
       dd.setValue(this.draft.currency);
       dd.onChange((v) => this.draft.currency = v);
     });
-    const dateSetting = new import_obsidian21.Setting(contentEl).setName("Date");
+    const dateSetting = new import_obsidian24.Setting(contentEl).setName("Date");
     const date = dateSetting.controlEl.createEl("input", { cls: "tp-date-input" });
     date.type = "date";
     date.value = this.draft.date;
     date.addEventListener("change", () => this.draft.date = date.value);
-    new import_obsidian21.Setting(contentEl).setName("Category").addDropdown((dd) => {
+    new import_obsidian24.Setting(contentEl).setName("Category").addDropdown((dd) => {
       for (const c of allCategories(this.settings.customCategories, [this.draft.category])) {
         dd.addOption(c, c);
       }
       dd.setValue(this.draft.category);
       dd.onChange((v) => this.draft.category = v);
     });
-    new import_obsidian21.Setting(contentEl).setName("Paid by").addText((t) => {
+    new import_obsidian24.Setting(contentEl).setName("Paid by").addText((t) => {
       t.setPlaceholder("Optional");
       t.onChange((v) => this.draft.paidBy = v.trim());
     });
@@ -5041,7 +5587,7 @@ var ExpenseModal = class extends import_obsidian21.Modal {
       baseName: this.trip.title,
       startIndex: countAttachmentsNamed(this.app, this.settings, this.trip, this.trip.title)
     });
-    new import_obsidian21.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton((btn) => {
+    new import_obsidian24.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton((btn) => {
       this.saveBtn = btn;
       btn.setButtonText("Save expense").setCta().onClick(() => void this.submit());
     });
@@ -5049,15 +5595,15 @@ var ExpenseModal = class extends import_obsidian21.Modal {
   async submit() {
     if (this.submitting) return;
     if (!this.draft.description) {
-      new import_obsidian21.Notice("Give the expense a description.");
+      new import_obsidian24.Notice("Give the expense a description.");
       return;
     }
     if (!Number.isFinite(this.draft.amount) || this.draft.amount <= 0) {
-      new import_obsidian21.Notice("Enter an amount above zero.");
+      new import_obsidian24.Notice("Enter an amount above zero.");
       return;
     }
     if (!isValidISODate(this.draft.date)) {
-      new import_obsidian21.Notice("Pick a valid date.");
+      new import_obsidian24.Notice("Pick a valid date.");
       return;
     }
     this.submitting = true;
@@ -5066,7 +5612,7 @@ var ExpenseModal = class extends import_obsidian21.Modal {
       await this.onSubmit({ ...this.draft }, this.attachments.getFiles());
       this.close();
     } catch (err) {
-      new import_obsidian21.Notice(err instanceof Error ? err.message : "Could not save the expense.");
+      new import_obsidian24.Notice(err instanceof Error ? err.message : "Could not save the expense.");
       console.error("[travel-planner]", err);
       this.submitting = false;
       this.saveBtn?.setDisabled(false).setButtonText("Save expense");
@@ -5079,8 +5625,8 @@ var ExpenseModal = class extends import_obsidian21.Modal {
 };
 
 // src/ui/modals/budgetModal.ts
-var import_obsidian22 = require("obsidian");
-var BudgetModal = class extends import_obsidian22.Modal {
+var import_obsidian25 = require("obsidian");
+var BudgetModal = class extends import_obsidian25.Modal {
   constructor(app, trip, existing, currency, actuals, explicitTotal, custom, onAddCategory, onSave) {
     super(app);
     this.trip = trip;
@@ -5102,7 +5648,7 @@ var BudgetModal = class extends import_obsidian22.Modal {
     contentEl.addClass("tp-modal");
     contentEl.createEl("h2", { text: "Budget", cls: "tp-modal-title" });
     contentEl.createDiv({ cls: "tp-wizard-sub", text: this.trip.title });
-    new import_obsidian22.Setting(contentEl).setName("Budget for the whole trip").setDesc("What you want the trip to cost in total. Leave blank to just add up the categories.").addText((t) => {
+    new import_obsidian25.Setting(contentEl).setName("Budget for the whole trip").setDesc("What you want the trip to cost in total. Leave blank to just add up the categories.").addText((t) => {
       t.setPlaceholder("3000");
       t.setValue(this.total !== null ? String(this.total) : "");
       t.inputEl.inputMode = "decimal";
@@ -5112,7 +5658,7 @@ var BudgetModal = class extends import_obsidian22.Modal {
         this.renderTotal();
       });
     });
-    new import_obsidian22.Setting(contentEl).setName("Currency").setDesc("Used for this trip's budget and totals.").addDropdown((dd) => {
+    new import_obsidian25.Setting(contentEl).setName("Currency").setDesc("Used for this trip's budget and totals.").addDropdown((dd) => {
       const options = /* @__PURE__ */ new Set([this.currency, ...COMMON_CURRENCIES]);
       for (const c of options) dd.addOption(c, c);
       dd.setValue(this.currency);
@@ -5127,7 +5673,7 @@ var BudgetModal = class extends import_obsidian22.Modal {
     ]);
     for (const category of categories) {
       const actual = this.actuals.get(category) ?? 0;
-      const setting = new import_obsidian22.Setting(contentEl).setName(category);
+      const setting = new import_obsidian25.Setting(contentEl).setName(category);
       if (actual > 0) {
         setting.setDesc(
           `${formatMoney({ amount: actual, currency: this.currency })} already booked`
@@ -5170,7 +5716,7 @@ var BudgetModal = class extends import_obsidian22.Modal {
     }
     let newCategory = "";
     let newAmount = "";
-    const addSetting = new import_obsidian22.Setting(contentEl).setName("Add a category");
+    const addSetting = new import_obsidian25.Setting(contentEl).setName("Add a category");
     addSetting.addText((t) => {
       t.setPlaceholder("Car hire");
       t.onChange((v) => newCategory = v.trim());
@@ -5191,7 +5737,7 @@ var BudgetModal = class extends import_obsidian22.Modal {
       const name = newCategory.trim();
       if (!name) return;
       if (allCategories(this.custom).some((c) => c.toLowerCase() === name.toLowerCase())) {
-        new import_obsidian22.Notice(`"${name}" already exists.`);
+        new import_obsidian25.Notice(`"${name}" already exists.`);
         return;
       }
       const amount = parseAmount(newAmount);
@@ -5205,13 +5751,13 @@ var BudgetModal = class extends import_obsidian22.Modal {
     addSetting.addButton((b) => b.setButtonText("Add").onClick(() => void addCategory()));
     this.totalEl = contentEl.createDiv({ cls: "tp-budget-total" });
     this.renderTotal();
-    new import_obsidian22.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton(
+    new import_obsidian25.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton(
       (b) => b.setButtonText("Save budget").setCta().onClick(async () => {
         try {
           await this.onSave(new Map(this.values), this.currency, this.total);
           this.close();
         } catch (err) {
-          new import_obsidian22.Notice(err instanceof Error ? err.message : "Could not save the budget.");
+          new import_obsidian25.Notice(err instanceof Error ? err.message : "Could not save the budget.");
           console.error("[travel-planner]", err);
         }
       })
@@ -5249,7 +5795,7 @@ var BudgetModal = class extends import_obsidian22.Modal {
 };
 
 // src/ui/modals/packingModal.ts
-var import_obsidian24 = require("obsidian");
+var import_obsidian27 = require("obsidian");
 
 // src/store/packing.ts
 var LAUNDRY_THRESHOLD = 12;
@@ -5376,7 +5922,7 @@ function renderPackingPlan(plan) {
 }
 
 // src/store/sectionWriter.ts
-var import_obsidian23 = require("obsidian");
+var import_obsidian26 = require("obsidian");
 async function replaceSection(app, file, heading, body) {
   const content = await app.vault.read(file);
   const lines2 = content.split("\n");
@@ -5444,7 +5990,7 @@ ${table2}`);
 function subNoteFile(app, trip, id) {
   const path = `${trip.folderPath}/${SUB_NOTE_LABELS[id]}.md`;
   const file = app.vault.getAbstractFileByPath(path);
-  return file instanceof import_obsidian23.TFile ? file : null;
+  return file instanceof import_obsidian26.TFile ? file : null;
 }
 async function ensureSubNote(app, trip, id) {
   const existing = subNoteFile(app, trip, id);
@@ -5464,7 +6010,7 @@ async function ensureSubNote(app, trip, id) {
 }
 
 // src/ui/modals/packingModal.ts
-var PackingModal = class extends import_obsidian24.Modal {
+var PackingModal = class extends import_obsidian27.Modal {
   constructor(app, trip, onSaved) {
     super(app);
     this.trip = trip;
@@ -5492,7 +6038,7 @@ var PackingModal = class extends import_obsidian24.Modal {
     this.summaryEl = contentEl.createDiv({ cls: "tp-packing-summary" });
     this.listEl = contentEl.createDiv({ cls: "tp-packing-list" });
     this.renderList();
-    new import_obsidian24.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton((b) => {
+    new import_obsidian27.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton((b) => {
       this.saveBtn = b;
       b.setButtonText("Save list").setCta().onClick(() => void this.save());
     });
@@ -5562,7 +6108,7 @@ var PackingModal = class extends import_obsidian24.Modal {
   renderPackFor(parent) {
     const people = this.trip.travellers;
     if (people.length <= 1) return;
-    const setting = new import_obsidian24.Setting(parent).setName("Packing for").setDesc("Clothing counts scale with who you tick. Toiletries and gear stay as one each.");
+    const setting = new import_obsidian27.Setting(parent).setName("Packing for").setDesc("Clothing counts scale with who you tick. Toiletries and gear stay as one each.");
     setting.settingEl.addClass("tp-setting-stack");
     const row2 = setting.controlEl.createDiv({ cls: "tp-settings-subnotes" });
     for (const person of people) {
@@ -5580,7 +6126,7 @@ var PackingModal = class extends import_obsidian24.Modal {
   }
   /** Nothing generated covers everything; this is the escape hatch. */
   renderAddItem(parent) {
-    const setting = new import_obsidian24.Setting(parent).setName("Add an item");
+    const setting = new import_obsidian27.Setting(parent).setName("Add an item");
     let name = "";
     let section = "Misc";
     let quantity = "";
@@ -5692,11 +6238,11 @@ var PackingModal = class extends import_obsidian24.Modal {
 
 `;
       await this.app.vault.modify(file, head + out.join("\n"));
-      new import_obsidian24.Notice(`Packing list saved \u2014 ${included.length} items.`);
+      new import_obsidian27.Notice(`Packing list saved \u2014 ${included.length} items.`);
       this.onSaved();
       this.close();
     } catch (err) {
-      new import_obsidian24.Notice(err instanceof Error ? err.message : "Could not save the packing list.");
+      new import_obsidian27.Notice(err instanceof Error ? err.message : "Could not save the packing list.");
       console.error("[travel-planner]", err);
       this.saveBtn?.setDisabled(false).setButtonText("Save list");
     }
@@ -5707,8 +6253,8 @@ var PackingModal = class extends import_obsidian24.Modal {
 };
 
 // src/ui/modals/eventDetailsModal.ts
-var import_obsidian25 = require("obsidian");
-var EventDetailsModal = class extends import_obsidian25.Modal {
+var import_obsidian28 = require("obsidian");
+var EventDetailsModal = class extends import_obsidian28.Modal {
   constructor(app, trip, onSaved) {
     super(app);
     this.trip = trip;
@@ -5736,14 +6282,14 @@ var EventDetailsModal = class extends import_obsidian25.Modal {
     contentEl.createEl("h2", { text: "Event details", cls: "tp-modal-title" });
     contentEl.createDiv({ cls: "tp-wizard-sub", text: this.trip.title });
     await this.prefillFromNote();
-    const text = (name, key, placeholder) => new import_obsidian25.Setting(contentEl).setName(name).addText((t) => {
+    const text = (name, key, placeholder) => new import_obsidian28.Setting(contentEl).setName(name).addText((t) => {
       t.setPlaceholder(placeholder);
       t.setValue(this.fields[key]);
       t.onChange((v) => this.fields[key] = v.trim());
     });
     text("Venue", "venue", "Ziggo Dome");
     text("Address", "address", "De Passage 100, Amsterdam");
-    const timeRow = new import_obsidian25.Setting(contentEl).setName("Doors / start");
+    const timeRow = new import_obsidian28.Setting(contentEl).setName("Doors / start");
     for (const key of ["doors", "start"]) {
       const input = timeRow.controlEl.createEl("input", { cls: "tp-time-input" });
       input.type = "time";
@@ -5754,18 +6300,18 @@ var EventDetailsModal = class extends import_obsidian25.Modal {
     text("Tickets", "tickets", "2 \xD7 standing");
     text("Booking reference", "reference", "ABC123");
     text("Seat / section", "seat", "Block C, row 4");
-    new import_obsidian25.Setting(contentEl).setName("Line-up").addTextArea((ta) => {
+    new import_obsidian28.Setting(contentEl).setName("Line-up").addTextArea((ta) => {
       ta.inputEl.rows = 3;
       ta.setPlaceholder("Support act, main act\u2026");
       ta.setValue(this.fields.lineup);
       ta.onChange((v) => this.fields.lineup = v);
     });
-    new import_obsidian25.Setting(contentEl).setName("Notes").addTextArea((ta) => {
+    new import_obsidian28.Setting(contentEl).setName("Notes").addTextArea((ta) => {
       ta.inputEl.rows = 2;
       ta.setValue(this.fields.notes);
       ta.onChange((v) => this.fields.notes = v);
     });
-    new import_obsidian25.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton((b) => {
+    new import_obsidian28.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton((b) => {
       this.saveBtn = b;
       b.setButtonText("Save details").setCta().onClick(() => void this.save());
     });
@@ -5813,11 +6359,11 @@ var EventDetailsModal = class extends import_obsidian25.Modal {
           fm.venue = f.venue;
         });
       }
-      new import_obsidian25.Notice("Event details saved.");
+      new import_obsidian28.Notice("Event details saved.");
       this.onSaved();
       this.close();
     } catch (err) {
-      new import_obsidian25.Notice(err instanceof Error ? err.message : "Could not save the event details.");
+      new import_obsidian28.Notice(err instanceof Error ? err.message : "Could not save the event details.");
       console.error("[travel-planner]", err);
       this.saveBtn?.setDisabled(false).setButtonText("Save details");
     }
@@ -5828,8 +6374,8 @@ var EventDetailsModal = class extends import_obsidian25.Modal {
 };
 
 // src/ui/modals/foodModal.ts
-var import_obsidian26 = require("obsidian");
-var FoodModal = class extends import_obsidian26.Modal {
+var import_obsidian29 = require("obsidian");
+var FoodModal = class extends import_obsidian29.Modal {
   constructor(app, settings, trip, onSaved) {
     super(app);
     this.settings = settings;
@@ -5855,12 +6401,12 @@ var FoodModal = class extends import_obsidian26.Modal {
       cls: "tp-wizard-sub",
       text: [this.trip.title, this.trip.city].filter(Boolean).join(" \xB7 ")
     });
-    new import_obsidian26.Setting(contentEl).setName("Place").addText((t) => {
+    new import_obsidian29.Setting(contentEl).setName("Place").addText((t) => {
       t.setPlaceholder("Restaurant name");
       t.onChange((v) => this.place = v.trim());
       window.setTimeout(() => t.inputEl.focus(), 0);
     });
-    const when = new import_obsidian26.Setting(contentEl).setName("When");
+    const when = new import_obsidian29.Setting(contentEl).setName("When");
     const date = when.controlEl.createEl("input", { cls: "tp-date-input" });
     date.type = "date";
     date.value = this.date;
@@ -5871,11 +6417,11 @@ var FoodModal = class extends import_obsidian26.Modal {
     time.type = "time";
     time.setAttribute("aria-label", "Time");
     time.addEventListener("change", () => this.time = time.value);
-    new import_obsidian26.Setting(contentEl).setName("Booked by").addText((t) => {
+    new import_obsidian29.Setting(contentEl).setName("Booked by").addText((t) => {
       t.setPlaceholder("Optional");
       t.onChange((v) => this.bookedBy = v.trim());
     });
-    new import_obsidian26.Setting(contentEl).setName("Notes").addTextArea((ta) => {
+    new import_obsidian29.Setting(contentEl).setName("Notes").addTextArea((ta) => {
       ta.inputEl.rows = 2;
       ta.setPlaceholder("Reference, dress code, table by the window\u2026");
       ta.onChange((v) => this.notes = v);
@@ -5884,14 +6430,14 @@ var FoodModal = class extends import_obsidian26.Modal {
     hint.setText(
       this.trip.city ? `Places you still want to try are listed by the Food Spot block in this note, filtered to ${this.trip.city}.` : "Set a city on the trip and the Food Spot block will list places to try there."
     );
-    new import_obsidian26.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton((b) => {
+    new import_obsidian29.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton((b) => {
       this.saveBtn = b;
       b.setButtonText("Save booking").setCta().onClick(() => void this.save());
     });
   }
   async save() {
     if (!this.place) {
-      new import_obsidian26.Notice("Which place?");
+      new import_obsidian29.Notice("Which place?");
       return;
     }
     this.saveBtn?.setDisabled(true).setButtonText("Saving\u2026");
@@ -5917,11 +6463,11 @@ ${block.join("\n")}
         ["Date", "Time", "Place", "Booked by", "Notes"],
         [this.date, this.time || "", this.place, this.bookedBy || "", this.notes.replace(/\|/g, "\\|")]
       );
-      new import_obsidian26.Notice(`Booked ${this.place}.`);
+      new import_obsidian29.Notice(`Booked ${this.place}.`);
       this.onSaved();
       this.close();
     } catch (err) {
-      new import_obsidian26.Notice(err instanceof Error ? err.message : "Could not save the booking.");
+      new import_obsidian29.Notice(err instanceof Error ? err.message : "Could not save the booking.");
       console.error("[travel-planner]", err);
       this.saveBtn?.setDisabled(false).setButtonText("Save booking");
     }
@@ -5932,8 +6478,8 @@ ${block.join("\n")}
 };
 
 // src/ui/modals/tripPlanWizard.ts
-var import_obsidian27 = require("obsidian");
-var TripPlanWizard = class extends import_obsidian27.Modal {
+var import_obsidian30 = require("obsidian");
+var TripPlanWizard = class extends import_obsidian30.Modal {
   constructor(app, plugin, trip) {
     super(app);
     this.plugin = plugin;
@@ -6111,7 +6657,7 @@ var TripPlanWizard = class extends import_obsidian27.Modal {
     contentEl.empty();
     contentEl.addClass("tp-modal", "tp-plan");
     const head = contentEl.createDiv({ cls: "tp-wizard-head" });
-    (0, import_obsidian27.setIcon)(head.createDiv({ cls: "tp-wizard-icon" }), kindDef(trip.kind).icon);
+    (0, import_obsidian30.setIcon)(head.createDiv({ cls: "tp-wizard-icon" }), kindDef(trip.kind).icon);
     const headText = head.createDiv();
     headText.createDiv({ cls: "tp-modal-title", text: `Plan ${trip.title}` });
     headText.createDiv({
@@ -6133,9 +6679,9 @@ var TripPlanWizard = class extends import_obsidian27.Modal {
     for (const step of steps) {
       const row2 = list3.createDiv({ cls: `tp-plan-row${step.done ? " is-done" : ""}` });
       const mark = row2.createDiv({ cls: `tp-mark ${step.done ? "is-complete" : "is-empty"}` });
-      (0, import_obsidian27.setIcon)(mark, step.done ? "check" : "x");
+      (0, import_obsidian30.setIcon)(mark, step.done ? "check" : "x");
       const icon = row2.createDiv({ cls: "tp-plan-icon" });
-      (0, import_obsidian27.setIcon)(icon, step.icon);
+      (0, import_obsidian30.setIcon)(icon, step.icon);
       const text = row2.createDiv({ cls: "tp-plan-text" });
       text.createDiv({ cls: "tp-plan-title", text: step.title });
       text.createDiv({ cls: "tp-plan-summary", text: step.summary || step.detail });
@@ -6145,7 +6691,7 @@ var TripPlanWizard = class extends import_obsidian27.Modal {
       });
       btn.addEventListener("click", () => step.action());
     }
-    new import_obsidian27.Setting(contentEl).addButton(
+    new import_obsidian30.Setting(contentEl).addButton(
       (b) => b.setButtonText(done === steps.length ? "All done" : "Finish later").setCta().onClick(() => this.close())
     );
   }
@@ -6243,353 +6789,42 @@ async function backfillFlightLegs(app, settings) {
   return repaired;
 }
 
-// src/travel/travelService.ts
-var import_obsidian29 = require("obsidian");
-
-// src/travel/googleApi.ts
-var import_obsidian28 = require("obsidian");
-var GoogleApiError = class extends Error {
-};
-var GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json";
-var MATRIX_URL = "https://maps.googleapis.com/maps/api/distancematrix/json";
-var MAX_DESTINATIONS = 25;
-async function geocode(address, apiKey) {
-  const url = `${GEOCODE_URL}?address=${encodeURIComponent(address)}&key=${encodeURIComponent(apiKey)}`;
-  const response = await (0, import_obsidian28.requestUrl)({ url, throw: false });
-  if (response.status !== 200) {
-    throw new GoogleApiError(`Geocoding failed with HTTP ${response.status}.`);
+// src/travel/routePlan.ts
+function itineraryPairs(bookings, days, places, base) {
+  const byPath = new Map(places.filter((p) => p.file).map((p) => [p.file.path, p]));
+  const pairs = [];
+  const seen = /* @__PURE__ */ new Set();
+  const add = (from, to) => {
+    if (!from || !to || from.id === to.id) return;
+    const key = `${from.id}>${to.id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    pairs.push({ from, to });
+  };
+  for (const date of days) {
+    const events = dayEvents(bookings, date);
+    if (events.length === 0) continue;
+    if (ongoingOn(bookings, date).length > 0) {
+      add(base, byPath.get(events[0].file.path));
+    }
+    for (let i = 0; i < events.length - 1; i += 1) {
+      add(byPath.get(events[i].file.path), byPath.get(events[i + 1].file.path));
+    }
   }
-  const body = response.json;
-  if (body.status === "ZERO_RESULTS") return null;
-  if (body.status !== "OK") {
-    throw new GoogleApiError(describe(body.status, body.error_message, "Geocoding"));
-  }
-  const location = body.results?.[0]?.geometry?.location;
-  if (!location || !Number.isFinite(location.lat) || !Number.isFinite(location.lng)) return null;
-  return { lat: location.lat, lng: location.lng };
+  return pairs;
 }
-async function distanceMatrix(origin, destinations, mode, apiKey, departureTime) {
-  if (destinations.length === 0) return [];
-  if (destinations.length > MAX_DESTINATIONS) {
-    throw new GoogleApiError(`Too many destinations in one request (max ${MAX_DESTINATIONS}).`);
+function groupByOrigin(pairs) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const pair of pairs) {
+    const group = groups.get(pair.from.id) ?? { from: pair.from, to: [] };
+    group.to.push(pair.to);
+    groups.set(pair.from.id, group);
   }
-  const params = new URLSearchParams({
-    origins: `${origin.lat},${origin.lng}`,
-    destinations: destinations.map((d) => `${d.lat},${d.lng}`).join("|"),
-    mode,
-    units: "metric",
-    key: apiKey
-  });
-  if (mode === "transit") {
-    const when = departureTime && departureTime.getTime() > Date.now() ? departureTime : /* @__PURE__ */ new Date();
-    params.set("departure_time", String(Math.floor(when.getTime() / 1e3)));
-  }
-  const response = await (0, import_obsidian28.requestUrl)({ url: `${MATRIX_URL}?${params.toString()}`, throw: false });
-  if (response.status !== 200) {
-    throw new GoogleApiError(`Distance lookup failed with HTTP ${response.status}.`);
-  }
-  const body = response.json;
-  if (body.status !== "OK") {
-    throw new GoogleApiError(describe(body.status, body.error_message, "Distance lookup"));
-  }
-  const elements = body.rows?.[0]?.elements ?? [];
-  return destinations.map((_, index) => {
-    const element = elements[index];
-    if (!element || element.status !== "OK") return null;
-    const distanceMeters = element.distance?.value;
-    const durationSeconds = element.duration?.value;
-    if (!Number.isFinite(distanceMeters) || !Number.isFinite(durationSeconds)) return null;
-    return { mode, distanceMeters, durationSeconds };
-  });
+  return [...groups.values()];
 }
-function describe(status, message, what) {
-  switch (status) {
-    case "REQUEST_DENIED":
-      return `${what} was denied. Check the API key, and that Geocoding and Distance Matrix are enabled on that Google Cloud project.${message ? ` (${message})` : ""}`;
-    case "OVER_QUERY_LIMIT":
-      return `${what} hit the Google quota or billing limit for this key.`;
-    case "INVALID_REQUEST":
-      return `${what} was rejected as invalid.${message ? ` (${message})` : ""}`;
-    default:
-      return `${what} failed: ${status}.${message ? ` ${message}` : ""}`;
-  }
-}
-
-// src/travel/travelService.ts
-function emptyTravelCache() {
-  return { legs: {}, geocode: {}, advice: {} };
-}
-var TravelUnavailable = class extends Error {
-};
-var TravelService = class {
-  constructor(app, getSettings, cache, persist) {
-    this.app = app;
-    this.getSettings = getSettings;
-    this.cache = cache;
-    this.persist = persist;
-  }
-  setCache(cache) {
-    this.cache = cache;
-  }
-  isConfigured() {
-    const settings = this.getSettings();
-    return settings.travelTimesEnabled && settings.googleApiKey.trim().length > 0;
-  }
-  requireKey() {
-    const settings = this.getSettings();
-    if (!settings.travelTimesEnabled) {
-      throw new TravelUnavailable("Travel times are switched off in settings.");
-    }
-    const key = settings.googleApiKey.trim();
-    if (!key) throw new TravelUnavailable("No Google API key set in Travel Planner settings.");
-    return key;
-  }
-  // --------------------------------------------------------------- places
-  /**
-   * Coordinates for a booking, in cheapest-first order: the note's own
-   * `location`, then the geocode cache, then an actual paid geocode whose result
-   * is written back to the note so it is never paid for twice.
-   */
-  async coordForBooking(booking, trip) {
-    const fm = this.app.metadataCache.getFileCache(booking.file)?.frontmatter;
-    const existing = parseLocation(fm?.location);
-    if (existing) return existing;
-    const address = this.addressFor(booking, trip);
-    if (!address) return null;
-    const coord = await this.geocodeCached(address);
-    if (!coord) return null;
-    await this.app.fileManager.processFrontMatter(booking.file, (front) => {
-      front.location = formatLocation(coord);
-    });
-    return coord;
-  }
-  /** Best address string we can build for a booking. */
-  addressFor(booking, trip) {
-    const where = [trip.city, trip.country].filter(Boolean).join(", ");
-    if (booking.kind === "flight") {
-      const airport = booking.to || booking.from;
-      return airport ? `${airport} airport` : "";
-    }
-    const base = booking.address || booking.to || booking.title;
-    if (!base) return "";
-    return where && !base.toLowerCase().includes(trip.city.toLowerCase()) ? `${base}, ${where}` : base;
-  }
-  async geocodeCached(address) {
-    const key = address.trim().toLowerCase();
-    if (!key) return null;
-    const hit = this.cache.geocode[key];
-    if (hit) {
-      const parsed = parseLocation(hit);
-      if (parsed) return parsed;
-    }
-    const coord = await geocode(address, this.requireKey());
-    if (!coord) return null;
-    this.cache.geocode[key] = formatLocation(coord);
-    await this.persist();
-    return coord;
-  }
-  /** Restaurants come from Food Spot notes, which already carry coordinates. */
-  restaurantsFor(trip) {
-    const city = trip.city.trim().toLowerCase();
-    if (!city) return [];
-    const out = [];
-    for (const file of this.app.vault.getMarkdownFiles()) {
-      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-      if (!fm || fm.type !== "foodspot") continue;
-      if (String(fm.city ?? "").trim().toLowerCase() !== city) continue;
-      const coord = parseLocation(fm.location);
-      if (!coord) continue;
-      out.push({
-        id: file.path,
-        label: String(fm.name ?? file.basename),
-        kind: "restaurant",
-        coord,
-        file
-      });
-    }
-    out.sort((a, b) => a.label.localeCompare(b.label));
-    return out;
-  }
-  /**
-   * Every place on a trip worth measuring between. Geocodes on demand, so this
-   * can make paid calls the first time it runs for a trip.
-   */
-  async placesFor(trip, bookings) {
-    const places = { hotels: [], airports: [], activities: [], restaurants: [] };
-    for (const booking of bookings) {
-      if (booking.status === "cancelled") continue;
-      const coord = await this.coordForBooking(booking, trip);
-      if (!coord) continue;
-      const label = booking.kind === "flight" ? booking.to || booking.from || booking.title : booking.title;
-      const place = {
-        id: booking.file.path,
-        label,
-        kind: booking.kind === "stay" ? "hotel" : booking.kind === "flight" ? "airport" : booking.kind === "transport" ? "station" : "activity",
-        coord,
-        file: booking.file,
-        // A flight's place is the airport it lands at, so the transfer to the
-        // hotel happens on the outbound date, not the return. No time: the
-        // booking's own time is the departure from home, and its end is the
-        // return arrival on a return ticket — neither is when you land.
-        date: booking.date,
-        time: booking.kind === "flight" ? "" : booking.time
-      };
-      if (place.kind === "hotel") places.hotels.push(place);
-      else if (place.kind === "airport") places.airports.push(place);
-      else places.activities.push(place);
-    }
-    places.restaurants = this.restaurantsFor(trip);
-    return places;
-  }
-  // ----------------------------------------------------------------- legs
-  readCache(from, to, mode) {
-    const hit = this.cache.legs[legKey(from, to, mode)];
-    if (!hit) return null;
-    return { mode, distanceMeters: hit.d, durationSeconds: hit.t };
-  }
-  /** Cached results for a fan-out, with no network access at all. */
-  peekLegs(origin, destinations, modes) {
-    const out = /* @__PURE__ */ new Map();
-    for (const destination of destinations) {
-      const legs = [];
-      for (const mode of modes) {
-        const leg = this.readCache(origin.coord, destination.coord, mode);
-        if (leg) legs.push(leg);
-      }
-      if (legs.length) out.set(destination.id, legs);
-    }
-    return out;
-  }
-  /** True when something in this fan-out would need a paid request. */
-  needsFetch(origin, destinations, modes) {
-    return destinations.some(
-      (d) => modes.some((mode) => this.readCache(origin.coord, d.coord, mode) === null)
-    );
-  }
-  /**
-   * Fills in whatever is missing, batching up to 25 destinations per request and
-   * per mode. Already-cached pairs cost nothing.
-   */
-  async fetchLegs(origin, destinations, modes, when) {
-    const key = this.requireKey();
-    let dirty = false;
-    for (const mode of modes) {
-      const missing = destinations.filter(
-        (d) => this.readCache(origin.coord, d.coord, mode) === null && coordKey(d.coord) !== coordKey(origin.coord)
-      );
-      for (let i = 0; i < missing.length; i += MAX_DESTINATIONS) {
-        const batch = missing.slice(i, i + MAX_DESTINATIONS);
-        const results = await distanceMatrix(
-          origin.coord,
-          batch.map((d) => d.coord),
-          mode,
-          key,
-          when
-        );
-        for (const [index, leg] of results.entries()) {
-          if (!leg) continue;
-          this.cache.legs[legKey(origin.coord, batch[index].coord, mode)] = {
-            d: leg.distanceMeters,
-            t: leg.durationSeconds,
-            at: Date.now()
-          };
-          dirty = true;
-        }
-      }
-    }
-    if (dirty) await this.persist();
-    return this.peekLegs(origin, destinations, modes);
-  }
-  /** Departure time to ask about: 09:00 on the trip's first day. */
-  departureTimeFor(trip) {
-    const start = parseISO(trip.startDate);
-    if (!start) return void 0;
-    start.setUTCHours(9, 0, 0, 0);
-    return start;
-  }
-  /**
-   * Drops everything cached for one trip.
-   *
-   * Cached routes are keyed by coordinate, not by trip, so this works out which
-   * coordinates belonged to it and removes any leg touching them.
-   */
-  async forgetTrip(trip) {
-    const bookings = this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${trip.folderPath}/`));
-    const keys = /* @__PURE__ */ new Set();
-    for (const file of bookings) {
-      const coord = parseLocation(this.app.metadataCache.getFileCache(file)?.frontmatter?.location);
-      if (coord) keys.add(coordKey(coord));
-    }
-    if (keys.size === 0) return;
-    for (const key of Object.keys(this.cache.legs)) {
-      const [from, to] = key.split("|");
-      if (keys.has(from) || keys.has(to)) delete this.cache.legs[key];
-    }
-    await this.persist();
-  }
-  /**
-   * Checks the key against both APIs the plugin needs.
-   *
-   * Geocoding and Distance Matrix are enabled separately on a Google Cloud
-   * project, and having one without the other is the usual reason travel times
-   * fail — so the test says which of the two is missing rather than just
-   * "failed". Costs two requests, and is only run from the button.
-   */
-  async testKey() {
-    const key = this.getSettings().googleApiKey.trim();
-    if (!key) return { ok: false, message: "No key to test." };
-    let origin;
-    try {
-      origin = await geocode("Amsterdam Airport Schiphol", key);
-    } catch (err) {
-      return { ok: false, message: `Geocoding: ${err instanceof Error ? err.message : "failed"}` };
-    }
-    if (!origin) return { ok: false, message: "Geocoding returned nothing." };
-    try {
-      const [leg] = await distanceMatrix(origin, [{ lat: 52.379, lng: 4.9 }], "driving", key);
-      if (!leg) return { ok: false, message: "Distance Matrix returned no route." };
-      return {
-        ok: true,
-        message: `Both APIs answered \u2014 Schiphol to Amsterdam in ${Math.round(leg.durationSeconds / 60)} min.`
-      };
-    } catch (err) {
-      return {
-        ok: false,
-        message: `Distance Matrix: ${err instanceof Error ? err.message : "failed"}`
-      };
-    }
-  }
-  /** Wipes cached legs so the next look-up re-fetches. */
-  async clearLegs() {
-    this.cache.legs = {};
-    await this.persist();
-  }
-  countCached() {
-    return {
-      legs: Object.keys(this.cache.legs).length,
-      addresses: Object.keys(this.cache.geocode).length
-    };
-  }
-  /**
-   * Reads the Google key out of the Food Spot plugin's own settings, so the two
-   * can share one key without it being typed twice. Only ever called when the
-   * user clicks the import button.
-   */
-  async importFoodSpotKey() {
-    const path = (0, import_obsidian29.normalizePath)(`${this.app.vault.configDir}/plugins/foodspot/data.json`);
-    try {
-      const raw = await this.app.vault.adapter.read(path);
-      const parsed = JSON.parse(raw);
-      const key = parsed?.settings?.apiKeys?.googlePlaces;
-      return typeof key === "string" && key.trim() ? key.trim() : null;
-    } catch {
-      return null;
-    }
-  }
-};
 
 // src/export/pdfExport.ts
-var import_obsidian30 = require("obsidian");
+var import_obsidian31 = require("obsidian");
 
 // src/export/tripDocument.ts
 function escapeHtml(value) {
@@ -6844,7 +7079,7 @@ async function buildTripDocument(plugin, trip) {
   }
   const docBookings = bookings.map((booking) => {
     const fm = app.metadataCache.getFileCache(booking.file)?.frontmatter;
-    const readLegs = (value) => Array.isArray(value) ? value.map((raw) => {
+    const readLegs2 = (value) => Array.isArray(value) ? value.map((raw) => {
       const leg = raw;
       return {
         operator: leg?.airline ?? "",
@@ -6873,8 +7108,8 @@ async function buildTripDocument(plugin, trip) {
       seat: booking.seat,
       cost: booking.cost ? formatMoney(booking.cost) : "",
       notes: booking.notes,
-      legs: readLegs(fm?.legs),
-      returnLegs: readLegs(fm?.return_legs)
+      legs: readLegs2(fm?.legs),
+      returnLegs: readLegs2(fm?.return_legs)
     };
   });
   const days = datesInRange(trip.startDate, trip.endDate, 90).map((date, index) => {
@@ -6937,7 +7172,7 @@ async function buildTripDocument(plugin, trip) {
   const packingFile = app.vault.getAbstractFileByPath(
     `${trip.folderPath}/${SUB_NOTE_LABELS.packing}.md`
   );
-  if (packingFile instanceof import_obsidian30.TFile) {
+  if (packingFile instanceof import_obsidian31.TFile) {
     let section = "";
     for (const raw of (await app.vault.cachedRead(packingFile)).split("\n")) {
       const line = raw.trim();
@@ -6967,7 +7202,7 @@ async function buildTripDocument(plugin, trip) {
       const buffer = await app.vault.readBinary(file);
       images.push({
         caption,
-        dataUri: `data:${mimeFor(file.extension)};base64,${(0, import_obsidian30.arrayBufferToBase64)(buffer)}`
+        dataUri: `data:${mimeFor(file.extension)};base64,${(0, import_obsidian31.arrayBufferToBase64)(buffer)}`
       });
     }
   };
@@ -7033,7 +7268,7 @@ async function exportHtmlToPdf(html, suggestedName) {
       filters: [{ name: "PDF", extensions: ["pdf"] }]
     });
   } catch (e) {
-    new import_obsidian30.Notice(`Could not open the save dialogue \u2014 ${errorText(e)}`);
+    new import_obsidian31.Notice(`Could not open the save dialogue \u2014 ${errorText(e)}`);
     return "failed";
   }
   if (chosen.canceled || !chosen.filePath) return "cancelled";
@@ -7042,7 +7277,7 @@ async function exportHtmlToPdf(html, suggestedName) {
   try {
     tmpPath = bits.tmpFile(`travel-planner-${Date.now()}.html`, html);
   } catch (e) {
-    new import_obsidian30.Notice(`Could not prepare the document for printing \u2014 ${errorText(e)}`);
+    new import_obsidian31.Notice(`Could not prepare the document for printing \u2014 ${errorText(e)}`);
     return "failed";
   }
   const view = document.createElement("webview");
@@ -7058,14 +7293,14 @@ async function exportHtmlToPdf(html, suggestedName) {
       try {
         bits.removeFile(tmpPath);
       } catch (e) {
-        new import_obsidian30.Notice(`Could not remove ${tmpPath} \u2014 delete it yourself (${errorText(e)}).`, 1e4);
+        new import_obsidian31.Notice(`Could not remove ${tmpPath} \u2014 delete it yourself (${errorText(e)}).`, 1e4);
       }
     };
     const fail = (message) => {
       if (settled) return;
       settled = true;
       cleanup();
-      new import_obsidian30.Notice(message);
+      new import_obsidian31.Notice(message);
       resolve("failed");
     };
     view.addEventListener(
@@ -7083,7 +7318,7 @@ async function exportHtmlToPdf(html, suggestedName) {
               bits.writeFile(target, data);
               settled = true;
               cleanup();
-              new import_obsidian30.Notice(`PDF saved to ${target}`, 8e3);
+              new import_obsidian31.Notice(`PDF saved to ${target}`, 8e3);
               bits.openPath?.(target);
               resolve("saved");
             } catch (e) {
@@ -7122,14 +7357,14 @@ function printViaDialog(html) {
   }, 400);
 }
 async function ensureFolder2(app, path) {
-  if (app.vault.getAbstractFileByPath(path) instanceof import_obsidian30.TFolder) return;
+  if (app.vault.getAbstractFileByPath(path) instanceof import_obsidian31.TFolder) return;
   try {
     await app.vault.createFolder(path);
   } catch {
   }
 }
 async function exportTrip(plugin, trip) {
-  const notice = new import_obsidian30.Notice("Building the document\u2026", 0);
+  const notice = new import_obsidian31.Notice("Building the document\u2026", 0);
   let html;
   try {
     html = renderTripDocument(await buildTripDocument(plugin, trip));
@@ -7137,17 +7372,17 @@ async function exportTrip(plugin, trip) {
     await ensureFolder2(plugin.app, folder);
     const htmlPath = joinPath(folder, `${sanitizeName(trip.title)}.html`);
     const existing = plugin.app.vault.getAbstractFileByPath(htmlPath);
-    if (existing instanceof import_obsidian30.TFile) await plugin.app.vault.modify(existing, html);
+    if (existing instanceof import_obsidian31.TFile) await plugin.app.vault.modify(existing, html);
     else await plugin.app.vault.create(htmlPath, html);
   } catch (err) {
     notice.hide();
-    new import_obsidian30.Notice(err instanceof Error ? err.message : "Could not build the document.", 8e3);
+    new import_obsidian31.Notice(err instanceof Error ? err.message : "Could not build the document.", 8e3);
     console.error("[travel-planner]", err);
     return;
   }
   notice.hide();
   if (!canExportPdf()) {
-    new import_obsidian30.Notice("Direct PDF export needs the desktop app \u2014 opening the print dialogue instead.");
+    new import_obsidian31.Notice("Direct PDF export needs the desktop app \u2014 opening the print dialogue instead.");
     printViaDialog(html);
     return;
   }
@@ -7156,7 +7391,7 @@ async function exportTrip(plugin, trip) {
 }
 
 // src/store/noteWriter.ts
-var import_obsidian31 = require("obsidian");
+var import_obsidian32 = require("obsidian");
 
 // src/store/templates.ts
 function lines(...parts) {
@@ -7427,20 +7662,20 @@ function readDaySections(content, date) {
 var TripWriteError = class extends Error {
 };
 async function ensureFolder3(app, path) {
-  const normalized = (0, import_obsidian31.normalizePath)(path);
+  const normalized = (0, import_obsidian32.normalizePath)(path);
   if (!normalized || normalized === "/") return;
   const existing = app.vault.getAbstractFileByPath(normalized);
-  if (existing instanceof import_obsidian31.TFolder) return;
+  if (existing instanceof import_obsidian32.TFolder) return;
   if (existing) throw new TripWriteError(`"${normalized}" already exists and is not a folder.`);
   const parts = normalized.split("/");
   let cursor = "";
   for (const part of parts) {
     cursor = cursor ? `${cursor}/${part}` : part;
-    if (app.vault.getAbstractFileByPath(cursor) instanceof import_obsidian31.TFolder) continue;
+    if (app.vault.getAbstractFileByPath(cursor) instanceof import_obsidian32.TFolder) continue;
     try {
       await app.vault.createFolder(cursor);
     } catch (err) {
-      if (!(app.vault.getAbstractFileByPath(cursor) instanceof import_obsidian31.TFolder)) throw err;
+      if (!(app.vault.getAbstractFileByPath(cursor) instanceof import_obsidian32.TFolder)) throw err;
     }
   }
 }
@@ -7474,7 +7709,7 @@ function tripFolderPath(settings, draft) {
     country: draft.country,
     kind: draft.kind
   });
-  return joinPath((0, import_obsidian31.normalizePath)(settings.tripsFolder), relative);
+  return joinPath((0, import_obsidian32.normalizePath)(settings.tripsFolder), relative);
 }
 function tripFrontmatter(draft) {
   const def = kindDef(draft.kind);
@@ -7556,7 +7791,7 @@ async function updateTrip(app, settings, trip, draft) {
   let folderPath = trip.folderPath;
   if (desiredFolder !== trip.folderPath) {
     const folder = app.vault.getAbstractFileByPath(trip.folderPath);
-    if (folder instanceof import_obsidian31.TFolder && !app.vault.getAbstractFileByPath(desiredFolder)) {
+    if (folder instanceof import_obsidian32.TFolder && !app.vault.getAbstractFileByPath(desiredFolder)) {
       await ensureFolder3(app, desiredFolder.split("/").slice(0, -1).join("/"));
       await app.fileManager.renameFile(folder, desiredFolder);
       folderPath = desiredFolder;
@@ -7573,12 +7808,12 @@ async function updateTrip(app, settings, trip, draft) {
 }
 function tripDeletionTargets(app, trip) {
   const folder = app.vault.getAbstractFileByPath(trip.folderPath);
-  if (!(folder instanceof import_obsidian31.TFolder)) return [trip.file];
+  if (!(folder instanceof import_obsidian32.TFolder)) return [trip.file];
   let tripNotes = 0;
   const walk = (dir) => {
     for (const child of dir.children) {
-      if (child instanceof import_obsidian31.TFolder) walk(child);
-      else if (child instanceof import_obsidian31.TFile && child.extension === "md") {
+      if (child instanceof import_obsidian32.TFolder) walk(child);
+      else if (child instanceof import_obsidian32.TFile && child.extension === "md") {
         const fm = app.metadataCache.getFileCache(child)?.frontmatter;
         if (fm?.type === "trip") tripNotes += 1;
       }
@@ -7590,7 +7825,7 @@ function tripDeletionTargets(app, trip) {
 function describeDeletion(app, targets) {
   const out = [];
   const walk = (item) => {
-    if (item instanceof import_obsidian31.TFolder) item.children.forEach(walk);
+    if (item instanceof import_obsidian32.TFolder) item.children.forEach(walk);
     else out.push(item.path);
   };
   targets.forEach(walk);
@@ -7656,12 +7891,12 @@ ${lines2.slice(insertAt).join("\n")}`;
 }
 function notifyError(err, fallback) {
   const message = err instanceof Error ? err.message : fallback;
-  new import_obsidian31.Notice(`Travel Planner: ${message}`);
+  new import_obsidian32.Notice(`Travel Planner: ${message}`);
   console.error("[travel-planner]", err);
 }
 
 // src/ui/view.ts
-var import_obsidian32 = require("obsidian");
+var import_obsidian33 = require("obsidian");
 var GROUPS = [
   { status: "current", label: "Happening now" },
   { status: "upcoming", label: "Upcoming" },
@@ -7676,7 +7911,7 @@ var SUB_NOTE_ICONS = {
   food: "utensils",
   "event-details": "ticket"
 };
-var TravelSidebarView = class extends import_obsidian32.ItemView {
+var TravelSidebarView = class extends import_obsidian33.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -7754,7 +7989,7 @@ var TravelSidebarView = class extends import_obsidian32.ItemView {
   renderHeader(container) {
     const header = container.createDiv({ cls: "tp-header" });
     const newBtn = header.createEl("button", { cls: "tp-new-btn" });
-    (0, import_obsidian32.setIcon)(newBtn.createSpan({ cls: "tp-new-icon" }), "plus");
+    (0, import_obsidian33.setIcon)(newBtn.createSpan({ cls: "tp-new-icon" }), "plus");
     newBtn.createSpan({ text: "New trip" });
     newBtn.addEventListener("click", () => this.plugin.openNewTripModal());
     const search = header.createEl("input", { cls: "tp-search" });
@@ -7771,7 +8006,7 @@ var TravelSidebarView = class extends import_obsidian32.ItemView {
   }
   renderEmpty(container, title, detail) {
     const empty = container.createDiv({ cls: "tp-empty" });
-    (0, import_obsidian32.setIcon)(empty.createDiv({ cls: "tp-empty-icon" }), "plane");
+    (0, import_obsidian33.setIcon)(empty.createDiv({ cls: "tp-empty-icon" }), "plane");
     empty.createDiv({ cls: "tp-empty-title", text: title });
     empty.createDiv({ cls: "tp-empty-detail", text: detail });
   }
@@ -7791,7 +8026,7 @@ var TravelSidebarView = class extends import_obsidian32.ItemView {
       cls: `tp-twisty${isOpen ? " is-open" : ""}`,
       attr: { "aria-label": isOpen ? "Collapse" : "Expand" }
     });
-    (0, import_obsidian32.setIcon)(twisty, "chevron-right");
+    (0, import_obsidian33.setIcon)(twisty, "chevron-right");
     twisty.addEventListener("click", (evt) => {
       evt.stopPropagation();
       if (isOpen) this.expanded.delete(trip.file.path);
@@ -7799,7 +8034,7 @@ var TravelSidebarView = class extends import_obsidian32.ItemView {
       this.render();
     });
     const icon = item.createDiv({ cls: "tp-trip-icon" });
-    (0, import_obsidian32.setIcon)(icon, def.icon);
+    (0, import_obsidian33.setIcon)(icon, def.icon);
     const body = item.createDiv({ cls: "tp-trip-body" });
     body.createDiv({ cls: "tp-trip-title", text: trip.title });
     const meta = body.createDiv({ cls: "tp-trip-meta" });
@@ -7813,7 +8048,7 @@ var TravelSidebarView = class extends import_obsidian32.ItemView {
       cls: "tp-icon-btn",
       attr: { "aria-label": "Trip actions" }
     });
-    (0, import_obsidian32.setIcon)(menuBtn, "more-vertical");
+    (0, import_obsidian33.setIcon)(menuBtn, "more-vertical");
     menuBtn.addEventListener("click", (evt) => {
       evt.stopPropagation();
       this.showMenu(evt, trip);
@@ -7867,7 +8102,7 @@ var TravelSidebarView = class extends import_obsidian32.ItemView {
       const dot = row2.createDiv({ cls: "tp-dot", attr: { "aria-label": this.stateLabel(state) } });
       dot.setAttribute("title", this.stateLabel(state));
       const iconEl = row2.createDiv({ cls: "tp-subnote-icon" });
-      (0, import_obsidian32.setIcon)(iconEl, sub.id ? SUB_NOTE_ICONS[sub.id] ?? "file-text" : "file-text");
+      (0, import_obsidian33.setIcon)(iconEl, sub.id ? SUB_NOTE_ICONS[sub.id] ?? "file-text" : "file-text");
       const text = row2.createDiv({ cls: "tp-subnote-text" });
       text.createDiv({ cls: "tp-subnote-name", text: sub.label });
       text.createDiv({
@@ -7886,7 +8121,7 @@ var TravelSidebarView = class extends import_obsidian32.ItemView {
       row2.addEventListener("contextmenu", (evt) => {
         evt.preventDefault();
         evt.stopPropagation();
-        const menu = new import_obsidian32.Menu();
+        const menu = new import_obsidian33.Menu();
         menu.addItem(
           (i) => i.setTitle("Open").setIcon("file-text").onClick(() => void this.openFile(sub.file, false))
         );
@@ -7918,7 +8153,7 @@ var TravelSidebarView = class extends import_obsidian32.ItemView {
     return `In ${Math.round(days / 30)} months`;
   }
   showMenu(evt, trip) {
-    const menu = new import_obsidian32.Menu();
+    const menu = new import_obsidian33.Menu();
     menu.addItem(
       (item) => item.setTitle("Open").setIcon("file-text").onClick(() => void this.plugin.openTrip(trip))
     );
@@ -7944,7 +8179,7 @@ var TravelSidebarView = class extends import_obsidian32.ItemView {
     menu.addItem(
       (item) => item.setTitle("Copy folder path").setIcon("clipboard-copy").onClick(async () => {
         await navigator.clipboard.writeText(trip.folderPath);
-        new import_obsidian32.Notice(`Copied ${trip.folderPath}`);
+        new import_obsidian33.Notice(`Copied ${trip.folderPath}`);
       })
     );
     menu.addSeparator();
@@ -7956,7 +8191,7 @@ var TravelSidebarView = class extends import_obsidian32.ItemView {
 };
 
 // src/ui/modals/tripModal.ts
-var import_obsidian33 = require("obsidian");
+var import_obsidian34 = require("obsidian");
 
 // src/ui/components/dateRange.ts
 var DURATIONS = [1, 2, 3, 4, 5, 7, 10, 14, 21];
@@ -8077,7 +8312,7 @@ var DateRangeField = class {
 };
 
 // src/ui/modals/tripModal.ts
-var TripModal = class _TripModal extends import_obsidian33.Modal {
+var TripModal = class _TripModal extends import_obsidian34.Modal {
   constructor(app, settings, mode, initial, onSubmit) {
     super(app);
     this.settings = settings;
@@ -8160,13 +8395,13 @@ var TripModal = class _TripModal extends import_obsidian33.Modal {
     this.dates.setSingleDay(kindDef(this.draft.kind).singleDay);
     if (this.mode === "create") {
       this.renderSubNotePicker(contentEl);
-      new import_obsidian33.Setting(contentEl).setName("Notes").addTextArea((ta) => {
+      new import_obsidian34.Setting(contentEl).setName("Notes").addTextArea((ta) => {
         ta.setPlaceholder("Anything you already know about this trip\u2026");
         ta.inputEl.rows = 3;
         ta.onChange((v) => this.draft.notes = v);
       });
     }
-    new import_obsidian33.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton((btn) => {
+    new import_obsidian34.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton((btn) => {
       this.submitBtn = btn;
       btn.setButtonText(this.mode === "create" ? "Create trip" : "Save changes").setCta().onClick(() => void this.submit());
     });
@@ -8185,7 +8420,7 @@ var TripModal = class _TripModal extends import_obsidian33.Modal {
     for (const def of KINDS) {
       const btn = row2.createEl("button", { cls: "tp-kind" });
       btn.type = "button";
-      (0, import_obsidian33.setIcon)(btn.createSpan({ cls: "tp-kind-icon" }), def.icon);
+      (0, import_obsidian34.setIcon)(btn.createSpan({ cls: "tp-kind-icon" }), def.icon);
       btn.createSpan({ cls: "tp-kind-label", text: def.label });
       btn.addEventListener("click", () => this.setKind(def.id));
       this.kindButtons.set(def.id, btn);
@@ -8214,7 +8449,7 @@ var TripModal = class _TripModal extends import_obsidian33.Modal {
     }
   }
   renderPlaceFields(parent) {
-    new import_obsidian33.Setting(parent).setName("Title").setDesc("Shown in the sidebar and used as the note name.").addText(
+    new import_obsidian34.Setting(parent).setName("Title").setDesc("Shown in the sidebar and used as the note name.").addText(
       (t) => {
         this.titleInput = t.inputEl;
         t.setPlaceholder("e.g. Japan 2026, or Radiohead at Ziggo Dome");
@@ -8225,7 +8460,7 @@ var TripModal = class _TripModal extends import_obsidian33.Modal {
         });
       }
     );
-    new import_obsidian33.Setting(parent).setName("Country").addText((t) => {
+    new import_obsidian34.Setting(parent).setName("Country").addText((t) => {
       this.countryInput = t.inputEl;
       t.setPlaceholder("Start typing\u2026");
       t.setValue(this.draft.country);
@@ -8234,7 +8469,7 @@ var TripModal = class _TripModal extends import_obsidian33.Modal {
         this.draft.country = value;
       });
     });
-    new import_obsidian33.Setting(parent).setName("City").setDesc("Drives the Food Spot embed, so it should match how Food Spot spells it.").addText((t) => {
+    new import_obsidian34.Setting(parent).setName("City").setDesc("Drives the Food Spot embed, so it should match how Food Spot spells it.").addText((t) => {
       t.setPlaceholder("Start typing\u2026");
       t.setValue(this.draft.city);
       t.onChange((v) => this.setCity(v.trim(), false));
@@ -8245,7 +8480,7 @@ var TripModal = class _TripModal extends import_obsidian33.Modal {
         (value) => this.setCity(value, true)
       );
     });
-    new import_obsidian33.Setting(parent).setName("Travelling from").setDesc("Your origin city and home airport, pre-filled from settings.").addText((t) => {
+    new import_obsidian34.Setting(parent).setName("Travelling from").setDesc("Your origin city and home airport, pre-filled from settings.").addText((t) => {
       t.setPlaceholder("City");
       t.setValue(this.draft.originCity);
       t.onChange((v) => this.draft.originCity = v.trim());
@@ -8269,7 +8504,7 @@ var TripModal = class _TripModal extends import_obsidian33.Modal {
         () => ({ country: this.settings.defaultCountry, city: this.draft.originCity })
       );
     });
-    new import_obsidian33.Setting(parent).setName("Passports").setDesc("Checked against the destination for visa requirements. Separate with commas.").addText((t) => {
+    new import_obsidian34.Setting(parent).setName("Passports").setDesc("Checked against the destination for visa requirements. Separate with commas.").addText((t) => {
       let raw = this.draft.passports.join(", ");
       const commit = (list3) => {
         const seen = /* @__PURE__ */ new Set();
@@ -8291,7 +8526,7 @@ var TripModal = class _TripModal extends import_obsidian33.Modal {
       });
       new CountrySuggest(this.app, t.inputEl, (value) => commit(replaceLastToken(raw, value)));
     });
-    new import_obsidian33.Setting(parent).setName("Budget").setDesc("Roughly what you want the whole trip to cost. Used everywhere costs are shown.").addText((t) => {
+    new import_obsidian34.Setting(parent).setName("Budget").setDesc("Roughly what you want the whole trip to cost. Used everywhere costs are shown.").addText((t) => {
       t.setPlaceholder("3000");
       t.inputEl.inputMode = "decimal";
       t.setValue(this.draft.budgetTotal !== null ? String(this.draft.budgetTotal) : "");
@@ -8300,14 +8535,14 @@ var TripModal = class _TripModal extends import_obsidian33.Modal {
         this.draft.budgetTotal = amount !== null && amount > 0 ? amount : null;
       });
     });
-    new import_obsidian33.Setting(parent).setName("Who's going").setDesc("Separate names with commas. Drives packing quantities and the cost split.").addText((t) => {
+    new import_obsidian34.Setting(parent).setName("Who's going").setDesc("Separate names with commas. Drives packing quantities and the cost split.").addText((t) => {
       t.setPlaceholder("Iwan, Gaurav");
       t.setValue(this.draft.travellers.join(", "));
       t.onChange((v) => {
         this.draft.travellers = v.split(",").map((name) => name.trim()).filter(Boolean);
       });
     });
-    this.venueSetting = new import_obsidian33.Setting(parent).setName("Venue").addText((t) => {
+    this.venueSetting = new import_obsidian34.Setting(parent).setName("Venue").addText((t) => {
       t.setPlaceholder("e.g. Ziggo Dome");
       t.setValue(this.draft.venue);
       t.onChange((v) => {
@@ -8377,13 +8612,13 @@ var TripModal = class _TripModal extends import_obsidian33.Modal {
     if (!this.draft.title.trim()) {
       if (this.draft.city) this.draft.title = this.autoTitle() || this.draft.city;
       else {
-        new import_obsidian33.Notice("Give the trip a title.");
+        new import_obsidian34.Notice("Give the trip a title.");
         this.titleInput.focus();
         return;
       }
     }
     if (!isValidISODate(this.draft.startDate)) {
-      new import_obsidian33.Notice("Pick a start date.");
+      new import_obsidian34.Notice("Pick a start date.");
       return;
     }
     this.submitting = true;
@@ -8393,7 +8628,7 @@ var TripModal = class _TripModal extends import_obsidian33.Modal {
       await this.onSubmit({ ...this.draft });
       this.close();
     } catch (err) {
-      new import_obsidian33.Notice(err instanceof Error ? err.message : "Could not save the trip.");
+      new import_obsidian34.Notice(err instanceof Error ? err.message : "Could not save the trip.");
       console.error("[travel-planner]", err);
       this.submitting = false;
       this.submitBtn?.setDisabled(false).setButtonText(this.mode === "create" ? "Create trip" : "Save changes");
@@ -8405,8 +8640,8 @@ var TripModal = class _TripModal extends import_obsidian33.Modal {
 };
 
 // src/ui/modals/confirmDelete.ts
-var import_obsidian34 = require("obsidian");
-var ConfirmDeleteModal = class extends import_obsidian34.Modal {
+var import_obsidian35 = require("obsidian");
+var ConfirmDeleteModal = class extends import_obsidian35.Modal {
   constructor(app, trip, onConfirm) {
     super(app);
     this.trip = trip;
@@ -8439,7 +8674,7 @@ var ConfirmDeleteModal = class extends import_obsidian34.Modal {
       cls: "tp-delete-note",
       text: "Files follow your vault's \u201CDeleted files\u201D setting \u2014 normally the trash, where you can still get them back."
     });
-    new import_obsidian34.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton(
+    new import_obsidian35.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton(
       (btn) => btn.setButtonText("Delete trip").setWarning().onClick(async () => {
         btn.setDisabled(true);
         await this.onConfirm();
@@ -8453,8 +8688,8 @@ var ConfirmDeleteModal = class extends import_obsidian34.Modal {
 };
 
 // src/ui/modals/addDayModal.ts
-var import_obsidian35 = require("obsidian");
-var AddDayModal = class extends import_obsidian35.Modal {
+var import_obsidian36 = require("obsidian");
+var AddDayModal = class extends import_obsidian36.Modal {
   constructor(app, plugin, preselected, onDone) {
     super(app);
     this.plugin = plugin;
@@ -8496,12 +8731,12 @@ var AddDayModal = class extends import_obsidian35.Modal {
     const trips = this.plugin.store.getTrips();
     if (trips.length === 0) {
       contentEl.createEl("p", { text: "No trips yet. Create one first." });
-      new import_obsidian35.Setting(contentEl).addButton((b) => b.setButtonText("Close").onClick(() => this.close()));
+      new import_obsidian36.Setting(contentEl).addButton((b) => b.setButtonText("Close").onClick(() => this.close()));
       return;
     }
     if (!this.trip) this.trip = trips[0];
     await this.loadTrip();
-    new import_obsidian35.Setting(contentEl).setName("Trip").addDropdown((dd) => {
+    new import_obsidian36.Setting(contentEl).setName("Trip").addDropdown((dd) => {
       for (const trip of trips) dd.addOption(trip.file.path, trip.title);
       dd.setValue(this.trip.file.path);
       dd.onChange(async (path) => {
@@ -8513,7 +8748,7 @@ var AddDayModal = class extends import_obsidian35.Modal {
         this.renderSlots();
       });
     });
-    const daySetting = new import_obsidian35.Setting(contentEl).setName("Day");
+    const daySetting = new import_obsidian36.Setting(contentEl).setName("Day");
     this.daySelect = daySetting.controlEl.createEl("select", { cls: "dropdown" });
     this.daySelect.addEventListener("change", () => this.showDay(this.daySelect.value));
     this.dateInput = daySetting.controlEl.createEl("input", { cls: "tp-date-input" });
@@ -8527,7 +8762,7 @@ var AddDayModal = class extends import_obsidian35.Modal {
     this.renderSlots();
     this.statusEl = contentEl.createDiv({ cls: "tp-autosave" });
     this.setStatus("Changes save as you make them.");
-    new import_obsidian35.Setting(contentEl).addButton((btn) => btn.setButtonText("Previous day").onClick(() => this.step(-1))).addButton((btn) => btn.setButtonText("Next day").onClick(() => this.step(1))).addButton(
+    new import_obsidian36.Setting(contentEl).addButton((btn) => btn.setButtonText("Previous day").onClick(() => this.step(-1))).addButton((btn) => btn.setButtonText("Next day").onClick(() => this.step(1))).addButton(
       (btn) => btn.setButtonText("Done").setCta().onClick(async () => {
         await this.flush();
         this.close();
@@ -8563,7 +8798,7 @@ var AddDayModal = class extends import_obsidian35.Modal {
     const file = this.app.vault.getAbstractFileByPath(
       `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`
     );
-    return file instanceof import_obsidian35.TFile ? file : null;
+    return file instanceof import_obsidian36.TFile ? file : null;
   }
   days() {
     return this.trip ? datesInRange(this.trip.startDate, this.trip.endDate, 90) : [];
@@ -8602,7 +8837,7 @@ var AddDayModal = class extends import_obsidian35.Modal {
     } catch (err) {
       for (const date of dates) this.pending.add(date);
       this.setStatus("Could not save \u2014 trying again shortly.");
-      new import_obsidian35.Notice(err instanceof Error ? err.message : "Could not save the day.", 8e3);
+      new import_obsidian36.Notice(err instanceof Error ? err.message : "Could not save the day.", 8e3);
       console.error("[travel-planner]", err);
     } finally {
       this.saving = false;
@@ -8726,7 +8961,7 @@ type: itinerary
         if (elsewhere) row2.createSpan({ cls: "tp-slot-activity-meta", text: `on ${elsewhere}` });
       }
       const addRow = section.createDiv({ cls: "tp-slot-add" });
-      (0, import_obsidian35.setIcon)(addRow.createSpan(), "plus");
+      (0, import_obsidian36.setIcon)(addRow.createSpan(), "plus");
       addRow.createSpan({ text: activities.length ? "Add another activity" : "Add an activity" });
       addRow.addEventListener("click", () => {
         if (this.trip) this.plugin.openBookingWizard(this.trip, "activity");
@@ -8748,7 +8983,7 @@ type: itinerary
 };
 
 // src/settings/settingsTab.ts
-var import_obsidian36 = require("obsidian");
+var import_obsidian37 = require("obsidian");
 var SHORT_LABELS = {
   packing: "Packing",
   accommodation: "Stay",
@@ -8763,7 +8998,7 @@ var NAV_SECTIONS = [
   { id: "food", label: "Food Spot", icon: "utensils" },
   { id: "about", label: "About", icon: "info" }
 ];
-var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
+var TravelPlannerSettingTab = class extends import_obsidian37.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -8776,7 +9011,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
   group(parent, o) {
     const box = parent.createDiv({ cls: "tp-sgroup" });
     const head = box.createDiv({ cls: "tp-sgroup-head" });
-    (0, import_obsidian36.setIcon)(head.createDiv({ cls: "tp-sgroup-icon" }), o.icon);
+    (0, import_obsidian37.setIcon)(head.createDiv({ cls: "tp-sgroup-icon" }), o.icon);
     const titles = head.createDiv({ cls: "tp-sgroup-titles" });
     titles.createDiv({ cls: "tp-sgroup-title", text: o.title });
     titles.createDiv({ cls: "tp-sgroup-sub", text: o.subtitle });
@@ -8818,7 +9053,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
     this.bodyEl = containerEl.createDiv({ cls: "tp-settings-body" });
     for (const section of NAV_SECTIONS) {
       const btn = this.navEl.createEl("button", { cls: "tp-settings-nav-item" });
-      (0, import_obsidian36.setIcon)(btn.createSpan({ cls: "tp-settings-nav-icon" }), section.icon);
+      (0, import_obsidian37.setIcon)(btn.createSpan({ cls: "tp-settings-nav-icon" }), section.icon);
       btn.createSpan({ text: section.label });
       btn.toggleClass("is-active", section.id === this.active);
       btn.onclick = () => {
@@ -8869,14 +9104,14 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       subtitle: "The folder each trip is created in, and how it is named.",
       chip: { text: s.tripsFolder, tone: "ok" }
     });
-    new import_obsidian36.Setting(where.content).setName("Trips folder").setDesc("Root folder holding every trip.").addText(
+    new import_obsidian37.Setting(where.content).setName("Trips folder").setDesc("Root folder holding every trip.").addText(
       (t) => t.setPlaceholder("Trips").setValue(s.tripsFolder).onChange(async (v) => {
         s.tripsFolder = v.trim() || "Trips";
         await this.save();
         where.setChip(s.tripsFolder, "ok");
       })
     );
-    const pattern = new import_obsidian36.Setting(where.content).setName("Folder pattern").setDesc("Folder created per trip, relative to the trips folder.").addText(
+    const pattern = new import_obsidian37.Setting(where.content).setName("Folder pattern").setDesc("Folder created per trip, relative to the trips folder.").addText(
       (t) => t.setPlaceholder("{year}/{start} {title}").setValue(s.folderPattern).onChange(async (v) => {
         s.folderPattern = v.trim() || "{year}/{start} {title}";
         await this.save();
@@ -8892,7 +9127,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       subtitle: "What a new trip starts out as.",
       chip: { text: kindDef(s.defaultKind).label, tone: "ok" }
     });
-    new import_obsidian36.Setting(defaults.content).setName("Default kind").addDropdown((dd) => {
+    new import_obsidian37.Setting(defaults.content).setName("Default kind").addDropdown((dd) => {
       for (const def of KINDS) dd.addOption(def.id, def.label);
       dd.setValue(s.defaultKind).onChange(async (v) => {
         s.defaultKind = v;
@@ -8900,7 +9135,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
         defaults.setChip(kindDef(s.defaultKind).label, "ok");
       });
     });
-    new import_obsidian36.Setting(defaults.content).setName("Default country").setDesc("Pre-filled when you create a trip.").addText((t) => {
+    new import_obsidian37.Setting(defaults.content).setName("Default country").setDesc("Pre-filled when you create a trip.").addText((t) => {
       t.setValue(s.defaultCountry).onChange(async (v) => {
         s.defaultCountry = v.trim();
         await this.save();
@@ -8910,7 +9145,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
         await this.save();
       });
     });
-    new import_obsidian36.Setting(defaults.content).setName("Currency").setDesc("Used when a trip or booking does not name its own.").addText(
+    new import_obsidian37.Setting(defaults.content).setName("Currency").setDesc("Used when a trip or booking does not name its own.").addText(
       (t) => t.setPlaceholder("EUR").setValue(s.defaultCurrency).onChange(async (v) => {
         s.defaultCurrency = v.trim().toUpperCase() || "EUR";
         await this.save();
@@ -8921,14 +9156,14 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       title: "Dashboard and sidebar",
       subtitle: "What is shown, and what is confirmed."
     });
-    new import_obsidian36.Setting(view.content).setName("Show past trips").setDesc("Turn off to keep the list to what is still ahead of you.").addToggle(
+    new import_obsidian37.Setting(view.content).setName("Show past trips").setDesc("Turn off to keep the list to what is still ahead of you.").addToggle(
       (t) => t.setValue(s.showPastTrips).onChange(async (v) => {
         s.showPastTrips = v;
         await this.save();
         this.plugin.refreshViews();
       })
     );
-    new import_obsidian36.Setting(view.content).setName("Confirm before deleting").setDesc("Show the dialogue listing exactly which files go.").addToggle(
+    new import_obsidian37.Setting(view.content).setName("Confirm before deleting").setDesc("Show the dialogue listing exactly which files go.").addToggle(
       (t) => t.setValue(s.confirmDelete).onChange(async (v) => {
         s.confirmDelete = v;
         await this.save();
@@ -8944,7 +9179,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       subtitle: "Where you normally travel from.",
       chip: s.homeAirport ? { text: s.homeAirport, tone: "ok" } : { text: "not set", tone: "pending" }
     });
-    new import_obsidian36.Setting(home.content).setName("Home city").setDesc("Pre-fills the origin of a new trip.").addText((t) => {
+    new import_obsidian37.Setting(home.content).setName("Home city").setDesc("Pre-fills the origin of a new trip.").addText((t) => {
       t.setPlaceholder("Rotterdam");
       t.setValue(s.homeCity);
       t.onChange(async (v) => {
@@ -8962,7 +9197,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
         () => s.defaultCountry
       );
     });
-    new import_obsidian36.Setting(home.content).setName("Home airport").setDesc("Pre-fills the first leg of a flight.").addText((t) => {
+    new import_obsidian37.Setting(home.content).setName("Home airport").setDesc("Pre-fills the first leg of a flight.").addText((t) => {
       t.setPlaceholder("Amsterdam (AMS)");
       t.setValue(s.homeAirport);
       t.onChange(async (v) => {
@@ -8987,7 +9222,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       subtitle: "Seeds the travellers on a new trip, and sizes the packing list.",
       chip: s.household.length > 0 ? { text: `${s.household.length} people`, tone: "ok" } : { text: "just you", tone: "pending" }
     });
-    new import_obsidian36.Setting(people.content).then((setting) => setting.settingEl.addClass("tp-setting-stack")).setName("Household").setDesc("Comma-separated. A new trip starts with these names.").addText(
+    new import_obsidian37.Setting(people.content).then((setting) => setting.settingEl.addClass("tp-setting-stack")).setName("Household").setDesc("Comma-separated. A new trip starts with these names.").addText(
       (t) => t.setPlaceholder("Iwan, Gaurav").setValue(s.household.join(", ")).onChange(async (v) => {
         s.household = v.split(",").map((n) => n.trim()).filter(Boolean);
         await this.save();
@@ -9017,7 +9252,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
         const pill = row2.createSpan({ cls: "tp-pill" });
         pill.createSpan({ text: value });
         const remove = pill.createSpan({ cls: "tp-pill-x" });
-        (0, import_obsidian36.setIcon)(remove, "x");
+        (0, import_obsidian37.setIcon)(remove, "x");
         remove.addEventListener("click", async () => {
           s[key] = list3.filter((v) => v !== value);
           await this.save();
@@ -9034,13 +9269,13 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       title: "Inside a trip",
       subtitle: "Where bookings and attachments are filed."
     });
-    new import_obsidian36.Setting(folders.content).setName("Bookings folder").addText(
+    new import_obsidian37.Setting(folders.content).setName("Bookings folder").addText(
       (t) => t.setPlaceholder("Bookings").setValue(s.bookingsFolder).onChange(async (v) => {
         s.bookingsFolder = v.trim() || "Bookings";
         await this.save();
       })
     );
-    new import_obsidian36.Setting(folders.content).setName("Attachments folder").addText(
+    new import_obsidian37.Setting(folders.content).setName("Attachments folder").addText(
       (t) => t.setPlaceholder("Attachments").setValue(s.attachmentsFolder).onChange(async (v) => {
         s.attachmentsFolder = v.trim() || "Attachments";
         await this.save();
@@ -9060,7 +9295,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
     grid.createDiv({ cls: "tp-matrix-corner" });
     for (const def of KINDS) {
       const name = grid.createDiv({ cls: "tp-matrix-row-head" });
-      (0, import_obsidian36.setIcon)(name.createSpan({ cls: "tp-matrix-row-icon" }), def.icon);
+      (0, import_obsidian37.setIcon)(name.createSpan({ cls: "tp-matrix-row-icon" }), def.icon);
       name.createSpan({ text: def.label });
       for (const id of CREATABLE_SUB_NOTES) {
         const cell = grid.createDiv({ cls: "tp-matrix-cell" });
@@ -9081,7 +9316,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
         cls: "tp-matrix-reset",
         attr: { "aria-label": `Reset ${def.label}` }
       });
-      (0, import_obsidian36.setIcon)(btn, "rotate-ccw");
+      (0, import_obsidian37.setIcon)(btn, "rotate-ccw");
       btn.addEventListener("click", async () => {
         s.subNotesByKind[def.id] = [...kindDef(def.id).subNotes];
         await this.save();
@@ -9104,11 +9339,11 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
     const list3 = passports.content.createDiv({ cls: "tp-pill-row" });
     for (const [index, passport] of s.passportCountries.entries()) {
       const pill = list3.createSpan({ cls: "tp-pill" });
-      (0, import_obsidian36.setIcon)(pill.createSpan({ cls: "tp-pill-icon" }), "book-user");
+      (0, import_obsidian37.setIcon)(pill.createSpan({ cls: "tp-pill-icon" }), "book-user");
       pill.createSpan({ text: passport });
       if (index === 0) pill.createSpan({ cls: "tp-pill-tag", text: "default" });
       const remove = pill.createSpan({ cls: "tp-pill-x" });
-      (0, import_obsidian36.setIcon)(remove, "x");
+      (0, import_obsidian37.setIcon)(remove, "x");
       remove.addEventListener("click", async () => {
         s.passportCountries = s.passportCountries.filter((p) => p !== passport);
         await this.save();
@@ -9120,14 +9355,14 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       const name = pending.trim();
       if (!name) return;
       if (s.passportCountries.includes(name)) {
-        new import_obsidian36.Notice(`${name} is already listed.`);
+        new import_obsidian37.Notice(`${name} is already listed.`);
         return;
       }
       s.passportCountries = [...s.passportCountries, name];
       await this.save();
       this.renderBody();
     };
-    new import_obsidian36.Setting(passports.content).setName("Add a passport").setDesc("The first one listed is the default for a new trip.").addText((t) => {
+    new import_obsidian37.Setting(passports.content).setName("Add a passport").setDesc("The first one listed is the default for a new trip.").addText((t) => {
       t.setPlaceholder("Netherlands");
       t.onChange((v) => pending = v.trim());
       new CountrySuggest(this.app, t.inputEl, (value) => {
@@ -9141,7 +9376,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       subtitle: "The colour code from the Dutch Ministry of Foreign Affairs.",
       chip: s.travelAdviceEnabled ? { text: "on", tone: "ok" } : { text: "off", tone: "pending" }
     });
-    new import_obsidian36.Setting(advice.content).setName("Check travel advice").setDesc("Fetched for the destination, and refreshed when it is a day old.").addToggle(
+    new import_obsidian37.Setting(advice.content).setName("Check travel advice").setDesc("Fetched for the destination, and refreshed when it is a day old.").addToggle(
       (t) => t.setValue(s.travelAdviceEnabled).onChange(async (v) => {
         s.travelAdviceEnabled = v;
         await this.save();
@@ -9163,7 +9398,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       subtitle: "From your accommodation to the airport, activities and restaurants.",
       chip: !s.travelTimesEnabled ? { text: "off", tone: "pending" } : configured ? { text: "ready", tone: "ok" } : { text: "needs a key", tone: "warn" }
     });
-    new import_obsidian36.Setting(setup.content).setName("Enable travel times").addToggle(
+    new import_obsidian37.Setting(setup.content).setName("Enable travel times").addToggle(
       (t) => t.setValue(s.travelTimesEnabled).onChange(async (v) => {
         s.travelTimesEnabled = v;
         await this.save();
@@ -9209,17 +9444,17 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       cls: "tp-key-btn",
       attr: { "aria-label": "Show or hide the key" }
     });
-    (0, import_obsidian36.setIcon)(eye, "eye");
+    (0, import_obsidian37.setIcon)(eye, "eye");
     eye.onclick = () => {
       const hidden = input.type === "password";
       input.type = hidden ? "text" : "password";
-      (0, import_obsidian36.setIcon)(eye, hidden ? "eye-off" : "eye");
+      (0, import_obsidian37.setIcon)(eye, hidden ? "eye-off" : "eye");
     };
     const importBtn = row2.createEl("button", {
       cls: "tp-key-btn",
       attr: { "aria-label": "Use the key from Food Spot" }
     });
-    (0, import_obsidian36.setIcon)(importBtn, "download");
+    (0, import_obsidian37.setIcon)(importBtn, "download");
     importBtn.onclick = async () => {
       const imported = await this.plugin.travel.importFoodSpotKey();
       if (!imported) {
@@ -9243,7 +9478,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
         await this.save();
         const result = await this.plugin.travel.testKey();
         key.setChip(result.ok ? "test passed" : "test failed", result.ok ? "ok" : "warn");
-        new import_obsidian36.Notice(result.message, result.ok ? 6e3 : 1e4);
+        new import_obsidian37.Notice(result.message, result.ok ? 6e3 : 1e4);
       } finally {
         testBtn.disabled = false;
       }
@@ -9262,7 +9497,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       href: "https://console.cloud.google.com/apis/library/distance-matrix-backend.googleapis.com"
     });
     const warn = key.content.createDiv({ cls: "tp-key-warning" });
-    (0, import_obsidian36.setIcon)(warn.createSpan({ cls: "tp-key-warning-icon" }), "alert-triangle");
+    (0, import_obsidian37.setIcon)(warn.createSpan({ cls: "tp-key-warning-icon" }), "alert-triangle");
     warn.createSpan({
       text: "The key is stored in plain text in this vault's plugin data.json. Anyone, or anything, with access to your vault files can read it."
     });
@@ -9295,13 +9530,13 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       subtitle: "Each route and address is looked up once and kept.",
       chip: { text: `${counts.legs} routes`, tone: counts.legs > 0 ? "ok" : "pending" }
     });
-    new import_obsidian36.Setting(cache.content).setName("Clear the cache").setDesc(
+    new import_obsidian37.Setting(cache.content).setName("Clear the cache").setDesc(
       `${counts.legs} route${counts.legs === 1 ? "" : "s"} and ${counts.addresses} address${counts.addresses === 1 ? "" : "es"} stored. Clearing means paying to look them up again.`
     ).addButton(
       (btn) => btn.setButtonText("Clear").setWarning().onClick(async () => {
         await this.plugin.travel.clearLegs();
         this.plugin.travelPlaces.clear();
-        new import_obsidian36.Notice("Travel time cache cleared.");
+        new import_obsidian37.Notice("Travel time cache cleared.");
         this.renderBody();
       })
     );
@@ -9316,7 +9551,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       subtitle: "Restaurants for the trip's city, embedded in its Food note.",
       chip: installed ? { text: "plugin found", tone: "ok" } : { text: "not enabled", tone: "warn" }
     });
-    new import_obsidian36.Setting(group.content).setName("Add a Food Spot block").setDesc(
+    new import_obsidian37.Setting(group.content).setName("Add a Food Spot block").setDesc(
       installed ? "Each trip's Food note gets a block filtered to the trip's city." : `The Food Spot plugin ("${FOODSPOT_PLUGIN_ID}") is not enabled, so the block is written as plain text for later.`
     ).addToggle(
       (t) => t.setValue(s.foodSpotEnabled).onChange(async (v) => {
@@ -9324,7 +9559,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
         await this.save();
       })
     );
-    new import_obsidian36.Setting(group.content).setName("View").setDesc("Which layout the generated block asks for.").addDropdown((dd) => {
+    new import_obsidian37.Setting(group.content).setName("View").setDesc("Which layout the generated block asks for.").addDropdown((dd) => {
       dd.addOption("cards", "Cards");
       dd.addOption("list", "List");
       dd.addOption("table", "Table");
@@ -9362,13 +9597,13 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       ["Visa pairs", "39,402 from the open passport-index dataset"]
     ];
     for (const [label, value] of facts) {
-      new import_obsidian36.Setting(group.content).setName(label).setDesc(value);
+      new import_obsidian37.Setting(group.content).setName(label).setDesc(value);
     }
   }
 };
 
 // src/main.ts
-var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
+var TravelPlannerPlugin = class extends import_obsidian38.Plugin {
   constructor() {
     super(...arguments);
     this.settings = { ...DEFAULT_SETTINGS };
@@ -9629,7 +9864,7 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
         this.bookings.invalidate();
         this.store.invalidate();
         await syncBookingNotes(this.app, trip, this.bookings.getBookings(trip));
-        new import_obsidian37.Notice(`Added \u201C${draft.title}\u201D.`);
+        new import_obsidian38.Notice(`Added \u201C${draft.title}\u201D.`);
       }
     ).open();
   }
@@ -9639,7 +9874,7 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
       await createExpense(this.app, this.settings, trip, { ...draft, attachments: paths });
       this.bookings.invalidate();
       this.store.invalidate();
-      new import_obsidian37.Notice(`Logged \u201C${draft.description}\u201D.`);
+      new import_obsidian38.Notice(`Logged \u201C${draft.description}\u201D.`);
     }).open();
   }
   /** Cached advice for a country, without touching the network. */
@@ -9679,10 +9914,10 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
    */
   async refreshAdvice(country, onDone, quiet = false) {
     if (!country) {
-      new import_obsidian37.Notice("Set a country on the trip first.");
+      new import_obsidian38.Notice("Set a country on the trip first.");
       return;
     }
-    const notice = quiet ? null : new import_obsidian37.Notice("Checking travel advice\u2026", 0);
+    const notice = quiet ? null : new import_obsidian38.Notice("Checking travel advice\u2026", 0);
     try {
       const advice = await fetchAdvice(country);
       if (!this.travelCache.advice) this.travelCache.advice = {};
@@ -9693,7 +9928,7 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
       };
       await this.persist();
       notice?.hide();
-      if (!quiet) new import_obsidian37.Notice(`${country}: code ${ADVICE_MEANING[advice.colour].label.toLowerCase()}.`);
+      if (!quiet) new import_obsidian38.Notice(`${country}: code ${ADVICE_MEANING[advice.colour].label.toLowerCase()}.`);
       onDone?.();
       this.refreshViews();
     } catch (err) {
@@ -9703,7 +9938,7 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
         return;
       }
       const message = err instanceof AdviceUnavailable ? err.message : err instanceof Error ? err.message : "Could not fetch travel advice.";
-      new import_obsidian37.Notice(`Travel Planner: ${message}`, 8e3);
+      new import_obsidian38.Notice(`Travel Planner: ${message}`, 8e3);
       console.error("[travel-planner]", err);
     }
   }
@@ -9736,7 +9971,7 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
         await saveBudget(this.app, trip, budget, currency, total);
         this.bookings.invalidate();
         this.store.invalidate();
-        new import_obsidian37.Notice("Budget saved.");
+        new import_obsidian38.Notice("Budget saved.");
       }
     ).open();
   }
@@ -9759,7 +9994,7 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
       setting.openTabById(this.manifest.id);
       return;
     }
-    new import_obsidian37.Notice("Open Settings \u2192 Community plugins \u2192 Travel Planner.");
+    new import_obsidian38.Notice("Open Settings \u2192 Community plugins \u2192 Travel Planner.");
   }
   isFoodSpotAvailable() {
     const plugins = this.app.plugins;
@@ -9769,7 +10004,7 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
     const initial = kind ? { kind, subNotes: [...this.settings.subNotesByKind[kind] ?? []] } : {};
     new TripModal(this.app, this.settings, "create", initial, async (draft) => {
       const result = await createTrip(this.app, this.settings, draft, this.isFoodSpotAvailable());
-      new import_obsidian37.Notice(
+      new import_obsidian38.Notice(
         `Created \u201C${draft.title}\u201D with ${result.subNoteFiles.length} note${result.subNoteFiles.length === 1 ? "" : "s"}.`
       );
       this.store.invalidate();
@@ -9781,7 +10016,7 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
   openEditTripModal(trip) {
     TripModal.forEdit(this.app, this.settings, trip, async (draft) => {
       await updateTrip(this.app, this.settings, trip, draft);
-      new import_obsidian37.Notice(`Updated \u201C${draft.title}\u201D.`);
+      new import_obsidian38.Notice(`Updated \u201C${draft.title}\u201D.`);
       this.store.invalidate();
     }).open();
   }
@@ -9844,7 +10079,7 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
         this.travelPlaces.delete(trip.folderPath);
         if (trip.country && this.travelCache.advice) delete this.travelCache.advice[trip.country];
         await this.travel.forgetTrip(trip);
-        new import_obsidian37.Notice(`Deleted \u201C${trip.title}\u201D (${count} file${count === 1 ? "" : "s"}).`);
+        new import_obsidian38.Notice(`Deleted \u201C${trip.title}\u201D (${count} file${count === 1 ? "" : "s"}).`);
         this.bookings.invalidate();
         this.progress.clear();
         this.store.invalidate();
@@ -9868,10 +10103,10 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
    */
   async computeTravelTimes(trip, onDone, force = false) {
     if (!this.travel.isConfigured()) {
-      new import_obsidian37.Notice("Travel Planner: switch on travel times and add a Google API key in settings.");
+      new import_obsidian38.Notice("Travel Planner: switch on travel times and add a Google API key in settings.");
       return;
     }
-    const notice = new import_obsidian37.Notice("Working out travel times\u2026", 0);
+    const notice = new import_obsidian38.Notice("Working out travel times\u2026", 0);
     try {
       if (force) await this.travel.clearLegs();
       const places = await this.travel.placesFor(trip, this.bookings.getBookings(trip));
@@ -9879,31 +10114,38 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
       const origin = places.hotels[0];
       if (!origin) {
         notice.hide();
-        new import_obsidian37.Notice("Add an accommodation booking first \u2014 distances are measured from it.");
+        new import_obsidian38.Notice("Add an accommodation booking first \u2014 distances are measured from it.");
         onDone?.();
         return;
       }
       const destinations = [...places.airports, ...places.activities, ...places.restaurants];
       if (destinations.length === 0) {
         notice.hide();
-        new import_obsidian37.Notice("Nothing to measure to yet. Add a flight, an activity, or Food Spot restaurants in this city.");
+        new import_obsidian38.Notice("Nothing to measure to yet. Add a flight, an activity, or Food Spot restaurants in this city.");
         onDone?.();
         return;
       }
-      await this.travel.fetchLegs(
-        origin,
-        destinations,
-        this.settings.travelModes,
-        this.travel.departureTimeFor(trip)
+      const when = this.travel.departureTimeFor(trip);
+      await this.travel.fetchLegs(origin, destinations, this.settings.travelModes, when);
+      const pairs = itineraryPairs(
+        this.bookings.getBookings(trip).filter((b) => b.status !== "cancelled"),
+        datesInRange(trip.startDate, trip.endDate, 90),
+        [...places.hotels, ...places.airports, ...places.activities, ...places.restaurants],
+        origin
       );
+      for (const group of groupByOrigin(pairs)) {
+        await this.travel.fetchLegs(group.from, group.to, this.settings.travelModes, when);
+      }
       notice.hide();
-      new import_obsidian37.Notice(`Travel times ready for ${destinations.length} places.`);
+      new import_obsidian38.Notice(
+        `Travel times ready for ${destinations.length} places and ${pairs.length} connections.`
+      );
       onDone?.();
       this.refreshViews();
     } catch (err) {
       notice.hide();
       const message = err instanceof TravelUnavailable ? err.message : err instanceof Error ? err.message : "Could not work out travel times.";
-      new import_obsidian37.Notice(`Travel Planner: ${message}`, 8e3);
+      new import_obsidian38.Notice(`Travel Planner: ${message}`, 8e3);
       console.error("[travel-planner]", err);
     }
   }
@@ -9943,14 +10185,14 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
       await replaceSection(this.app, foodNote.file, "Travel times", foodTable);
       written += 1;
     }
-    new import_obsidian37.Notice(
+    new import_obsidian38.Notice(
       written === 0 ? "Nothing to write yet \u2014 calculate travel times first." : `Travel times written into ${written} note${written === 1 ? "" : "s"}.`
     );
   }
   async openTrip(trip, newTab = false) {
     const file = this.app.vault.getAbstractFileByPath(trip.file.path);
-    if (!(file instanceof import_obsidian37.TFile)) {
-      new import_obsidian37.Notice("That trip note no longer exists.");
+    if (!(file instanceof import_obsidian38.TFile)) {
+      new import_obsidian38.Notice("That trip note no longer exists.");
       this.store.invalidate();
       return;
     }

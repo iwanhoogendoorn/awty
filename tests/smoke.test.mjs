@@ -41,6 +41,9 @@ export {
 } from "./src/travel/types.ts";
 export { COUNTRIES, FOODSPOT_COUNTRIES } from "./src/data/countries.ts";
 export { CITIES } from "./src/data/cities.ts";
+export { dayEvents, ongoingOn, BAND } from "./src/store/dayPlan.ts";
+export { itineraryPairs, groupByOrigin } from "./src/travel/routePlan.ts";
+export { readLegs, summariseFlight } from "./src/bookings/flightSummary.ts";
 `;
 
 const outfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tp-test-")), "bundle.mjs");
@@ -1000,6 +1003,118 @@ test("durations and distances read like a human wrote them", () => {
   assert.equal(m.formatDistance(850), "850 m");
   assert.equal(m.formatDistance(1250), "1.3 km");
   assert.equal(m.formatDistance(24500), "25 km");
+});
+
+// --------------------------------------------------------------- day order
+
+const booking = (over) => ({
+  kind: "activity",
+  status: "booked",
+  title: "",
+  date: "",
+  time: "",
+  endDate: "",
+  endTime: "",
+  returnDate: "",
+  returnTime: "",
+  from: "",
+  to: "",
+  slot: "",
+  cost: null,
+  file: { path: `${over.title ?? "x"}.md` },
+  ...over,
+});
+
+const ARRIVAL_DAY = [
+  booking({ kind: "activity", title: "Shopping", date: "2026-08-17", slot: "morning" }),
+  booking({
+    kind: "flight",
+    title: "AMS to DBV",
+    date: "2026-08-17",
+    time: "10:15",
+    from: "AMS",
+    to: "DBV",
+    returnDate: "2026-08-24",
+    returnTime: "13:25",
+  }),
+  booking({
+    kind: "stay",
+    title: "Rausion",
+    date: "2026-08-17",
+    endDate: "2026-08-24",
+  }),
+];
+
+test("a day runs arrive, check in, do things — not whatever has a time on it", () => {
+  const order = m.dayEvents(ARRIVAL_DAY, "2026-08-17").map((e) => e.title);
+  // Shopping is pencilled in for "morning", but you cannot shop before you land.
+  assert.deepEqual(order, ["AMS to DBV", "Rausion", "Shopping"]);
+});
+
+test("the last day checks out before it flies home", () => {
+  const order = m.dayEvents(ARRIVAL_DAY, "2026-08-24").map((e) => e.detail);
+  assert.deepEqual(order, ["Check out", "Return · DBV → AMS"]);
+});
+
+test("a stay spans its nights without repeating as an event", () => {
+  assert.equal(m.dayEvents(ARRIVAL_DAY, "2026-08-20").length, 0);
+  const [night] = m.ongoingOn(ARRIVAL_DAY, "2026-08-20");
+  assert.equal(night.night, 3);
+  assert.equal(night.nights, 7);
+});
+
+// ------------------------------------------------------- routes to measure
+
+const place = (id, kind) => ({ id, label: id, kind, coord: { lat: 1, lng: 1 }, file: { path: id } });
+
+test("the fan-out covers the hops the timeline draws, not just the ones from the hotel", () => {
+  const places = [
+    place("Rausion.md", "hotel"),
+    place("AMS to DBV.md", "airport"),
+    place("Shopping.md", "activity"),
+  ];
+  const pairs = m.itineraryPairs(
+    ARRIVAL_DAY,
+    ["2026-08-17", "2026-08-18"],
+    places,
+    places[0],
+  );
+  const keys = pairs.map((p) => `${p.from.id}>${p.to.id}`);
+  // Arrival day: airport to hotel, then hotel out to the shops.
+  assert.ok(keys.includes("AMS to DBV.md>Rausion.md"), keys.join(", "));
+  assert.ok(keys.includes("Rausion.md>Shopping.md"), keys.join(", "));
+});
+
+test("pairs sharing an origin are batched into one request", () => {
+  const a = place("a", "hotel");
+  const groups = m.groupByOrigin([
+    { from: a, to: place("b", "activity") },
+    { from: a, to: place("c", "activity") },
+  ]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].to.length, 2);
+});
+
+// ------------------------------------------------------------- flight time
+
+test("a flight reports its journey, its stops and where it waits", () => {
+  const legs = m.readLegs([
+    { airline: "KL", flight: "1985", from: "AMS", to: "VIE", date: "2026-08-17", departs: "10:15", arrives: "11:55" },
+    { airline: "OS", flight: "737", from: "VIE", to: "DBV", date: "2026-08-17", departs: "12:40", arrives: "13:50" },
+  ]);
+  const s = m.summariseFlight(legs);
+  assert.equal(s.stops, 1);
+  assert.equal(s.totalMinutes, 215);
+  assert.equal(s.label, "3 h 35 min · 1 stop");
+  assert.equal(s.arrival, "13:50");
+  assert.deepEqual(s.layovers, ["45 min in VIE (tight)"]);
+});
+
+test("a journey longer than a day is misread data, not a flight", () => {
+  const legs = m.readLegs([
+    { airline: "KL", flight: "1985", from: "AMS", to: "DBV", date: "2026-08-17", departs: "10:15", arrives_on: "2026-08-24", arrives: "13:25" },
+  ]);
+  assert.equal(m.summariseFlight(legs).totalMinutes, null);
 });
 
 console.log(`\n${passed} tests passed`);

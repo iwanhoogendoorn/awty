@@ -2,8 +2,9 @@ import { TFile, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
 import { emptyState, sectionTitle, noTripState } from "../common";
 import type { Booking } from "../../../bookings/types";
-import { BOOKING_KINDS } from "../../../bookings/types";
-import { formatMoney } from "../../../util/money";
+import type { DayEvent } from "../../../store/dayPlan";
+import { BAND, dayEvents, ongoingOn } from "../../../store/dayPlan";
+import { readLegs, summariseFlight } from "../../../bookings/flightSummary";
 import { datesInRange, monthName, parseISO, todayISO } from "../../../util/dates";
 import type { Place } from "../../../travel/types";
 import {
@@ -11,112 +12,9 @@ import {
   formatDistance,
   formatDuration as formatTravelDuration,
 } from "../../../travel/types";
+import { RouteModal } from "../../modals/routeModal";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-/** One thing that happens at a point in time, as opposed to a stay that lasts. */
-interface DayEvent {
-  time: string;
-  title: string;
-  detail: string;
-  icon: string;
-  cost: string;
-  file: TFile;
-}
-
-/** A stay in progress on a given day, shown as a rail rather than a row. */
-interface Ongoing {
-  title: string;
-  night: number;
-  nights: number;
-  file: TFile;
-}
-
-/**
- * Events that actually happen on a date.
- *
- * A hotel booked for seven nights is one check-in and one check-out, not seven
- * identical rows; a return flight is two departures, not a thing that happens
- * continuously for a week. Spanning bookings used to be matched with
- * `date >= start && date <= end`, which repeated them on every day between.
- */
-function eventsFor(booking: Booking, date: string): DayEvent[] {
-  const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
-  const icon = def?.icon ?? "ticket";
-  const cost = booking.cost ? formatMoney(booking.cost) : "";
-  const out: DayEvent[] = [];
-
-  if (booking.kind === "stay") {
-    if (date === booking.date) {
-      out.push({
-        time: booking.time,
-        title: booking.title,
-        detail: "Check in",
-        icon,
-        cost,
-        file: booking.file,
-      });
-    }
-    if (booking.endDate && date === booking.endDate && booking.endDate !== booking.date) {
-      out.push({
-        time: booking.endTime,
-        title: booking.title,
-        detail: "Check out",
-        icon,
-        // The price belongs to the stay, and it is already shown at check-in.
-        cost: "",
-        file: booking.file,
-      });
-    }
-    return out;
-  }
-
-  if (booking.kind === "flight") {
-    if (date === booking.date) {
-      out.push({
-        time: booking.time,
-        title: booking.title,
-        detail: [booking.from, booking.to].filter(Boolean).join(" → ") || "Outbound",
-        icon,
-        cost,
-        file: booking.file,
-      });
-    }
-    if (booking.returnDate && date === booking.returnDate) {
-      out.push({
-        time: booking.returnTime,
-        title: booking.title,
-        detail: `Return · ${[booking.to, booking.from].filter(Boolean).join(" → ")}`,
-        icon,
-        cost: "",
-        file: booking.file,
-      });
-    }
-    return out;
-  }
-
-  if (date !== booking.date) return out;
-  out.push({
-    time: booking.time,
-    title: booking.title,
-    detail: booking.slot ? booking.slot : (booking.to ?? ""),
-    icon,
-    cost,
-    file: booking.file,
-  });
-  return out;
-}
-
-/** A stay covering this date, but neither arriving nor leaving on it. */
-function ongoingFor(booking: Booking, date: string): Ongoing | null {
-  if (booking.kind !== "stay") return null;
-  if (!booking.endDate || booking.endDate === booking.date) return null;
-  if (date <= booking.date || date >= booking.endDate) return null;
-
-  const nights = datesInRange(booking.date, booking.endDate).length - 1;
-  const night = datesInRange(booking.date, date).length - 1;
-  return { title: booking.title, night, nights, file: booking.file };
-}
 
 export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): void {
   const { trip, plugin } = ctx;
@@ -151,12 +49,8 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
 
   for (const [index, date] of days.entries()) {
     const parsed = parseISO(date);
-    const events = bookings
-      .flatMap((b) => eventsFor(b, date))
-      .sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
-    const ongoing = bookings
-      .map((b) => ongoingFor(b, date))
-      .filter((o): o is Ongoing => o !== null);
+    const events = dayEvents(bookings, date);
+    const ongoing = ongoingOn(bookings, date);
 
     const row = timeline.createDiv({
       cls: `tp-day${date === today ? " is-today" : ""}${date < today ? " is-past" : ""}`,
@@ -203,7 +97,8 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
 
       const text = item.createDiv({ cls: "tp-day-item-text" });
       text.createDiv({ cls: "tp-day-item-title", text: event.title });
-      if (event.detail) text.createDiv({ cls: "tp-day-item-meta", text: event.detail });
+      const detail = [event.detail, flightDetail(event, ctx)].filter(Boolean).join(" · ");
+      if (detail) text.createDiv({ cls: "tp-day-item-meta", text: detail });
 
       if (event.cost) item.createDiv({ cls: "tp-day-item-cost", text: event.cost });
       item.addEventListener("click", () => ctx.openFile(event.file));
@@ -228,6 +123,22 @@ interface DayRouter {
   hop(parent: HTMLElement, from: Place | undefined, to: Place | undefined, fromLabel?: string): void;
 }
 
+/**
+ * How long the flight itself takes, so the timeline answers the same question
+ * the Getting around list does.
+ */
+function flightDetail(event: DayEvent, ctx: DashboardContext): string {
+  if (event.kind !== "flight") return "";
+
+  const fm = ctx.app.metadataCache.getFileCache(event.file)?.frontmatter;
+  const legs = readLegs(event.band === BAND.Depart ? fm?.return_legs : fm?.legs);
+  if (legs.length === 0) return "";
+
+  const summary = summariseFlight(legs);
+  const arrival = summary.arrival ? `lands ${summary.arrival}` : "";
+  return [summary.label, ...summary.layovers, arrival].filter(Boolean).join(" · ");
+}
+
 function makeRouter(ctx: DashboardContext): DayRouter | null {
   const { trip, plugin } = ctx;
   if (!trip) return null;
@@ -249,7 +160,12 @@ function makeRouter(ctx: DashboardContext): DayRouter | null {
       if (!legs || legs.length === 0) return;
 
       const reference = legs.find((l) => l.mode === "walking") ?? legs[0];
-      const row = parent.createDiv({ cls: "tp-leg" });
+      const row = parent.createDiv({ cls: "tp-leg is-clickable" });
+      row.setAttribute("title", "Measure between two other places");
+      row.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        new RouteModal(ctx.app, plugin, trip, { from, to }).open();
+      });
       setIcon(row.createSpan({ cls: "tp-leg-icon" }), "move-right");
       row.createSpan({
         cls: "tp-leg-text",

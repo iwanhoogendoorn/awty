@@ -6,13 +6,9 @@ import type { Place, TravelLeg, TravelMode } from "../../travel/types";
 import { TRAVEL_MODES, formatDistance, formatDuration } from "../../travel/types";
 import type { TripPlaces } from "../../travel/travelService";
 import type { FlightLeg } from "../../bookings/legs";
-import {
-  TIGHT_CONNECTION_MINUTES,
-  formatLayover,
-  layoverMinutes,
-  routeTitle,
-  totalJourneyMinutes,
-} from "../../bookings/legs";
+import { formatLayover, routeTitle } from "../../bookings/legs";
+import { readLegs, summariseFlight } from "../../bookings/flightSummary";
+import { RouteModal } from "../modals/routeModal";
 
 const MODE_ICON = new Map(TRAVEL_MODES.map((m) => [m.id, m.icon]));
 
@@ -34,7 +30,7 @@ export function renderGettingAround(parent: HTMLElement, ctx: DashboardContext):
   // The section always appears. Rendering nothing when the feature was off left
   // no way to discover it existed at all.
   const configured = travel.isConfigured();
-  sectionTitle(
+  const head = sectionTitle(
     parent,
     origin ? `Getting around · from ${origin.label}` : "Getting around",
     configured
@@ -45,6 +41,15 @@ export function renderGettingAround(parent: HTMLElement, ctx: DashboardContext):
         }
       : { label: "Settings", icon: "settings", onClick: () => plugin.openSettings() },
   );
+
+  // Everything below measures outward from the hotel; this is how you ask about
+  // any other pair — airport to the old town, restaurant to the concert.
+  if (places && origin) {
+    const btn = head.createEl("button", { cls: "tp-dash-action" });
+    setIcon(btn.createSpan(), "route");
+    btn.createSpan({ text: "Route" });
+    btn.addEventListener("click", () => new RouteModal(ctx.app, plugin, trip).open());
+  }
 
   if (!plugin.settings.travelTimesEnabled) {
     renderNotice(
@@ -214,23 +219,6 @@ function renderFlights(parent: HTMLElement, ctx: DashboardContext): void {
     .filter((b) => b.kind === "flight" && b.status !== "cancelled");
   if (flights.length === 0) return;
 
-  const readLegs = (value: unknown): FlightLeg[] =>
-    Array.isArray(value)
-      ? value.map((raw) => {
-          const leg = raw as Record<string, string>;
-          return {
-            operator: leg?.airline ?? "",
-            number: leg?.flight ?? "",
-            from: leg?.from ?? "",
-            to: leg?.to ?? "",
-            date: leg?.date ?? "",
-            depTime: leg?.departs ?? "",
-            arrDate: leg?.arrives_on ?? leg?.date ?? "",
-            arrTime: leg?.arrives ?? "",
-          };
-        })
-      : [];
-
   parent.createDiv({ cls: "tp-around-group", text: "Flights" });
   const list = parent.createDiv({ cls: "tp-around-list" });
 
@@ -277,32 +265,23 @@ function renderFlights(parent: HTMLElement, ctx: DashboardContext): void {
         text: `${direction.label} · ${routeTitle(legs) || flight.title}`,
       });
 
-      const stops = legs.length - 1;
-      const bits: string[] = [
+      const summary = summariseFlight(legs);
+      const bits = [
         legs[0].date && legs[0].depTime ? `${legs[0].date} ${legs[0].depTime}` : legs[0].date,
-        stops === 0 ? "direct" : `${stops} stop${stops === 1 ? "" : "s"}`,
+        summary.label.split(" · ").pop() ?? "",
+        ...summary.layovers,
       ].filter(Boolean);
-
-      for (let i = 1; i < legs.length; i += 1) {
-        const gap = layoverMinutes(legs[i - 1], legs[i]);
-        if (gap === null) continue;
-        bits.push(
-          `${formatLayover(gap)} in ${legs[i - 1].to || "transit"}${gap < TIGHT_CONNECTION_MINUTES ? " (tight)" : ""}`,
-        );
-      }
       text.createDiv({ cls: "tp-around-dist", text: bits.join(" · ") });
 
-      // The longest scheduled flight on earth is under 20 hours; anything
-      // beyond a day is data being misread, and a number is worse than none.
-      const raw = totalJourneyMinutes(legs);
-      const total = raw !== null && raw > 24 * 60 ? null : raw;
       const times = row.createDiv({ cls: "tp-around-times" });
       const chip = times.createDiv({ cls: "tp-around-chip is-flight" });
       setIcon(chip.createSpan({ cls: "tp-around-chip-icon" }), "plane");
-      chip.createSpan({ text: total === null ? "—" : formatLayover(total) });
+      chip.createSpan({
+        text: summary.totalMinutes === null ? "—" : formatLayover(summary.totalMinutes),
+      });
       chip.setAttribute(
         "title",
-        total === null
+        summary.totalMinutes === null
           ? "Arrival time not recorded — re-save the flight to fill it in"
           : "Total journey, including time on the ground",
       );
