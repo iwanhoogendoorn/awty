@@ -7,6 +7,7 @@ import { BOOKING_KINDS } from "../bookings/types";
 import { fileFromLink, totalsByCategory } from "../bookings/bookingStore";
 import { checkVisa } from "../travel/visa";
 import { ADVICE_MEANING } from "../travel/adviceData";
+import { entryExtrasFor } from "../data/entryExtras";
 import { formatMoney, formatTotals, sumMoney } from "../util/money";
 import {
   datesInRange,
@@ -99,6 +100,17 @@ export async function buildTripDocument(
               : check.outcome === "unknown"
                 ? "unknown"
                 : "good",
+      });
+    }
+
+    // Arrival cards and authorisations are not visas, and a document you take
+    // with you is exactly where "no visa needed, but do this" belongs.
+    for (const extra of entryExtrasFor(country)) {
+      const coming = extra.status === "announced";
+      documents.push({
+        label: `${country} · ${extra.name}${coming ? " (announced, not yet in force)" : ""}`,
+        detail: [extra.detail, extra.cost, extra.url].filter(Boolean).join(" — "),
+        tone: coming ? "unknown" : "warn",
       });
     }
 

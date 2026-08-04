@@ -4,6 +4,7 @@ import { sectionTitle } from "./common";
 import { checkVisa, exceedsAllowance } from "../../travel/visa";
 import { ADVICE_MEANING, adviceUrlFor, isStale } from "../../travel/advice";
 import { tripCountries } from "../../types";
+import { ENTRY_EXTRAS_VERIFIED, entryExtrasFor } from "../../data/entryExtras";
 import { daysBetween } from "../../util/dates";
 
 /**
@@ -35,12 +36,13 @@ export function renderDocuments(parent: HTMLElement, ctx: DashboardContext): voi
       parent.createDiv({ cls: "awty-around-group", text: country });
     }
     renderVisa(parent, ctx, country);
+    renderEntryExtras(parent, country);
     renderAdvice(parent, ctx, country);
   }
 
   parent.createDiv({
     cls: "awty-doc-caveat",
-    text: "Guidance only — entry rules change without notice. Always confirm with the embassy or the official advice before you book.",
+    text: `Guidance only — entry rules change without notice, and the arrival-card list was last checked on ${ENTRY_EXTRAS_VERIFIED}. Always confirm with the embassy or the official site before you book.`,
   });
 }
 
@@ -94,6 +96,43 @@ function renderVisa(parent: HTMLElement, ctx: DashboardContext, country: string)
     }
 
     row.createDiv({ cls: `awty-doc-badge is-${tone}`, text: check.label });
+  }
+}
+
+/**
+ * The things that are not visas.
+ *
+ * A country can want an arrival card or an authorisation from everyone,
+ * whatever the visa answer — so "no visa needed" is not the same as "nothing
+ * to do", and this is where that gap gets closed.
+ */
+function renderEntryExtras(parent: HTMLElement, country: string): void {
+  const extras = entryExtrasFor(country);
+  if (extras.length === 0) return;
+
+  const list = parent.createDiv({ cls: "awty-doc-list-rows" });
+  for (const extra of extras) {
+    const coming = extra.status === "announced";
+    const row = list.createDiv({ cls: `awty-doc-item is-${coming ? "unknown" : "warn"}` });
+    setIcon(row.createDiv({ cls: "awty-doc-item-icon" }), coming ? "clock" : "clipboard-check");
+
+    const body = row.createDiv({ cls: "awty-doc-item-body" });
+    body.createDiv({
+      cls: "awty-doc-item-title",
+      text: coming ? `${extra.name} — announced, not yet in force` : extra.name,
+    });
+    body.createDiv({
+      cls: "awty-doc-item-detail",
+      text: [extra.detail, extra.cost, extra.when === "before" ? "Arrange before you travel" : "Done on arrival"]
+        .filter(Boolean)
+        .join(" · "),
+    });
+
+    const link = row.createEl("a", { cls: "awty-doc-link", href: extra.url });
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener");
+    setIcon(link, "external-link");
+    link.setAttribute("aria-label", `Open ${extra.name}`);
   }
 }
 

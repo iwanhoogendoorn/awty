@@ -359,3 +359,12 @@
   color: var(--text-faint);
   text-decoration: line-through;
 }
+
+/* Announced but not in force: present, quiet, not asking to be acted on. */
+.awty-doc-item.is-unknown {
+  border-left-color: var(--background-modifier-border);
+}
+
+.awty-doc-item.is-unknown .awty-doc-item-icon {
+  color: var(--text-faint);
+}

@@ -24,6 +24,7 @@ export { renderTripDocument, escapeHtml } from "./src/export/tripDocument.ts";
 export { decodeQuotedPrintable, extractIcsFromEmail } from "./src/flights/parseConfirmation.ts";
 export { fold, rankMatches, flattenByRank, flattenGroups, replaceLastToken } from "./src/util/search.ts";
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
+export { entryExtrasFor, ENTRY_EXTRAS, ENTRY_EXTRAS_COMING, ENTRY_EXTRAS_VERIFIED } from "./src/data/entryExtras.ts";
 export { allCategories, COST_CATEGORIES, BOOKING_KINDS } from "./src/bookings/types.ts";
 export { CREATABLE_SUB_NOTES, SUB_NOTE_LABELS, KINDS, tripStops, tripCities, tripCountries, joinPlaces } from "./src/types.ts";
 export { parseAdviceColour, adviceUrlFor, isStale, ADVICE_TTL_MS } from "./src/travel/adviceData.ts";
@@ -1653,6 +1654,38 @@ test("a table booked before this change is not thrown away", () => {
 
   // The empty template is not a booking either.
   assert.deepEqual(m.readLegacyFoodTable("## Booked\n\n_Nothing booked yet._"), []);
+});
+
+test("no visa needed is not the same as nothing to do", () => {
+  // Thailand asks every arrival for a digital card whether or not a visa is
+  // needed. A visa table cannot say so, so a trip read "no visa needed" and
+  // the traveller could still be refused boarding.
+  const dutchToThailand = m.checkVisa("Netherlands", "Thailand");
+  assert.notEqual(dutchToThailand.outcome, "visa-required", "visa-free, as expected");
+
+  const thai = m.entryExtrasFor("Thailand");
+  assert.equal(thai.length, 1);
+  assert.match(thai[0].name, /Digital Arrival Card/);
+  assert.equal(thai[0].status, "required");
+  assert.equal(thai[0].when, "before");
+  assert.match(thai[0].url, /^https:\/\/tdac\.immigration\.go\.th/);
+
+  // A country with nothing extra says nothing rather than inventing a step.
+  assert.deepEqual(m.entryExtrasFor("Croatia"), []);
+  assert.deepEqual(m.entryExtrasFor(""), []);
+
+  // Every entry points at the government that owns the rule.
+  for (const extra of [...m.ENTRY_EXTRAS, ...m.ENTRY_EXTRAS_COMING]) {
+    assert.match(extra.url, /^https:\/\//, extra.name);
+    assert.ok(extra.detail.length > 20, `${extra.name} needs a real explanation`);
+    assert.ok(["before", "arrival"].includes(extra.when), extra.name);
+  }
+
+  // Announced is kept apart from required: telling someone to arrange a thing
+  // that does not exist yet is its own kind of wrong.
+  assert.ok(m.ENTRY_EXTRAS.every((e) => e.status === "required"));
+  assert.ok(m.ENTRY_EXTRAS_COMING.every((e) => e.status === "announced"));
+  assert.match(m.ENTRY_EXTRAS_VERIFIED, /^\d{4}-\d{2}-\d{2}$/);
 });
 
 test("a trip can visit several countries in order", () => {

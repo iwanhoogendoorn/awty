@@ -13,6 +13,7 @@ import {
 import { daysBetween, formatDateRange } from "../../util/dates";
 import { formatMoney, formatTotals, sumMoney } from "../../util/money";
 import { checkVisa, exceedsAllowance } from "../../travel/visa";
+import { entryExtrasFor } from "../../data/entryExtras";
 import { ADVICE_MEANING } from "../../travel/advice";
 
 interface Step {
@@ -115,13 +116,20 @@ export class TripPlanWizard extends Modal {
     const advice = tripCountries(trip)
       .map((country) => plugin.peekAdvice(country))
       .find((hit) => hit !== null);
-    const needsNoAction = blocking.length === 0;
+    // An arrival card is not a visa, so "no visa needed" is not "nothing to
+    // do" — and this step is the one that claims a trip is ready to take.
+    const extras = tripCountries(trip)
+      .flatMap((country) => entryExtrasFor(country))
+      .filter((extra) => extra.status === "required");
+    const needsNoAction = blocking.length === 0 && extras.length === 0;
 
     const documentSummary = (() => {
       const parts: string[] = [];
       if (checks.length === 0) parts.push("No passport set");
       else if (blocking.length > 0) parts.push(`${blocking[0].label} for ${blocking[0].passport}`);
       else parts.push("No visa needed");
+      if (extras.length === 1) parts.push(extras[0].name);
+      else if (extras.length > 1) parts.push(`${extras.length} arrival formalities`);
       if (advice) parts.push(`advice ${ADVICE_MEANING[advice.colour].label.toLowerCase()}`);
       else parts.push("advice not checked");
       return parts.join(" · ");
