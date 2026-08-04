@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+*.log
+
+# Legacy 1.0.1 build kept only as a behavioural reference, not source of truth.
+/main.js
+/styles.css
+/manifest.json
+/data.json

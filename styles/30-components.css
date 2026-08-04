@@ -1,0 +1,155 @@
+/* --------------------------------------------------------- kind selector */
+
+.tp-kind-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 0.4em;
+}
+
+.tp-kind {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.65em 0.4em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.tp-kind:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.tp-kind.is-active {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.tp-kind.is-active .tp-kind-icon {
+  color: var(--interactive-accent);
+}
+
+.tp-kind-icon {
+  display: flex;
+}
+
+.tp-kind-icon .svg-icon {
+  width: 1.3em;
+  height: 1.3em;
+}
+
+.tp-kind-label {
+  font-size: var(--font-ui-smaller);
+  line-height: 1.1;
+  text-align: center;
+}
+
+/* ------------------------------------------------------------ date range */
+
+.tp-daterange {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+
+.tp-date-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+}
+
+.tp-date-label {
+  width: 3.4em;
+  flex: none;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.tp-date-input {
+  flex: 1;
+  font-family: inherit;
+}
+
+/* The native calendar button is nearly invisible on dark themes otherwise. */
+.theme-dark .tp-date-input::-webkit-calendar-picker-indicator {
+  filter: invert(1) opacity(0.6);
+}
+
+.theme-dark .tp-date-input::-webkit-calendar-picker-indicator:hover {
+  filter: invert(1) opacity(1);
+}
+
+.tp-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3em;
+}
+
+.tp-chip-label {
+  width: 3.4em;
+  flex: none;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.tp-chip {
+  padding: 0.15em 0.55em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.tp-chip:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.tp-chip.is-active {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.tp-date-readout {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  padding-left: 4em;
+  min-height: 1.2em;
+}
+
+/* -------------------------------------------------------- sub-note picker */
+
+.tp-subnote-row,
+.tp-settings-subnotes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em 0.9em;
+}
+
+.tp-subnote {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.tp-subnote input {
+  margin: 0;
+}
+
+.tp-settings-subnotes {
+  justify-content: flex-end;
+  max-width: 26em;
+}

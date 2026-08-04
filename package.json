@@ -1,0 +1,29 @@
+{
+  "name": "travel-planner",
+  "version": "2.0.0",
+  "description": "Travel Planner — plan holidays, day trips, concerts and events as markdown notes in Obsidian",
+  "main": "travel-planner-v2/main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "node tests/smoke.test.mjs",
+    "gen:cities": "node scripts/generate-cities.mjs",
+    "install-local": "node scripts/install-local.mjs"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "travel"
+  ],
+  "author": "Iwan Hoogendoorn",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "all-the-cities": "^3.1.0",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.21.5",
+    "obsidian": "latest",
+    "tslib": "^2.6.2",
+    "typescript": "^5.4.5"
+  }
+}

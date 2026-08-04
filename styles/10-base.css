@@ -1,0 +1,34 @@
+/* Everything is expressed in Obsidian's own CSS variables so the plugin follows
+   whatever theme is active instead of fighting it. */
+
+.tp-modal-shell {
+  --tp-radius: 8px;
+}
+
+.tp-modal .tp-modal-title {
+  margin: 0 0 1em;
+  font-size: var(--font-ui-larger);
+}
+
+.tp-section {
+  margin: 0 0 1.1em;
+}
+
+.tp-section-label {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.5em;
+}
+
+.is-hidden {
+  display: none !important;
+}
+
+.tp-suggest-hint {
+  margin-left: 0.6em;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}

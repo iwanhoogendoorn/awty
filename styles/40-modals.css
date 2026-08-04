@@ -1,0 +1,48 @@
+.tp-modal .setting-item {
+  border-top: none;
+  padding: 0.4em 0;
+}
+
+/* ------------------------------------------------------- delete confirm */
+
+.tp-delete-summary {
+  padding: 0.7em 0.9em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  margin-bottom: 0.9em;
+}
+
+.tp-delete-name {
+  font-weight: var(--font-semibold);
+}
+
+.tp-delete-meta {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.tp-delete-scope {
+  margin: 0 0 0.5em;
+  color: var(--text-normal);
+}
+
+.tp-delete-list {
+  margin: 0 0 0.9em;
+  padding-left: 1.2em;
+  max-height: 11em;
+  overflow-y: auto;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+}
+
+.tp-delete-more {
+  font-style: italic;
+  font-family: var(--font-interface);
+}
+
+.tp-delete-note {
+  margin: 0 0 0.4em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}

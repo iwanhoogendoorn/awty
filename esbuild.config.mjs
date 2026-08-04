@@ -1,0 +1,71 @@
+import esbuild from "esbuild";
+import process from "process";
+import builtins from "builtin-modules";
+import fs from "fs";
+import path from "path";
+
+const prod = process.argv[2] === "production";
+
+const OUT_DIR = "travel-planner-v2";
+
+const banner = `/*
+Travel Planner — bundled by esbuild. Source: src/ in this repository.
+*/`;
+
+// Styles live as numbered files in styles/ and are concatenated in name order,
+// so 10-base.css always lands before 40-components.css can override it.
+function concatStyles() {
+  const dir = "styles";
+  const files = fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".css"))
+    .sort();
+  const css = files
+    .map((f) => `/* === ${f} === */\n` + fs.readFileSync(path.join(dir, f), "utf8"))
+    .join("\n\n");
+  fs.writeFileSync(path.join(OUT_DIR, "styles.css"), css);
+  console.log(`styles: concatenated ${files.length} files -> ${OUT_DIR}/styles.css`);
+}
+
+const stylesPlugin = {
+  name: "concat-styles",
+  setup(build) {
+    build.onEnd(() => concatStyles());
+  },
+};
+
+const context = await esbuild.context({
+  banner: { js: banner },
+  entryPoints: ["src/main.ts"],
+  bundle: true,
+  external: [
+    "obsidian",
+    "electron",
+    "@codemirror/autocomplete",
+    "@codemirror/collab",
+    "@codemirror/commands",
+    "@codemirror/language",
+    "@codemirror/lint",
+    "@codemirror/search",
+    "@codemirror/state",
+    "@codemirror/view",
+    "@lezer/common",
+    "@lezer/highlight",
+    "@lezer/lr",
+    ...builtins,
+  ],
+  format: "cjs",
+  target: "es2020",
+  logLevel: "info",
+  sourcemap: prod ? false : "inline",
+  treeShaking: true,
+  outfile: `${OUT_DIR}/main.js`,
+  plugins: [stylesPlugin],
+});
+
+if (prod) {
+  await context.rebuild();
+  process.exit(0);
+} else {
+  await context.watch();
+}
