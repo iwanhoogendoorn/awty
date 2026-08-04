@@ -6127,6 +6127,44 @@ var TripPlanWizard = class extends import_obsidian27.Modal {
   }
 };
 
+// src/bookings/legTable.ts
+function parseLegTable(content, heading) {
+  const lines2 = content.split("\n");
+  const start = lines2.findIndex((line) => line.trim().toLowerCase() === `## ${heading.toLowerCase()}`);
+  if (start === -1) return [];
+  const legs = [];
+  for (let i = start + 1; i < lines2.length; i += 1) {
+    const line = lines2[i].trim();
+    if (/^#{1,2}\s/.test(line)) break;
+    if (!line.startsWith("|")) continue;
+    const cells = line.slice(1, line.endsWith("|") ? -1 : void 0).split("|").map((c) => c.trim());
+    if (cells.length < 7) continue;
+    if (!/^\d+$/.test(cells[0])) continue;
+    const [, operator, number, from, to, departs, arrives] = cells;
+    const departure = /^(\d{4}-\d{2}-\d{2})?\s*(\d{2}:\d{2})?/.exec(departs) ?? [];
+    const date = departure[1] ?? "";
+    const overnight = /\(\+1\)/.test(arrives);
+    const arrivalTime = /(\d{2}:\d{2})/.exec(arrives)?.[1] ?? "";
+    legs.push({
+      operator,
+      number,
+      from,
+      to,
+      date,
+      depTime: departure[2] ?? "",
+      arrDate: overnight ? nextDay(date) : date,
+      arrTime: arrivalTime
+    });
+  }
+  return legs;
+}
+function nextDay(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  const [y, m, d] = date.split("-").map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
+}
+
 // src/bookings/bookingSync.ts
 var SYNCED = [
   { id: "accommodation", kinds: ["stay"], heading: "Bookings" },
@@ -6162,6 +6200,23 @@ async function syncBookingNotes(app, trip, bookings) {
     ].join("\n");
     await replaceSection(app, file, spec.heading, body);
   }
+}
+async function backfillFlightLegs(app, settings) {
+  const prefix = settings.tripsFolder ? `${settings.tripsFolder}/` : "";
+  let repaired = 0;
+  for (const file of app.vault.getMarkdownFiles()) {
+    if (prefix && !file.path.startsWith(prefix)) continue;
+    const fm = app.metadataCache.getFileCache(file)?.frontmatter;
+    if (!fm || fm.type !== "booking" || fm.booking_kind !== "flight") continue;
+    if (Array.isArray(fm.legs) && fm.legs.length > 0) continue;
+    const legs = parseLegTable(await app.vault.cachedRead(file), "Outbound");
+    if (legs.length === 0) continue;
+    await app.fileManager.processFrontMatter(file, (front) => {
+      front.legs = legsToFrontmatter(legs);
+    });
+    repaired += 1;
+  }
+  return repaired;
 }
 
 // src/travel/travelService.ts
@@ -9430,6 +9485,14 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
         if (!checking) this.deleteTrip(trip);
         return true;
       }
+    });
+    this.app.workspace.onLayoutReady(() => {
+      void backfillFlightLegs(this.app, this.settings).then((repaired) => {
+        if (repaired === 0) return;
+        this.bookings.invalidate();
+        this.refreshViews();
+        console.info(`[travel-planner] filled in legs for ${repaired} flight(s)`);
+      });
     });
     for (const def of KINDS) {
       this.addCommand({

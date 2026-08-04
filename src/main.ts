@@ -30,7 +30,7 @@ import { PackingModal } from "./ui/modals/packingModal";
 import { EventDetailsModal } from "./ui/modals/eventDetailsModal";
 import { FoodModal } from "./ui/modals/foodModal";
 import { TripPlanWizard } from "./ui/modals/tripPlanWizard";
-import { syncBookingNotes } from "./bookings/bookingSync";
+import { backfillFlightLegs, syncBookingNotes } from "./bookings/bookingSync";
 import {
   TravelService,
   TravelUnavailable,
@@ -224,6 +224,17 @@ export default class TravelPlannerPlugin extends Plugin {
         if (!checking) this.deleteTrip(trip);
         return true;
       },
+    });
+
+    // Repairs flights saved before a direct flight stored its legs. Deferred
+    // so it never delays opening the vault.
+    this.app.workspace.onLayoutReady(() => {
+      void backfillFlightLegs(this.app, this.settings).then((repaired) => {
+        if (repaired === 0) return;
+        this.bookings.invalidate();
+        this.refreshViews();
+        console.info(`[travel-planner] filled in legs for ${repaired} flight(s)`);
+      });
     });
 
     // One kind per command, so each can carry its own hotkey.

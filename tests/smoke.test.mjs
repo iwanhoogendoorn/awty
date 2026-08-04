@@ -19,6 +19,7 @@ export { emptyDayDates, readDaySections } from "./src/store/itinerary.ts";
 export { routeTitle, layoverMinutes, formatLayover, totalJourneyMinutes } from "./src/bookings/legs.ts";
 export { parseConfirmation, parseIcs, parseConfirmationText, parseLooseDate } from "./src/flights/parseConfirmation.ts";
 export { splitFlightNumber } from "./src/flights/flightNumber.ts";
+export { parseLegTable } from "./src/bookings/legTable.ts";
 export { renderTripDocument, escapeHtml } from "./src/export/tripDocument.ts";
 export { decodeQuotedPrintable, extractIcsFromEmail } from "./src/flights/parseConfirmation.ts";
 export { fold, rankMatches, flattenByRank, replaceLastToken } from "./src/util/search.ts";
@@ -707,6 +708,50 @@ test("route titles describe the journey, not the first keystroke", () => {
   assert.equal(m.routeTitle([leg("AMS", "DBV")]), "AMS → DBV");
   assert.equal(m.routeTitle([leg("AMS", "IST"), leg("IST", "DBV")]), "AMS → DBV via IST");
   assert.equal(m.routeTitle([]), "");
+});
+
+test("the outbound arrival is recoverable from the note's own table", () => {
+  // Verbatim from a booking saved before direct flights stored their legs: the
+  // arrival existed only here, which is why the journey showed a dash.
+  const note = [
+    "# Amsterdam (AMS) ⇄ Dubrovnik (DBV)",
+    "",
+    "## Outbound",
+    "",
+    "| Leg | Airline | Flight | From | To | Departs | Arrives |",
+    "|---|---|---|---|---|---|---|",
+    "| 1 | KLM (KL) | KL1977 | Amsterdam (AMS) | Dubrovnik (DBV) | 2026-08-17 10:15 | 12:35 |",
+    "",
+    "## Return",
+    "",
+    "| Leg | Airline | Flight | From | To | Departs | Arrives |",
+    "|---|---|---|---|---|---|---|",
+    "| 1 | KLM (KL) | KL1978 | Dubrovnik (DBV) | Amsterdam (AMS) | 2026-08-24 13:25 | 15:55 |",
+  ].join("\n");
+
+  const outbound = m.parseLegTable(note, "Outbound");
+  assert.equal(outbound.length, 1, "the Return table must not leak in");
+  assert.equal(outbound[0].number, "KL1977");
+  assert.equal(outbound[0].date, "2026-08-17");
+  assert.equal(outbound[0].depTime, "10:15");
+  assert.equal(outbound[0].arrTime, "12:35");
+  // The whole point: 2 h 20 min, not 173 h.
+  assert.equal(m.totalJourneyMinutes(outbound), 140);
+
+  assert.equal(m.parseLegTable(note, "Return")[0].number, "KL1978");
+  assert.deepEqual(m.parseLegTable(note, "Nowhere"), []);
+});
+
+test("an overnight arrival lands on the next day", () => {
+  const note = [
+    "## Outbound",
+    "| Leg | Airline | Flight | From | To | Departs | Arrives |",
+    "|---|---|---|---|---|---|---|",
+    "| 1 | KL | KL809 | AMS | SIN | 2026-08-17 21:30 | 15:45 (+1) |",
+  ].join("\n");
+  const [leg] = m.parseLegTable(note, "Outbound");
+  assert.equal(leg.arrDate, "2026-08-18");
+  assert.equal(leg.arrTime, "15:45");
 });
 
 test("a journey is measured leg to leg, not to the end of the ticket", () => {

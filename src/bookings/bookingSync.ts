@@ -3,6 +3,8 @@ import type { Booking, BookingKind } from "./types";
 import type { SubNoteId, Trip } from "../types";
 import { replaceSection, subNoteFile } from "../store/sectionWriter";
 import { formatMoney } from "../util/money";
+import { parseLegTable } from "./legTable";
+import { legsToFrontmatter } from "./legs";
 
 /**
  * Keeps the sub-notes in step with the bookings.
@@ -58,4 +60,34 @@ export async function syncBookingNotes(app: App, trip: Trip, bookings: Booking[]
 
     await replaceSection(app, file, spec.heading, body);
   }
+}
+
+/**
+ * Fills in `legs` for flights that never stored them.
+ *
+ * Direct flights briefly wrote no legs to frontmatter, so their outbound
+ * arrival existed only in the note body. Rather than leave those bookings
+ * showing a dash for ever, the table is read back and the frontmatter
+ * repaired — once, quietly, on load.
+ */
+export async function backfillFlightLegs(app: App, settings: { tripsFolder: string }): Promise<number> {
+  const prefix = settings.tripsFolder ? `${settings.tripsFolder}/` : "";
+  let repaired = 0;
+
+  for (const file of app.vault.getMarkdownFiles()) {
+    if (prefix && !file.path.startsWith(prefix)) continue;
+    const fm = app.metadataCache.getFileCache(file)?.frontmatter;
+    if (!fm || fm.type !== "booking" || fm.booking_kind !== "flight") continue;
+    if (Array.isArray(fm.legs) && fm.legs.length > 0) continue;
+
+    const legs = parseLegTable(await app.vault.cachedRead(file), "Outbound");
+    if (legs.length === 0) continue;
+
+    await app.fileManager.processFrontMatter(file, (front) => {
+      front.legs = legsToFrontmatter(legs);
+    });
+    repaired += 1;
+  }
+
+  return repaired;
 }
