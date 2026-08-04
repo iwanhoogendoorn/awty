@@ -3,8 +3,10 @@ import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type TravelPlannerPlugin from "../../main";
 import type { Trip } from "../../types";
 import { SUB_NOTE_LABELS, kindDef } from "../../types";
-import { formatDateRange } from "../../util/dates";
+import { daysBetween, formatDateRange } from "../../util/dates";
 import { formatMoney, formatTotals, sumMoney } from "../../util/money";
+import { checkVisa, exceedsAllowance } from "../../travel/visa";
+import { ADVICE_MEANING } from "../../travel/advice";
 
 interface Step {
   key: string;
@@ -77,6 +79,25 @@ export class TripPlanWizard extends Modal {
     const stays = of("stay");
     const activities = of("activity");
 
+    // Entry requirements and safety advice, which are the two things that can
+    // stop a trip happening at all.
+    const passports = plugin.settings.passportCountries.filter(Boolean);
+    const checks = passports.map((passport) => checkVisa(passport, trip.country));
+    const tripDays = daysBetween(trip.startDate, trip.endDate);
+    const blocking = checks.filter((c) => c.actionNeeded || exceedsAllowance(c, tripDays));
+    const advice = plugin.peekAdvice(trip.country);
+    const needsNoAction = blocking.length === 0;
+
+    const documentSummary = (() => {
+      const parts: string[] = [];
+      if (checks.length === 0) parts.push("No passports set");
+      else if (blocking.length > 0) parts.push(`${blocking[0].label} for ${blocking[0].passport}`);
+      else parts.push("No visa needed");
+      if (advice) parts.push(`advice ${ADVICE_MEANING[advice.colour].label.toLowerCase()}`);
+      else parts.push("advice not checked");
+      return parts.join(" · ");
+    })();
+
     const budget = plugin.bookings.getBudget(trip);
     const spent = sumMoney(
       plugin.bookings.getCostLines(trip).filter((l) => l.counted).map((l) => l.money),
@@ -95,6 +116,17 @@ export class TripPlanWizard extends Modal {
         action: () => plugin.openEditTripModal(trip),
         actionLabel: "Edit",
         applies: true,
+      },
+      {
+        key: "documents",
+        title: "Documents & advice",
+        detail: "Visas, and the current government travel advice.",
+        icon: "shield-check",
+        done: needsNoAction && advice !== null,
+        summary: documentSummary,
+        action: () => void plugin.refreshAdvice(trip.country, () => this.render()),
+        actionLabel: advice ? "Re-check" : "Check",
+        applies: Boolean(trip.country),
       },
       {
         key: "getting-there",

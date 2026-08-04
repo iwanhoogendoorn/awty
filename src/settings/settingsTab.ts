@@ -159,9 +159,48 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
         }),
       );
 
+    this.displayDocuments(containerEl);
     this.displayFoodSpot(containerEl);
     this.displayTravel(containerEl);
     this.displayTemplates(containerEl);
+  }
+
+  private displayDocuments(containerEl: HTMLElement): void {
+    new Setting(containerEl).setName("Documents & advice").setHeading();
+
+    new Setting(containerEl)
+      .setName("Passports")
+      .setDesc(
+        "Comma-separated countries. Each one is checked against the destination for visa requirements.",
+      )
+      .addText((t) => {
+        t.setPlaceholder("Netherlands");
+        t.setValue(this.plugin.settings.passportCountries.join(", "));
+        t.onChange(async (v) => {
+          this.plugin.settings.passportCountries = v
+            .split(",")
+            .map((c) => c.trim())
+            .filter(Boolean);
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Dutch government travel advice")
+      .setDesc("Fetches the colour code from nederlandwereldwijd.nl when you ask it to.")
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.travelAdviceEnabled).onChange(async (v) => {
+          this.plugin.settings.travelAdviceEnabled = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    containerEl.createDiv({
+      cls: "tp-settings-note",
+      text:
+        "Visa data comes from the open passport-index dataset and travel advice from the Dutch Ministry of Foreign Affairs. " +
+        "Both are guidance: entry rules change without notice, so confirm with the embassy before booking.",
+    });
   }
 
   private displayTravel(containerEl: HTMLElement): void {

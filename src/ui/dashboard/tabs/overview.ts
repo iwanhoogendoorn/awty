@@ -2,6 +2,7 @@ import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
 import { bar, emptyState, readiness, sectionTitle, stateMark, statTiles, noTripState } from "../common";
 import { renderGettingAround } from "../gettingAround";
+import { renderDocuments } from "../documents";
 import { BOOKING_KINDS } from "../../../bookings/types";
 import { totalsByCategory } from "../../../bookings/bookingStore";
 import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/money";
@@ -175,6 +176,7 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
     }
   }
 
+  renderDocuments(parent, ctx);
   renderTripNotes(parent, ctx);
   renderGettingAround(parent, ctx);
 

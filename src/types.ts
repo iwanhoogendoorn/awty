@@ -188,6 +188,10 @@ export interface TravelPlannerSettings {
   starredAirlines: string[];
   /** Airports pinned to the top of the from/to pickers. */
   starredAirports: string[];
+  /** Passports the party travels on, used for the visa check. */
+  passportCountries: string[];
+  /** Check Dutch government travel advice for the destination. */
+  travelAdviceEnabled: boolean;
   /** Where you normally travel from, used to pre-fill the origin of a new trip. */
   homeCity: string;
   homeAirport: string;
@@ -222,6 +226,8 @@ export const DEFAULT_SETTINGS: TravelPlannerSettings = {
   travelModes: ["driving", "transit"],
   starredAirlines: [],
   starredAirports: [],
+  passportCountries: ["Netherlands"],
+  travelAdviceEnabled: true,
   homeCity: "",
   homeAirport: "",
   household: [],

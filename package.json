@@ -9,7 +9,8 @@
     "test": "node tests/smoke.test.mjs",
     "gen:cities": "node scripts/generate-cities.mjs",
     "install-local": "node scripts/install-local.mjs",
-    "gen:airports": "node scripts/generate-airports.mjs"
+    "gen:airports": "node scripts/generate-airports.mjs",
+    "gen:docs": "node scripts/generate-travel-docs.mjs"
   },
   "keywords": [
     "obsidian",

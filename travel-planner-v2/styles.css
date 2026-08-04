@@ -2308,3 +2308,139 @@
   font-size: var(--font-ui-smaller);
   line-height: 1.5;
 }
+
+/* ------------------------------------------------- documents & advice */
+
+.tp-doc-list-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tp-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.55em 0.75em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  border-left: 3px solid var(--background-modifier-border);
+}
+
+.tp-doc-item.is-good,
+.tp-doc-item.is-advice-groen {
+  border-left-color: var(--color-green);
+}
+
+.tp-doc-item.is-warn,
+.tp-doc-item.is-advice-geel {
+  border-left-color: var(--color-yellow);
+}
+
+.tp-doc-item.is-advice-oranje {
+  border-left-color: var(--color-orange);
+}
+
+.tp-doc-item.is-bad,
+.tp-doc-item.is-advice-rood {
+  border-left-color: var(--color-red);
+}
+
+.tp-doc-item-icon {
+  display: flex;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.tp-doc-item.is-good .tp-doc-item-icon,
+.tp-doc-item.is-advice-groen .tp-doc-item-icon {
+  color: var(--color-green);
+}
+
+.tp-doc-item.is-warn .tp-doc-item-icon,
+.tp-doc-item.is-advice-geel .tp-doc-item-icon,
+.tp-doc-item.is-advice-oranje .tp-doc-item-icon {
+  color: var(--color-orange);
+}
+
+.tp-doc-item.is-bad .tp-doc-item-icon,
+.tp-doc-item.is-advice-rood .tp-doc-item-icon {
+  color: var(--color-red);
+}
+
+.tp-doc-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.tp-doc-item-title {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+}
+
+.tp-doc-item-detail {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.tp-doc-item-warn {
+  font-size: var(--font-ui-smaller);
+  color: var(--color-orange);
+  margin-top: 0.15em;
+}
+
+.tp-doc-badge {
+  flex: none;
+  padding: 0.05em 0.55em;
+  border-radius: 999px;
+  font-size: var(--font-ui-smaller);
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.tp-doc-badge.is-good,
+.tp-doc-badge.is-advice-groen {
+  background: color-mix(in srgb, var(--color-green) 20%, transparent);
+  color: var(--color-green);
+}
+
+.tp-doc-badge.is-warn,
+.tp-doc-badge.is-advice-geel {
+  background: color-mix(in srgb, var(--color-yellow) 22%, transparent);
+  color: var(--color-orange);
+}
+
+.tp-doc-badge.is-advice-oranje {
+  background: color-mix(in srgb, var(--color-orange) 20%, transparent);
+  color: var(--color-orange);
+}
+
+.tp-doc-badge.is-bad,
+.tp-doc-badge.is-advice-rood {
+  background: color-mix(in srgb, var(--color-red) 18%, transparent);
+  color: var(--color-red);
+}
+
+.tp-doc-link {
+  display: flex;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.tp-doc-link:hover {
+  color: var(--text-accent);
+}
+
+.tp-doc-link .svg-icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+/* Neither source is authoritative; say so where it is read. */
+.tp-doc-caveat {
+  margin-top: 0.5em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  line-height: 1.45;
+}

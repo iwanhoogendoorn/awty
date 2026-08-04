@@ -18,6 +18,8 @@ export { analyseNote } from "./src/store/noteProgress.ts";
 export { emptyDayDates } from "./src/store/itinerary.ts";
 export { routeTitle, layoverMinutes, formatLayover } from "./src/bookings/legs.ts";
 export { fold, rankMatches, flattenByRank } from "./src/util/search.ts";
+export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
+export { parseAdviceColour, adviceUrlFor, isStale, ADVICE_TTL_MS } from "./src/travel/adviceData.ts";
 export { AIRPORTS } from "./src/data/airports.ts";
 export { AIRLINES, airlineLabel } from "./src/data/airlines.ts";
 export { buildPackingPlan, effectiveDays, renderPackingPlan } from "./src/store/packing.ts";
@@ -332,6 +334,67 @@ test("a countryless city search surfaces real places, not Afghan villages", () =
   // Each country's capital-ish first entry outranks the tail of any other.
   const firsts = new Set(Object.values(m.CITIES).map((list) => list[0]));
   assert.ok(firsts.has(global[0]), "the very first entry should be a country's largest city");
+});
+
+// ------------------------------------------------------------------ visa
+
+test("visa rules resolve for a Dutch passport", () => {
+  assert.equal(m.iso2ForCountry("Netherlands"), "NL");
+  assert.equal(m.iso2ForCountry("Croatia"), "HR");
+
+  const eu = m.checkVisa("Netherlands", "Croatia");
+  assert.equal(eu.outcome, "visa-free");
+  assert.equal(eu.actionNeeded, false);
+
+  const usa = m.checkVisa("Netherlands", "United States");
+  assert.ok(["eta", "visa-required", "e-visa"].includes(usa.outcome), usa.outcome);
+  assert.equal(usa.actionNeeded, true, "ESTA is something you must do before flying");
+
+  const home = m.checkVisa("Netherlands", "Netherlands");
+  assert.equal(home.outcome, "same-country");
+});
+
+test("an unknown combination says so rather than implying it is fine", () => {
+  const check = m.checkVisa("Atlantis", "Croatia");
+  assert.equal(check.outcome, "unknown");
+  assert.equal(check.actionNeeded, false);
+  assert.match(check.detail, /No visa data/);
+});
+
+test("a trip longer than the visa-free allowance is flagged", () => {
+  const allowance = { days: 90, outcome: "visa-free" };
+  assert.equal(m.exceedsAllowance(allowance, 30), false);
+  assert.equal(m.exceedsAllowance(allowance, 120), true);
+  // No stated allowance cannot be exceeded.
+  assert.equal(m.exceedsAllowance({ days: null }, 400), false);
+});
+
+// ---------------------------------------------------------- travel advice
+
+test("the colour code is read from the ministry's own wording", () => {
+  const page = "<p>De kleurcode van het reisadvies voor Kroati\u00eb is groen. U kunt erheen.</p>";
+  assert.equal(m.parseAdviceColour(page), "groen");
+  assert.equal(
+    m.parseAdviceColour("kleurcode van het reisadvies voor Oekra\u00efne is rood."),
+    "rood",
+  );
+  // Unrecognised wording returns null rather than a guess.
+  assert.equal(m.parseAdviceColour("<p>Niets aan de hand hier.</p>"), null);
+});
+
+test("advice URLs use the Dutch slug, and only where one exists", () => {
+  assert.equal(m.adviceUrlFor("Croatia"), "https://www.nederlandwereldwijd.nl/reisadvies/kroatie");
+  assert.equal(
+    m.adviceUrlFor("United States"),
+    "https://www.nederlandwereldwijd.nl/reisadvies/verenigde-staten-van-amerika",
+  );
+  assert.equal(m.adviceUrlFor("Nowhereland"), null);
+});
+
+test("advice older than a day is treated as stale", () => {
+  const now = 1_000_000_000_000;
+  assert.equal(m.isStale({ fetchedAt: now - 1000 }, now), false);
+  assert.equal(m.isStale({ fetchedAt: now - m.ADVICE_TTL_MS - 1 }, now), true);
 });
 
 // ------------------------------------------------------------- airports

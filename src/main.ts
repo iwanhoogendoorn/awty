@@ -38,6 +38,7 @@ import {
   type TripPlaces,
 } from "./travel/travelService";
 import { travelTable } from "./ui/dashboard/gettingAround";
+import { ADVICE_MEANING, AdviceUnavailable, fetchAdvice, type TravelAdvice } from "./travel/advice";
 import { replaceSection } from "./store/sectionWriter";
 import { createTrip, deleteTrip, notifyError, updateTrip } from "./store/noteWriter";
 import { TravelSidebarView } from "./ui/view";
@@ -164,6 +165,16 @@ export default class TravelPlannerPlugin extends Plugin {
       },
     });
     this.addCommand({
+      id: "check-travel-advice",
+      name: "Check travel advice for this trip",
+      checkCallback: (checking) => {
+        const trip = this.contextTrip();
+        if (!trip?.country) return false;
+        if (!checking) void this.refreshAdvice(trip.country);
+        return true;
+      },
+    });
+    this.addCommand({
       id: "log-expense",
       name: "Log an expense",
       checkCallback: (checking) => {
@@ -232,6 +243,7 @@ export default class TravelPlannerPlugin extends Plugin {
     this.travelCache = {
       legs: raw?.travelCache?.legs ?? {},
       geocode: raw?.travelCache?.geocode ?? {},
+      advice: raw?.travelCache?.advice ?? {},
     };
   }
 
@@ -336,6 +348,57 @@ export default class TravelPlannerPlugin extends Plugin {
       this.store.invalidate();
       new Notice(`Logged “${draft.description}”.`);
     }).open();
+  }
+
+  /** Cached advice for a country, without touching the network. */
+  peekAdvice(country: string): TravelAdvice | null {
+    const hit = this.travelCache.advice?.[country];
+    if (!hit) return null;
+    return {
+      colour: hit.colour as TravelAdvice["colour"],
+      country,
+      url: hit.url,
+      fetchedAt: hit.fetchedAt,
+    };
+  }
+
+  /**
+   * Fetches the Dutch government travel advice for a country.
+   *
+   * Explicit action only, and cached for a day — this reaches out to
+   * nederlandwereldwijd.nl, and safety advice that is a week stale is worse
+   * than none.
+   */
+  async refreshAdvice(country: string, onDone?: () => void): Promise<void> {
+    if (!country) {
+      new Notice("Set a country on the trip first.");
+      return;
+    }
+    const notice = new Notice("Checking travel advice…", 0);
+    try {
+      const advice = await fetchAdvice(country);
+      if (!this.travelCache.advice) this.travelCache.advice = {};
+      this.travelCache.advice[country] = {
+        colour: advice.colour,
+        url: advice.url,
+        fetchedAt: advice.fetchedAt,
+      };
+      await this.persist();
+      notice.hide();
+      new Notice(`${country}: code ${ADVICE_MEANING[advice.colour].label.toLowerCase()}.`);
+      onDone?.();
+      this.refreshViews();
+    } catch (err) {
+      notice.hide();
+      const message =
+        err instanceof AdviceUnavailable
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Could not fetch travel advice.";
+      new Notice(`Travel Planner: ${message}`, 8000);
+      console.error("[travel-planner]", err);
+    }
   }
 
   openPlanWizard(trip: Trip): void {
