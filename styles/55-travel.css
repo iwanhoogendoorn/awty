@@ -385,3 +385,25 @@
 .awty-doc-caveat-links a {
   font-size: var(--font-ui-smaller);
 }
+
+/* "Mark done" beside a requirement: the row states the task, this finishes it. */
+.awty-doc-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  margin-left: auto;
+  padding: 0.15em 0.5em;
+  flex: none;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.awty-doc-done input {
+  margin: 0;
+}
+
+.awty-doc-done:hover {
+  color: var(--text-normal);
+}

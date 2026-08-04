@@ -4,6 +4,7 @@ import type AwtyPlugin from "../../main";
 import type { Trip } from "../../types";
 import {
   SUB_NOTE_LABELS,
+  entryKey,
   joinPlaces,
   kindDef,
   tripCities,
@@ -112,17 +113,29 @@ export class TripPlanWizard extends Modal {
       passports.map((passport) => checkVisa(passport, country)),
     );
     const tripDays = daysBetween(trip.startDate, trip.endDate);
-    const blocking = checks.filter((c) => c.actionNeeded || exceedsAllowance(c, tripDays));
+    // Only what is still outstanding: something arranged is not something to do.
+    const done = new Set(trip.entryDone);
+    const blocking = checks.filter(
+      (c) =>
+        (c.actionNeeded || exceedsAllowance(c, tripDays)) &&
+        !done.has(entryKey.visa(c.destination, c.passport)),
+    );
     const advice = tripCountries(trip)
       .map((country) => plugin.peekAdvice(country))
       .find((hit) => hit !== null);
     // An arrival card is not a visa, so "no visa needed" is not "nothing to
     // do" — and this step is the one that claims a trip is ready to take.
     const extras = tripCountries(trip)
-      .flatMap((country) => entryExtrasFor(country))
-      .filter((extra) => extra.status === "required");
+      .flatMap((country) => entryExtrasFor(country).map((extra) => ({ country, extra })))
+      .filter(
+        ({ country, extra }) =>
+          extra.status === "required" && !done.has(entryKey.extra(country, extra.name)),
+      )
+      .map(({ extra }) => extra);
     // A country nobody has checked is not a country known to be clear.
-    const unchecked = tripCountries(trip).filter((country) => !entryExtrasChecked(country));
+    const unchecked = tripCountries(trip).filter(
+      (country) => !entryExtrasChecked(country) && !done.has(entryKey.checked(country)),
+    );
     const needsNoAction = blocking.length === 0 && extras.length === 0 && unchecked.length === 0;
 
     const documentSummary = (() => {

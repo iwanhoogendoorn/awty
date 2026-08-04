@@ -716,6 +716,24 @@ export default class AwtyPlugin extends Plugin {
     );
   }
 
+  /**
+   * Ticks an entry requirement off, or puts it back.
+   *
+   * Kept on the trip note rather than in plugin settings: it is a fact about
+   * this trip, and it should travel with the folder.
+   */
+  async toggleEntryDone(trip: Trip, key: string, done: boolean): Promise<void> {
+    await this.app.fileManager.processFrontMatter(trip.file, (fm) => {
+      const current = new Set<string>(Array.isArray(fm.entry_done) ? fm.entry_done.map(String) : []);
+      if (done) current.add(key);
+      else current.delete(key);
+      if (current.size > 0) fm.entry_done = [...current];
+      else delete fm.entry_done;
+    });
+    this.store.invalidate();
+    this.refreshViews();
+  }
+
   /** Cached advice for a country, without touching the network. */
   peekAdvice(country: string): TravelAdvice | null {
     const hit = this.travelCache.advice?.[country];

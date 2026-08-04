@@ -174,6 +174,13 @@ export function joinPlaces(values: string[]): string {
   return `${values.slice(0, -1).join(", ")} & ${values[values.length - 1]}`;
 }
 
+/** Keys for the entry requirements a trip can tick off. */
+export const entryKey = {
+  visa: (country: string, passport: string) => `visa:${country}:${passport}`,
+  extra: (country: string, name: string) => `extra:${country}:${name}`,
+  checked: (country: string) => `checked:${country}`,
+};
+
 /** A trip as read back out of the vault. */
 export interface Trip {
   file: TFile;
@@ -201,6 +208,14 @@ export interface Trip {
   budgetTotal: number | null;
   /** Passports this trip is taken on. Empty falls back to the settings list. */
   passports: string[];
+  /**
+   * Entry requirements already dealt with, by key.
+   *
+   * A visa on arrival and an arrival card are work, and work gets finished.
+   * Without somewhere to record that, the documents step could only ever stay
+   * amber — it showed real tasks and offered no way to complete them.
+   */
+  entryDone: string[];
 }
 
 /** The form payload shared by the new-trip and edit-trip modals. */

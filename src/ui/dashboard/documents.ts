@@ -3,7 +3,7 @@ import type { DashboardContext } from "./common";
 import { sectionTitle } from "./common";
 import { checkVisa, exceedsAllowance } from "../../travel/visa";
 import { ADVICE_MEANING, adviceUrlFor, isStale } from "../../travel/advice";
-import { tripCountries } from "../../types";
+import { entryKey, tripCountries } from "../../types";
 import { ENTRY_EXTRAS_VERIFIED, entryExtrasChecked, entryExtrasFor } from "../../data/entryExtras";
 import { DISCLAIMER_COVERAGE, DISCLAIMER_SHORT, OFFICIAL_SOURCES } from "../../data/disclaimer";
 import { daysBetween } from "../../util/dates";
@@ -37,7 +37,7 @@ export function renderDocuments(parent: HTMLElement, ctx: DashboardContext): voi
       parent.createDiv({ cls: "awty-around-group", text: country });
     }
     renderVisa(parent, ctx, country);
-    renderEntryExtras(parent, country);
+    renderEntryExtras(parent, ctx, country);
     renderAdvice(parent, ctx, country);
   }
 
@@ -97,6 +97,10 @@ function renderVisa(parent: HTMLElement, ctx: DashboardContext, country: string)
     body.createDiv({ cls: "awty-doc-item-title", text: `${passport} passport → ${country}` });
     body.createDiv({ cls: "awty-doc-item-detail", text: check.detail });
 
+    if (check.actionNeeded) {
+      doneBox(row, ctx, entryKey.visa(country, passport), `${check.label} for ${passport}`);
+    }
+
     if (tooLong) {
       body.createDiv({
         cls: "awty-doc-item-warn",
@@ -115,7 +119,28 @@ function renderVisa(parent: HTMLElement, ctx: DashboardContext, country: string)
  * whatever the visa answer — so "no visa needed" is not the same as "nothing
  * to do", and this is where that gap gets closed.
  */
-function renderEntryExtras(parent: HTMLElement, country: string): void {
+/**
+ * A tick box for something that has to be arranged.
+ *
+ * The row states a requirement; this is where you say it is dealt with. Stored
+ * on the trip, so the plan wizard can stop calling the step unfinished.
+ */
+function doneBox(row: HTMLElement, ctx: DashboardContext, key: string, label: string): void {
+  const { trip, plugin } = ctx;
+  if (!trip) return;
+
+  const wrap = row.createEl("label", { cls: "awty-doc-done" });
+  const box = wrap.createEl("input");
+  box.type = "checkbox";
+  box.checked = trip.entryDone.includes(key);
+  box.setAttribute("aria-label", `${label} — arranged`);
+  wrap.createSpan({ text: box.checked ? "Done" : "Mark done" });
+  box.addEventListener("change", () => {
+    void plugin.toggleEntryDone(trip, key, box.checked);
+  });
+}
+
+function renderEntryExtras(parent: HTMLElement, ctx: DashboardContext, country: string): void {
   const extras = entryExtrasFor(country);
   const list = parent.createDiv({ cls: "awty-doc-list-rows" });
 
@@ -140,6 +165,7 @@ function renderEntryExtras(parent: HTMLElement, country: string): void {
         ? `Looked at on ${ENTRY_EXTRAS_VERIFIED}. Rules move, so confirm before you book.`
         : "Many countries want an arrival card or an authorisation even when no visa is needed. This plugin has not checked this one — read the travel advice below, which lists entry requirements.",
     });
+    if (!checked) doneBox(row, ctx, entryKey.checked(country), `${country} entry rules`);
     return;
   }
   for (const extra of extras) {
@@ -158,6 +184,8 @@ function renderEntryExtras(parent: HTMLElement, country: string): void {
         .filter(Boolean)
         .join(" · "),
     });
+
+    if (!coming) doneBox(row, ctx, entryKey.extra(country, extra.name), extra.name);
 
     const link = row.createEl("a", { cls: "awty-doc-link", href: extra.url });
     link.setAttribute("target", "_blank");

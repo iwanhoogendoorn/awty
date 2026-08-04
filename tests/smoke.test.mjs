@@ -26,7 +26,7 @@ export { fold, rankMatches, flattenByRank, flattenGroups, replaceLastToken } fro
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
 export { entryExtrasFor, entryExtrasChecked, ENTRY_EXTRAS, ENTRY_EXTRAS_COMING, ENTRY_EXTRAS_VERIFIED } from "./src/data/entryExtras.ts";
 export { allCategories, COST_CATEGORIES, BOOKING_KINDS } from "./src/bookings/types.ts";
-export { CREATABLE_SUB_NOTES, SUB_NOTE_LABELS, KINDS, tripStops, tripCities, tripCountries, joinPlaces } from "./src/types.ts";
+export { CREATABLE_SUB_NOTES, SUB_NOTE_LABELS, KINDS, tripStops, tripCities, tripCountries, joinPlaces, entryKey } from "./src/types.ts";
 export { parseAdviceColour, adviceUrlFor, isStale, ADVICE_TTL_MS } from "./src/travel/adviceData.ts";
 export { AIRPORTS } from "./src/data/airports.ts";
 export { AIRLINES, airlineLabel } from "./src/data/airlines.ts";
@@ -1654,6 +1654,28 @@ test("a table booked before this change is not thrown away", () => {
 
   // The empty template is not a booking either.
   assert.deepEqual(m.readLegacyFoodTable("## Booked\n\n_Nothing booked yet._"), []);
+});
+
+test("an entry requirement can be ticked off, per country and passport", () => {
+  // Two countries can want the same thing, and two passports can need
+  // different visas for one country — so a key has to name all of it or
+  // ticking one silently ticks another.
+  assert.notEqual(
+    m.entryKey.extra("Thailand", "Thailand Digital Arrival Card (TDAC)"),
+    m.entryKey.extra("Malaysia", "Thailand Digital Arrival Card (TDAC)"),
+  );
+  assert.notEqual(
+    m.entryKey.visa("Thailand", "Netherlands"),
+    m.entryKey.visa("Thailand", "India"),
+  );
+  assert.notEqual(m.entryKey.checked("Bhutan"), m.entryKey.checked("Nepal"));
+  // And the three kinds never collide with each other.
+  const keys = new Set([
+    m.entryKey.visa("Thailand", "Netherlands"),
+    m.entryKey.extra("Thailand", "Netherlands"),
+    m.entryKey.checked("Thailand"),
+  ]);
+  assert.equal(keys.size, 3);
 });
 
 test("no visa needed is not the same as nothing to do", () => {

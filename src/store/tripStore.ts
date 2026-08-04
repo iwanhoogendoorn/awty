@@ -200,6 +200,7 @@ export class TripStore {
           return Number.isFinite(value) && value > 0 ? value : null;
         })(),
         passports: list(fm.passports),
+        entryDone: list(fm.entry_done),
       });
     }
 
