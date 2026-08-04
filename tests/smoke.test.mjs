@@ -767,7 +767,7 @@ test("the exported document is self-contained and complete", () => {
       {
         kind: "flight", kindLabel: "Flight", title: "AMS ⇄ DBV", status: "booked",
         date: "2026-08-17", endDate: "2026-08-24", time: "10:15", endTime: "16:05",
-        from: "AMS", to: "DBV", reference: "XY7K2Q", seat: "14A", cost: "€827", notes: "",
+        from: "AMS", to: "DBV", address: "", reference: "XY7K2Q", seat: "14A", cost: "€827", notes: "",
         legs: [{ operator: "KL", number: "KL1885", from: "AMS", to: "DBV", date: "2026-08-17", depTime: "10:15", arrDate: "2026-08-17", arrTime: "12:35" }],
         returnLegs: [],
       },

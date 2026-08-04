@@ -20,6 +20,7 @@ export interface BookingDraft {
   reference: string;
   from: string;
   to: string;
+  address: string;
   operator: string;
   seat: string;
   notes: string;
@@ -143,6 +144,7 @@ function bookingBody(draft: BookingDraft, attachmentLinks: string[]): string {
   add("Time", draft.endTime ? `${draft.time} → ${draft.endTime}` : draft.time);
   add("From", draft.from);
   add("To", draft.to);
+  add("Address", draft.address);
   add("Operator", draft.operator);
   add("Seat", draft.seat);
   add("Reference", draft.reference);
@@ -228,6 +230,7 @@ export async function createBooking(
     if (draft.reference) fm.reference = draft.reference;
     if (draft.from) fm.from = draft.from;
     if (draft.to) fm.to = draft.to;
+    if (draft.address) fm.address = draft.address;
     if (draft.operator) fm.operator = draft.operator;
     if (draft.seat) fm.seat = draft.seat;
     if (draft.legs.length > 1) fm.legs = legsToFrontmatter(draft.legs);

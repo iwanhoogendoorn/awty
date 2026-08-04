@@ -28,6 +28,7 @@ export interface DocBooking {
   endTime: string;
   from: string;
   to: string;
+  address: string;
   reference: string;
   seat: string;
   cost: string;
@@ -116,6 +117,7 @@ function bookingBlock(booking: DocBooking): string {
     ["Time", [booking.time, booking.endTime].filter(Boolean).join(" → ")],
     ["From", booking.from],
     ["To", booking.to],
+    ["Address", booking.address],
     ["Reference", booking.reference],
     ["Seat", booking.seat],
     ["Cost", booking.cost],

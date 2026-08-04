@@ -835,6 +835,7 @@ var BookingStore = class {
           reference: str2(fm.reference),
           from: str2(fm.from),
           to: str2(fm.to),
+          address: str2(fm.address),
           operator: str2(fm.operator),
           seat: str2(fm.seat),
           notes: str2(fm.notes),
@@ -1803,6 +1804,7 @@ function bookingBody(draft, attachmentLinks) {
   add("Time", draft.endTime ? `${draft.time} \u2192 ${draft.endTime}` : draft.time);
   add("From", draft.from);
   add("To", draft.to);
+  add("Address", draft.address);
   add("Operator", draft.operator);
   add("Seat", draft.seat);
   add("Reference", draft.reference);
@@ -1870,6 +1872,7 @@ async function createBooking(app, settings, trip, draft) {
     if (draft.reference) fm.reference = draft.reference;
     if (draft.from) fm.from = draft.from;
     if (draft.to) fm.to = draft.to;
+    if (draft.address) fm.address = draft.address;
     if (draft.operator) fm.operator = draft.operator;
     if (draft.seat) fm.seat = draft.seat;
     if (draft.legs.length > 1) fm.legs = legsToFrontmatter(draft.legs);
@@ -4187,12 +4190,13 @@ var FIELDS = {
   ],
   stay: [
     { key: "title", label: "Property", placeholder: "Hotel Excelsior" },
-    { key: "to", label: "Address", placeholder: "Frana Supila 12, Dubrovnik" },
+    { key: "address", label: "Address", placeholder: "Frana Supila 12, Dubrovnik" },
     { key: "reference", label: "Confirmation number", placeholder: "1234567890" }
   ],
   activity: [
     { key: "title", label: "What", placeholder: "Old town walls walk" },
     { key: "to", label: "Venue", placeholder: "Pile Gate" },
+    { key: "address", label: "Address", placeholder: "Optional \u2014 improves travel times" },
     { key: "seat", label: "Seat / section", placeholder: "Block C, row 4" },
     { key: "reference", label: "Booking reference", placeholder: "ABC123" }
   ],
@@ -4241,6 +4245,7 @@ var BookingWizard = class extends import_obsidian20.Modal {
       from: "",
       to: "",
       operator: "",
+      address: "",
       seat: "",
       notes: "",
       attachments: [],
@@ -4325,7 +4330,11 @@ var BookingWizard = class extends import_obsidian20.Modal {
         this.renderCityField(spec);
         continue;
       }
-      new import_obsidian20.Setting(this.bodyEl).setName(spec.label).addText((t) => {
+      const setting = new import_obsidian20.Setting(this.bodyEl).setName(spec.label);
+      if (spec.key === "address") {
+        setting.setDesc("Used to work out travel times from your accommodation.");
+      }
+      setting.addText((t) => {
         t.setPlaceholder(spec.placeholder);
         t.setValue(this.draft[spec.key]);
         t.onChange((v) => this.draft[spec.key] = v.trim());
@@ -5946,7 +5955,7 @@ var SYNCED = [
 function row(booking) {
   const when = booking.endDate && booking.endDate !== booking.date ? `${booking.date} \u2192 ${booking.endDate}` : booking.date;
   const times2 = [booking.time, booking.endTime].filter(Boolean).join(" \u2192 ");
-  const route = booking.from && booking.to ? `${booking.from} \u2192 ${booking.to}` : booking.to || "";
+  const route = booking.from && booking.to ? `${booking.from} \u2192 ${booking.to}` : booking.address || booking.to || "";
   const cells = [
     when,
     times2 || "",
@@ -6102,7 +6111,7 @@ var TravelService = class {
       const airport = booking.to || booking.from;
       return airport ? `${airport} airport` : "";
     }
-    const base = booking.to || booking.title;
+    const base = booking.address || booking.to || booking.title;
     if (!base) return "";
     return where && !base.toLowerCase().includes(trip.city.toLowerCase()) ? `${base}, ${where}` : base;
   }
@@ -6316,6 +6325,7 @@ function bookingBlock(booking) {
     ["Time", [booking.time, booking.endTime].filter(Boolean).join(" \u2192 ")],
     ["From", booking.from],
     ["To", booking.to],
+    ["Address", booking.address],
     ["Reference", booking.reference],
     ["Seat", booking.seat],
     ["Cost", booking.cost],
@@ -6560,6 +6570,7 @@ async function buildTripDocument(plugin, trip) {
       endTime: booking.endTime,
       from: booking.from,
       to: booking.to,
+      address: booking.address,
       reference: booking.reference,
       seat: booking.seat,
       cost: booking.cost ? formatMoney(booking.cost) : "",

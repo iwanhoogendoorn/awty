@@ -109,6 +109,7 @@ export async function buildTripDocument(
       endTime: booking.endTime,
       from: booking.from,
       to: booking.to,
+      address: booking.address,
       reference: booking.reference,
       seat: booking.seat,
       cost: booking.cost ? formatMoney(booking.cost) : "",

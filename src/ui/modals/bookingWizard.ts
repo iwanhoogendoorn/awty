@@ -13,7 +13,7 @@ import { emptyLeg, routeTitle, totalJourneyMinutes, formatLayover, type FlightLe
 import { COMMON_CURRENCIES, formatMoney, parseAmount } from "../../util/money";
 import { formatDateRange, isValidISODate, todayISO } from "../../util/dates";
 
-type FieldKey = "operator" | "reference" | "from" | "to" | "seat" | "title";
+type FieldKey = "operator" | "reference" | "from" | "to" | "seat" | "title" | "address";
 
 export type StarKind = "airline" | "airport";
 
@@ -35,12 +35,13 @@ const FIELDS: Record<BookingKind, FieldSpec[]> = {
   ],
   stay: [
     { key: "title", label: "Property", placeholder: "Hotel Excelsior" },
-    { key: "to", label: "Address", placeholder: "Frana Supila 12, Dubrovnik" },
+    { key: "address", label: "Address", placeholder: "Frana Supila 12, Dubrovnik" },
     { key: "reference", label: "Confirmation number", placeholder: "1234567890" },
   ],
   activity: [
     { key: "title", label: "What", placeholder: "Old town walls walk" },
     { key: "to", label: "Venue", placeholder: "Pile Gate" },
+    { key: "address", label: "Address", placeholder: "Optional — improves travel times" },
     { key: "seat", label: "Seat / section", placeholder: "Block C, row 4" },
     { key: "reference", label: "Booking reference", placeholder: "ABC123" },
   ],
@@ -116,6 +117,7 @@ export class BookingWizard extends Modal {
       from: "",
       to: "",
       operator: "",
+      address: "",
       seat: "",
       notes: "",
       attachments: [],
@@ -215,7 +217,11 @@ export class BookingWizard extends Modal {
         this.renderCityField(spec);
         continue;
       }
-      new Setting(this.bodyEl).setName(spec.label).addText((t) => {
+      const setting = new Setting(this.bodyEl).setName(spec.label);
+      if (spec.key === "address") {
+        setting.setDesc("Used to work out travel times from your accommodation.");
+      }
+      setting.addText((t) => {
         t.setPlaceholder(spec.placeholder);
         t.setValue(this.draft[spec.key]);
         t.onChange((v) => (this.draft[spec.key] = v.trim()));

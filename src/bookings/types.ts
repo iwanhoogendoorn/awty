@@ -99,9 +99,11 @@ export interface Booking {
   cost: Money | null;
   category: CostCategory;
   reference: string;
-  /** Free-form location: airport pair, hotel address, venue. */
+  /** Free-form location: airport pair, or the venue's name. */
   from: string;
   to: string;
+  /** Street address, used to place this on a map for travel times. */
+  address: string;
   operator: string;
   seat: string;
   notes: string;

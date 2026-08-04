@@ -23,7 +23,8 @@ function row(booking: Booking): string {
     ? `${booking.date} → ${booking.endDate}`
     : booking.date;
   const times = [booking.time, booking.endTime].filter(Boolean).join(" → ");
-  const route = booking.from && booking.to ? `${booking.from} → ${booking.to}` : booking.to || "";
+  const route =
+    booking.from && booking.to ? `${booking.from} → ${booking.to}` : booking.address || booking.to || "";
   const cells = [
     when,
     times || "",

@@ -86,7 +86,9 @@ export class TravelService {
       const airport = booking.to || booking.from;
       return airport ? `${airport} airport` : "";
     }
-    const base = booking.to || booking.title;
+    // A street address places a pin far better than a venue's name; the venue
+    // is the fallback, and the title the last resort.
+    const base = booking.address || booking.to || booking.title;
     if (!base) return "";
     // Skip the city suffix when the address already names it.
     return where && !base.toLowerCase().includes(trip.city.toLowerCase())
