@@ -656,34 +656,106 @@
   right: 0.2em;
 }
 
-/* --------------------------------------------------------- flight tools */
+/* -------------------------------------------------- confirmation intake */
 
-.tp-flight-tools {
+.tp-confirm-box {
+  margin-bottom: 0.9em;
+}
+
+.tp-confirm-drop {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4em;
-  margin-bottom: 0.7em;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2em;
+  padding: 0.9em;
+  border: 1.5px dashed var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  text-align: center;
+  color: var(--text-muted);
 }
 
-.tp-dash-add.is-cta {
-  background: var(--interactive-accent);
+.tp-confirm-drop:hover,
+.tp-confirm-drop.is-over {
   border-color: var(--interactive-accent);
-  color: var(--text-on-accent);
+  background: var(--background-modifier-hover);
 }
 
-.tp-paste-box {
-  padding: 0.7em;
-  border: 1px dashed var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  margin-bottom: 0.7em;
+.tp-confirm-icon {
+  display: flex;
+  color: var(--text-accent);
 }
 
-.tp-paste-area {
+.tp-confirm-icon .svg-icon {
+  width: 1.3em;
+  height: 1.3em;
+}
+
+.tp-confirm-title {
+  font-weight: var(--font-medium);
+  color: var(--text-normal);
+}
+
+.tp-confirm-hint {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  max-width: 34em;
+}
+
+.tp-confirm-area {
   width: 100%;
+  margin-top: 0.5em;
   font-family: var(--font-monospace);
   font-size: var(--font-ui-smaller);
   resize: vertical;
-  margin: 0.4em 0;
+}
+
+.tp-confirm-choose {
+  margin-top: 0.35em;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-accent);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.tp-confirm-choose:hover {
+  text-decoration: underline;
+}
+
+/* Collapsed to a result once something has been read. */
+
+.tp-confirm-done {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.5em 0.8em;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--color-green) 12%, transparent);
+  color: var(--color-green);
+  font-size: var(--font-ui-small);
+}
+
+.tp-confirm-done-icon {
+  display: flex;
+}
+
+.tp-confirm-done-icon .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.tp-confirm-again {
+  margin-left: auto;
+  padding: 0.1em 0.6em;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: inherit;
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  box-shadow: none;
 }
 
 .tp-leg-lookup {

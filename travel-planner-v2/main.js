@@ -4201,6 +4201,8 @@ var BookingWizard = class extends import_obsidian20.Modal {
     this.submitting = false;
     this.amountRaw = "";
     this.legsField = null;
+    /** What the last confirmation yielded, so the box can collapse to a result. */
+    this.readSummary = "";
     this.returnField = null;
     this.hasReturn = false;
     const start = isValidISODate(trip.startDate) ? trip.startDate : todayISO();
@@ -4329,59 +4331,94 @@ var BookingWizard = class extends import_obsidian20.Modal {
     });
   }
   /** Direct or connecting; the editor handles both and works out the layovers. */
-  /** Three ways to avoid typing a flight in by hand. */
-  renderFlightTools() {
-    const tools = this.bodyEl.createDiv({ cls: "tp-flight-tools" });
-    const paste = tools.createEl("button", { cls: "tp-dash-add" });
-    paste.type = "button";
-    (0, import_obsidian20.setIcon)(paste.createSpan(), "clipboard-paste");
-    paste.createSpan({ text: "Paste a confirmation" });
-    paste.addEventListener("click", () => this.openPasteBox());
-  }
-  /** Paste the email or drop the calendar invite; the legs fill themselves in. */
-  openPasteBox() {
-    const host = this.bodyEl.createDiv({ cls: "tp-paste-box" });
-    host.createDiv({
-      cls: "tp-dash-hint",
-      text: "Paste the confirmation email, or the contents of the calendar invite the airline attached."
+  /**
+   * Drop or paste the confirmation; the legs fill themselves in.
+   *
+   * Always on screen rather than behind a button, because it is the fastest
+   * path into a flight and a button you have to find is not a fast path.
+   * Parsing runs on paste and on drop, so there is nothing to press.
+   */
+  renderConfirmationBox() {
+    const box = this.bodyEl.createDiv({ cls: "tp-confirm-box" });
+    if (this.readSummary) {
+      const done = box.createDiv({ cls: "tp-confirm-done" });
+      (0, import_obsidian20.setIcon)(done.createSpan({ cls: "tp-confirm-done-icon" }), "check-circle");
+      done.createSpan({ text: this.readSummary });
+      const again = done.createEl("button", { cls: "tp-confirm-again", text: "Read another" });
+      again.type = "button";
+      again.addEventListener("click", () => {
+        this.readSummary = "";
+        this.renderBody();
+      });
+      return;
+    }
+    const drop = box.createDiv({ cls: "tp-confirm-drop" });
+    (0, import_obsidian20.setIcon)(drop.createDiv({ cls: "tp-confirm-icon" }), "clipboard-paste");
+    drop.createDiv({
+      cls: "tp-confirm-title",
+      text: "Paste or drop your booking confirmation"
     });
-    const area = host.createEl("textarea", { cls: "tp-paste-area" });
-    area.rows = 6;
+    drop.createDiv({
+      cls: "tp-confirm-hint",
+      text: "The email text, or the calendar invite the airline attached (.ics, .eml). Nothing leaves your vault."
+    });
+    const area = drop.createEl("textarea", { cls: "tp-confirm-area" });
+    area.rows = 2;
     area.placeholder = "Paste here\u2026";
-    const actions = host.createDiv({ cls: "tp-flight-tools" });
-    const file = actions.createEl("input");
+    area.addEventListener("paste", () => {
+      window.setTimeout(() => this.readConfirmation(area.value), 0);
+    });
+    area.addEventListener("change", () => this.readConfirmation(area.value));
+    const file = box.createEl("input");
     file.type = "file";
     file.accept = ".ics,.txt,.eml,text/calendar,message/rfc822,text/plain";
     file.addClass("tp-attach-input");
-    const choose = actions.createEl("button", { cls: "tp-dash-add", text: "Open a file\u2026" });
-    choose.type = "button";
-    choose.addEventListener("click", () => file.click());
     file.addEventListener("change", async () => {
       const chosen = file.files?.[0];
       if (!chosen) return;
-      area.value = await chosen.text();
+      const text = await chosen.text();
       file.value = "";
-      const parsed = parseConfirmation(area.value);
-      if (!parsed || parsed.legs.length === 0) {
-        new import_obsidian20.Notice(`Could not find any flights in ${chosen.name}.`);
+      this.readConfirmation(text, chosen.name);
+    });
+    const choose = drop.createEl("button", { cls: "tp-confirm-choose", text: "or open a file\u2026" });
+    choose.type = "button";
+    choose.addEventListener("click", () => file.click());
+    for (const type of ["dragenter", "dragover"]) {
+      drop.addEventListener(type, (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        drop.addClass("is-over");
+      });
+    }
+    for (const type of ["dragleave", "drop"]) {
+      drop.addEventListener(type, (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        drop.removeClass("is-over");
+      });
+    }
+    drop.addEventListener("drop", async (evt) => {
+      const dropped = evt.dataTransfer?.files?.[0];
+      if (dropped) {
+        this.readConfirmation(await dropped.text(), dropped.name);
         return;
       }
-      this.applyParsed(parsed);
+      const text = evt.dataTransfer?.getData("text/plain") ?? "";
+      if (text.trim()) this.readConfirmation(text);
     });
-    const apply = actions.createEl("button", { cls: "tp-dash-add is-cta", text: "Read it" });
-    apply.type = "button";
-    apply.addEventListener("click", () => {
-      const parsed = parseConfirmation(area.value);
-      if (!parsed || parsed.legs.length === 0) {
-        new import_obsidian20.Notice("Could not find any flights in that. Fill the legs in by hand.");
-        return;
-      }
-      this.applyParsed(parsed);
-    });
-    const cancel = actions.createEl("button", { cls: "tp-dash-add", text: "Cancel" });
-    cancel.type = "button";
-    cancel.addEventListener("click", () => host.remove());
-    window.setTimeout(() => area.focus(), 0);
+  }
+  /** One entry point, whether the text was pasted, dropped or opened. */
+  readConfirmation(text, name) {
+    if (!text.trim()) return;
+    const parsed = parseConfirmation(text);
+    if (!parsed || parsed.legs.length === 0) {
+      new import_obsidian20.Notice(
+        name ? `Could not find any flights in ${name}.` : "Could not find any flights in that. Fill the legs in by hand.",
+        7e3
+      );
+      return;
+    }
+    this.applyParsed(parsed);
   }
   applyParsed(parsed) {
     const sorted = [...parsed.legs].sort((a, b) => `${a.date}${a.depTime}`.localeCompare(`${b.date}${b.depTime}`));
@@ -4401,13 +4438,21 @@ var BookingWizard = class extends import_obsidian20.Modal {
       this.amountRaw = String(parsed.amount);
       if (parsed.currency) this.draft.currency = parsed.currency;
     }
+    const detail = [
+      `${sorted.length} leg${sorted.length === 1 ? "" : "s"}`,
+      back.length > 0 ? "return included" : "",
+      parsed.reference ? `ref ${parsed.reference}` : "",
+      parsed.amount !== null ? formatMoney({ amount: parsed.amount, currency: this.draft.currency }) : ""
+    ].filter(Boolean);
+    this.readSummary = `Read ${detail.join(" \xB7 ")}${parsed.source === "ics" ? " from the calendar invite" : ""}`;
     new import_obsidian20.Notice(
-      `Read ${sorted.length} leg${sorted.length === 1 ? "" : "s"}${parsed.source === "ics" ? " from the calendar invite" : ""}. Check the times before saving.`
+      parsed.source === "ics" ? "Filled in from the calendar invite." : "Filled in from the confirmation \u2014 check the times before saving.",
+      6e3
     );
     this.renderBody();
   }
   renderFlightLegs() {
-    this.renderFlightTools();
+    this.renderConfirmationBox();
     this.bodyEl.createDiv({ cls: "tp-section-label", text: "Outbound" });
     this.legsField = new LegsField({
       app: this.app,
