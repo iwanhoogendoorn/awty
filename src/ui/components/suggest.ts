@@ -1,32 +1,7 @@
 import { AbstractInputSuggest, App } from "obsidian";
 import { COUNTRIES } from "../../data/countries";
 import { CITIES } from "../../data/cities";
-
-/**
- * Ranked filter shared by the country and city pickers: prefix matches first,
- * then word-start matches, then anything containing the query. The datasets are
- * already population-ordered, so ties keep the bigger place on top.
- */
-function rank(items: readonly string[], query: string, limit = 50): string[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return items.slice(0, limit);
-
-  const prefix: string[] = [];
-  const wordStart: string[] = [];
-  const contains: string[] = [];
-
-  for (const item of items) {
-    const lower = item.toLowerCase();
-    const at = lower.indexOf(q);
-    if (at === -1) continue;
-    if (at === 0) prefix.push(item);
-    else if (lower[at - 1] === " " || lower[at - 1] === "-") wordStart.push(item);
-    else contains.push(item);
-    if (prefix.length >= limit) break;
-  }
-
-  return [...prefix, ...wordStart, ...contains].slice(0, limit);
-}
+import { fold, rankMatches as rank } from "../../util/search";
 
 export class CountrySuggest extends AbstractInputSuggest<string> {
   constructor(
@@ -91,10 +66,10 @@ export class CitySuggest extends AbstractInputSuggest<string> {
 
 /** The country a city belongs to, used to auto-fill the country field. */
 export function countryForCity(city: string): string | null {
-  const needle = city.trim().toLowerCase();
+  const needle = fold(city.trim());
   if (!needle) return null;
   for (const [country, cities] of Object.entries(CITIES)) {
-    if (cities.some((c) => c.toLowerCase() === needle)) return country;
+    if (cities.some((c) => fold(c) === needle)) return country;
   }
   return null;
 }

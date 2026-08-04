@@ -107,6 +107,32 @@ const MONTHS = [
   "Dec",
 ];
 
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** Full month name for an ISO date, or "" if it isn't one. */
+export function monthName(iso: string): string {
+  const date = parseISO(iso);
+  return date ? MONTH_NAMES[date.getUTCMonth()] : "";
+}
+
+export function yearOf(iso: string): string {
+  const date = parseISO(iso);
+  return date ? String(date.getUTCFullYear()) : "";
+}
+
 function formatShort(iso: string): string {
   const date = parseISO(iso);
   if (!date) return iso;

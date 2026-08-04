@@ -1,6 +1,13 @@
-import { App, Plugin, TFile, normalizePath } from "obsidian";
-import type { TravelPlannerSettings, Trip, TripStatus } from "../types";
-import { isTripKind } from "../types";
+import { App, Plugin, TFile, TFolder, normalizePath } from "obsidian";
+import type { SubNoteId, TravelPlannerSettings, Trip, TripStatus } from "../types";
+import { SUB_NOTE_LABELS, isTripKind } from "../types";
+
+export interface SubNote {
+  /** Null for a note the user added that isn't one of ours. */
+  id: SubNoteId | null;
+  file: TFile;
+  label: string;
+}
 import { isValidISODate, todayISO, tripStatus } from "../util/dates";
 
 type Listener = () => void;
@@ -78,6 +85,35 @@ export class TripStore {
         (t) => t.file.path === file.path || file.path.startsWith(`${t.folderPath}/`),
       ) ?? null
     );
+  }
+
+  /**
+   * The notes sitting alongside a trip note, in template order, with anything
+   * the user added by hand tacked on the end.
+   */
+  getSubNotes(trip: Trip): SubNote[] {
+    const folder = this.app.vault.getAbstractFileByPath(trip.folderPath);
+    if (!(folder instanceof TFolder)) return [];
+
+    const order = Object.keys(SUB_NOTE_LABELS) as SubNoteId[];
+    const byLabel = new Map<string, SubNoteId>(
+      order.map((id) => [SUB_NOTE_LABELS[id].toLowerCase(), id]),
+    );
+
+    const out: SubNote[] = [];
+    for (const child of folder.children) {
+      if (!(child instanceof TFile) || child.extension !== "md") continue;
+      if (child.path === trip.file.path) continue;
+      const id = byLabel.get(child.basename.toLowerCase()) ?? null;
+      out.push({ id, file: child, label: id ? SUB_NOTE_LABELS[id] : child.basename });
+    }
+
+    out.sort((a, b) => {
+      const ai = a.id ? order.indexOf(a.id) : Number.MAX_SAFE_INTEGER;
+      const bi = b.id ? order.indexOf(b.id) : Number.MAX_SAFE_INTEGER;
+      return ai !== bi ? ai - bi : a.label.localeCompare(b.label);
+    });
+    return out;
   }
 
   /** The trip note governing the folder a given file sits in, if any. */

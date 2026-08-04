@@ -1,9 +1,9 @@
-import { App, Modal, Notice, Setting, setIcon } from "obsidian";
+import { App, ButtonComponent, Modal, Notice, Setting, setIcon } from "obsidian";
 import type { SubNoteId, TravelPlannerSettings, Trip, TripDraft, TripKind } from "../../types";
 import { KINDS, SUB_NOTE_LABELS, kindDef } from "../../types";
 import { DateRangeField } from "../components/dateRange";
 import { CitySuggest, CountrySuggest, countryForCity } from "../components/suggest";
-import { isValidISODate, todayISO } from "../../util/dates";
+import { isValidISODate, monthName, todayISO, yearOf } from "../../util/dates";
 
 export type TripModalMode = "create" | "edit";
 
@@ -15,6 +15,13 @@ export class TripModal extends Modal {
   private venueSetting!: Setting;
   private kindButtons = new Map<TripKind, HTMLElement>();
   private subNoteSection!: HTMLElement;
+  private submitBtn: ButtonComponent | null = null;
+  /**
+   * Creating a trip writes up to seven notes, which is slow enough that the
+   * button looks dead and invites a second click — which is exactly how a trip
+   * got created twice. One guard flag plus a disabled button closes that.
+   */
+  private submitting = false;
   /** True until the user types a title of their own, so the city can fill it in. */
   private titleIsAuto: boolean;
 
@@ -88,6 +95,8 @@ export class TripModal extends Modal {
       (value) => {
         this.draft.startDate = value.startDate;
         this.draft.endDate = value.endDate;
+        // Moving the trip to a different month should move the title with it.
+        this.applyAutoTitle();
       },
     );
     this.dates.setSingleDay(kindDef(this.draft.kind).singleDay);
@@ -103,12 +112,13 @@ export class TripModal extends Modal {
 
     new Setting(contentEl)
       .addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close()))
-      .addButton((btn) =>
+      .addButton((btn) => {
+        this.submitBtn = btn;
         btn
           .setButtonText(this.mode === "create" ? "Create trip" : "Save changes")
           .setCta()
-          .onClick(() => void this.submit()),
-      );
+          .onClick(() => void this.submit());
+      });
 
     // Enter submits from any single-line field; Shift+Enter in the notes box does not.
     contentEl.addEventListener("keydown", (evt) => {
@@ -205,7 +215,10 @@ export class TripModal extends Modal {
     this.venueSetting = new Setting(parent).setName("Venue").addText((t) => {
       t.setPlaceholder("e.g. Ziggo Dome");
       t.setValue(this.draft.venue);
-      t.onChange((v) => (this.draft.venue = v.trim()));
+      t.onChange((v) => {
+        this.draft.venue = v.trim();
+        this.applyAutoTitle();
+      });
     });
     this.venueSetting.settingEl.toggleClass("is-hidden", !kindDef(this.draft.kind).hasVenue);
   }
@@ -221,10 +234,25 @@ export class TripModal extends Modal {
         this.countryInput.value = owner;
       }
     }
-    if (this.titleIsAuto && city) {
-      this.draft.title = city;
-      this.titleInput.value = city;
-    }
+    this.applyAutoTitle();
+  }
+
+  /** "Dubrovnik - August - 2026", falling back through city, venue, country. */
+  private autoTitle(): string {
+    const place = this.draft.city || this.draft.venue || this.draft.country;
+    if (!place) return "";
+    const month = monthName(this.draft.startDate);
+    const year = yearOf(this.draft.startDate);
+    return [place, month, year].filter(Boolean).join(" - ");
+  }
+
+  /** Rewrites the title only while the user hasn't supplied one of their own. */
+  private applyAutoTitle(): void {
+    if (!this.titleIsAuto) return;
+    const title = this.autoTitle();
+    if (!title) return;
+    this.draft.title = title;
+    if (this.titleInput) this.titleInput.value = title;
   }
 
   private renderSubNotePicker(parent: HTMLElement): void {
@@ -255,13 +283,15 @@ export class TripModal extends Modal {
   }
 
   private async submit(): Promise<void> {
+    if (this.submitting) return;
+
     const value = this.dates.getValue();
     this.draft.startDate = value.startDate;
     this.draft.endDate = value.endDate;
 
     if (!this.draft.title.trim()) {
       // The city is a perfectly good fallback name; only complain if both are empty.
-      if (this.draft.city) this.draft.title = this.draft.city;
+      if (this.draft.city) this.draft.title = this.autoTitle() || this.draft.city;
       else {
         new Notice("Give the trip a title.");
         this.titleInput.focus();
@@ -273,12 +303,21 @@ export class TripModal extends Modal {
       return;
     }
 
+    this.submitting = true;
+    const label = this.mode === "create" ? "Creating…" : "Saving…";
+    this.submitBtn?.setDisabled(true).setButtonText(label);
+
     try {
       await this.onSubmit({ ...this.draft });
       this.close();
     } catch (err) {
       new Notice(err instanceof Error ? err.message : "Could not save the trip.");
       console.error("[travel-planner]", err);
+      // Let them fix whatever went wrong and try again.
+      this.submitting = false;
+      this.submitBtn
+        ?.setDisabled(false)
+        .setButtonText(this.mode === "create" ? "Create trip" : "Save changes");
     }
   }
 

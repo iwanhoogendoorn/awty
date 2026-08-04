@@ -16,7 +16,12 @@ import { fileURLToPath } from "url";
 import allTheCities from "all-the-cities";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MIN_POPULATION = 100_000;
+/*
+ * Zero, deliberately. A population floor is exactly the wrong filter for travel:
+ * Dubrovnik is 28k, Positano 2.3k, Giethoorn 2.1k. Filtering at 100k left
+ * Croatia with Zagreb, Split and Rijeka and nothing you'd actually book.
+ */
+const MIN_POPULATION = 0;
 
 const countries = JSON.parse(
   fs.readFileSync(path.join(ROOT, "scripts", "foodspot-countries.json"), "utf8"),
@@ -116,7 +121,7 @@ fs.writeFileSync(
 fs.writeFileSync(
   path.join(ROOT, "src", "data", "cities.ts"),
   header +
-    `\n/** Cities with population >= ${MIN_POPULATION.toLocaleString("en")}, most populous first. */\n` +
+    `\n/** Every named place GeoNames lists, most populous first within each country. */\n` +
     `export const CITIES: Record<string, readonly string[]> = ${JSON.stringify(out)};\n`,
 );
 

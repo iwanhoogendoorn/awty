@@ -11,6 +11,7 @@ import {
   type TripKind,
 } from "./types";
 import { TripStore } from "./store/tripStore";
+import { ProgressCache } from "./store/noteProgress";
 import { createTrip, deleteTrip, notifyError, updateTrip } from "./store/noteWriter";
 import { TravelSidebarView } from "./ui/view";
 import { TripModal } from "./ui/modals/tripModal";
@@ -29,12 +30,15 @@ interface AppWithPlugins {
 export default class TravelPlannerPlugin extends Plugin {
   settings: TravelPlannerSettings = { ...DEFAULT_SETTINGS };
   store!: TripStore;
+  /** Sub-note completion, keyed on mtime so edits invalidate themselves. */
+  progress!: ProgressCache;
 
   async onload(): Promise<void> {
     await this.loadSettings();
 
     this.store = new TripStore(this.app, () => this.settings);
     this.store.register(this);
+    this.progress = new ProgressCache(this.app);
 
     this.registerView(TRAVEL_VIEW_TYPE, (leaf) => new TravelSidebarView(leaf, this));
 

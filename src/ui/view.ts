@@ -1,7 +1,9 @@
-import { ItemView, Menu, Notice, WorkspaceLeaf, setIcon } from "obsidian";
+import { ItemView, Menu, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import type TravelPlannerPlugin from "../main";
 import type { Trip, TripStatus } from "../types";
 import { TRAVEL_VIEW_TYPE, kindDef } from "../types";
+import type { SubNote } from "../store/tripStore";
+import type { NoteProgress } from "../store/noteProgress";
 import { daysUntil, formatDateRange, formatDuration } from "../util/dates";
 
 const GROUPS: { status: TripStatus; label: string }[] = [
@@ -10,9 +12,22 @@ const GROUPS: { status: TripStatus; label: string }[] = [
   { status: "past", label: "Past" },
 ];
 
+const SUB_NOTE_ICONS: Record<string, string> = {
+  itinerary: "calendar-days",
+  packing: "luggage",
+  accommodation: "bed",
+  transport: "train-front",
+  budget: "wallet",
+  food: "utensils",
+  "event-details": "ticket",
+};
+
 export class TravelSidebarView extends ItemView {
   private query = "";
   private unsubscribe: (() => void) | null = null;
+  /** Trip paths whose sub-note list is open. */
+  private expanded = new Set<string>();
+  private hydrating = false;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -76,6 +91,32 @@ export class TravelSidebarView extends ItemView {
       const list = container.createDiv({ cls: "tp-list" });
       for (const trip of items) this.renderTrip(list, trip);
     }
+
+    // Progress needs the note contents, which are read asynchronously. Render
+    // what we have, then fill the rest in on the next pass.
+    void this.hydrate(trips);
+  }
+
+  /** Reads any sub-note whose progress isn't cached yet, then re-renders once. */
+  private async hydrate(trips: Trip[]): Promise<void> {
+    if (this.hydrating) return;
+    this.hydrating = true;
+    try {
+      let changed = false;
+      for (const trip of trips) {
+        for (const sub of this.plugin.store.getSubNotes(trip)) {
+          if (this.plugin.progress.peek(sub.file)) continue;
+          await this.plugin.progress.get(sub.file, sub.id);
+          changed = true;
+        }
+      }
+      if (changed) {
+        this.hydrating = false;
+        this.render();
+      }
+    } finally {
+      this.hydrating = false;
+    }
   }
 
   private renderHeader(container: HTMLElement): void {
@@ -117,7 +158,21 @@ export class TravelSidebarView extends ItemView {
 
   private renderTrip(list: HTMLElement, trip: Trip): void {
     const def = kindDef(trip.kind);
-    const item = list.createDiv({ cls: `tp-trip is-${trip.status}` });
+    const wrapper = list.createDiv({ cls: `tp-trip-wrap is-${trip.status}` });
+    const item = wrapper.createDiv({ cls: "tp-trip" });
+
+    const isOpen = this.expanded.has(trip.file.path);
+    const twisty = item.createDiv({
+      cls: `tp-twisty${isOpen ? " is-open" : ""}`,
+      attr: { "aria-label": isOpen ? "Collapse" : "Expand" },
+    });
+    setIcon(twisty, "chevron-right");
+    twisty.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      if (isOpen) this.expanded.delete(trip.file.path);
+      else this.expanded.add(trip.file.path);
+      this.render();
+    });
 
     const icon = item.createDiv({ cls: "tp-trip-icon" });
     setIcon(icon, def.icon);
@@ -131,11 +186,14 @@ export class TravelSidebarView extends ItemView {
     const where = [trip.city, trip.country].filter(Boolean).join(", ");
     if (where) meta.createSpan({ cls: "tp-trip-where", text: where });
 
-    const badge = this.countdown(trip);
-    if (badge) body.createDiv({ cls: `tp-badge is-${trip.status}`, text: badge });
+    const subNotes = this.plugin.store.getSubNotes(trip);
+    this.renderTripSummary(body, trip, subNotes);
 
     const actions = item.createDiv({ cls: "tp-trip-actions" });
-    const menuBtn = actions.createEl("button", { cls: "tp-icon-btn", attr: { "aria-label": "Trip actions" } });
+    const menuBtn = actions.createEl("button", {
+      cls: "tp-icon-btn",
+      attr: { "aria-label": "Trip actions" },
+    });
     setIcon(menuBtn, "more-vertical");
     menuBtn.addEventListener("click", (evt) => {
       evt.stopPropagation();
@@ -147,8 +205,110 @@ export class TravelSidebarView extends ItemView {
       evt.preventDefault();
       this.showMenu(evt, trip);
     });
+    item.setAttribute(
+      "aria-label",
+      `${trip.title} — ${formatDuration(trip.startDate, trip.endDate)}`,
+    );
 
-    item.setAttribute("aria-label", `${trip.title} — ${formatDuration(trip.startDate, trip.endDate)}`);
+    if (isOpen) this.renderSubNotes(wrapper, trip, subNotes);
+  }
+
+  /** Countdown plus a one-line "how much is still blank" roll-up. */
+  private renderTripSummary(body: HTMLElement, trip: Trip, subNotes: SubNote[]): void {
+    const row = body.createDiv({ cls: "tp-trip-summary" });
+
+    const badge = this.countdown(trip);
+    if (badge) row.createSpan({ cls: `tp-badge is-${trip.status}`, text: badge });
+
+    if (subNotes.length === 0) return;
+
+    let done = 0;
+    let known = 0;
+    for (const sub of subNotes) {
+      const progress = this.plugin.progress.peek(sub.file);
+      if (!progress) continue;
+      known += 1;
+      if (progress.state !== "empty") done += 1;
+    }
+    if (known === 0) return;
+
+    const outstanding = known - done;
+    row.createSpan({
+      cls: `tp-progress-pill${outstanding === 0 ? " is-complete" : ""}`,
+      text: outstanding === 0 ? "All notes started" : `${outstanding} still empty`,
+    });
+
+    const track = body.createDiv({ cls: "tp-progress-track" });
+    const fill = track.createDiv({ cls: "tp-progress-fill" });
+    fill.style.width = `${Math.round((done / known) * 100)}%`;
+  }
+
+  /** The expanded list — every sub-note openable without touching the trip note. */
+  private renderSubNotes(wrapper: HTMLElement, trip: Trip, subNotes: SubNote[]): void {
+    const list = wrapper.createDiv({ cls: "tp-subnotes" });
+
+    if (subNotes.length === 0) {
+      list.createDiv({ cls: "tp-subnote-empty", text: "No notes in this trip folder yet." });
+      return;
+    }
+
+    for (const sub of subNotes) {
+      const progress = this.plugin.progress.peek(sub.file);
+      const state = progress?.state ?? "empty";
+      const row = list.createDiv({ cls: `tp-subnote-row is-${state}` });
+
+      const dot = row.createDiv({ cls: "tp-dot", attr: { "aria-label": this.stateLabel(state) } });
+      dot.setAttribute("title", this.stateLabel(state));
+
+      const iconEl = row.createDiv({ cls: "tp-subnote-icon" });
+      setIcon(iconEl, sub.id ? (SUB_NOTE_ICONS[sub.id] ?? "file-text") : "file-text");
+
+      const text = row.createDiv({ cls: "tp-subnote-text" });
+      text.createDiv({ cls: "tp-subnote-name", text: sub.label });
+      text.createDiv({
+        cls: "tp-subnote-detail",
+        text: progress?.detail ?? "Reading…",
+      });
+
+      if (progress?.ratio !== null && progress?.ratio !== undefined) {
+        const ring = row.createDiv({ cls: "tp-mini-track" });
+        const fill = ring.createDiv({ cls: "tp-mini-fill" });
+        fill.style.width = `${Math.round(progress.ratio * 100)}%`;
+      }
+
+      row.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        void this.openFile(sub.file, evt.metaKey || evt.ctrlKey);
+      });
+      row.addEventListener("contextmenu", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        const menu = new Menu();
+        menu.addItem((i) =>
+          i
+            .setTitle("Open")
+            .setIcon("file-text")
+            .onClick(() => void this.openFile(sub.file, false)),
+        );
+        menu.addItem((i) =>
+          i
+            .setTitle("Open in new tab")
+            .setIcon("plus-square")
+            .onClick(() => void this.openFile(sub.file, true)),
+        );
+        menu.showAtMouseEvent(evt);
+      });
+    }
+  }
+
+  private stateLabel(state: NoteProgress["state"]): string {
+    if (state === "complete") return "Done";
+    if (state === "started") return "In progress";
+    return "Still needs updating";
+  }
+
+  private async openFile(file: TFile, newTab: boolean): Promise<void> {
+    await this.app.workspace.getLeaf(newTab).openFile(file);
   }
 
   private countdown(trip: Trip): string | null {
@@ -179,15 +339,28 @@ export class TravelSidebarView extends ItemView {
         .setIcon("plus-square")
         .onClick(() => void this.plugin.openTrip(trip, true)),
     );
+
+    const subNotes = this.plugin.store.getSubNotes(trip);
+    if (subNotes.length > 0) {
+      menu.addSeparator();
+      for (const sub of subNotes) {
+        menu.addItem((item) =>
+          item
+            .setTitle(sub.label)
+            .setIcon(sub.id ? (SUB_NOTE_ICONS[sub.id] ?? "file-text") : "file-text")
+            .onClick(() => void this.openFile(sub.file, false)),
+        );
+      }
+    }
+
+    menu.addSeparator();
+
     menu.addItem((item) =>
       item
         .setTitle("Add itinerary day")
         .setIcon("calendar-plus")
         .onClick(() => this.plugin.openAddDayModal(trip)),
     );
-
-    menu.addSeparator();
-
     menu.addItem((item) =>
       item
         .setTitle("Edit trip…")

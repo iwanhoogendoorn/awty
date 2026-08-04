@@ -1,0 +1,181 @@
+/* Expandable trip rows: the sub-notes are reachable straight from the sidebar
+   rather than only via links inside the trip note. */
+
+.tp-trip-wrap {
+  border-radius: var(--radius-s);
+  border-left: 3px solid transparent;
+}
+
+.tp-trip-wrap.is-current {
+  border-left-color: var(--color-green);
+}
+
+.tp-trip-wrap.is-upcoming {
+  border-left-color: var(--color-blue);
+}
+
+.tp-trip-wrap.is-past {
+  border-left-color: var(--background-modifier-border);
+}
+
+/* The border now lives on the wrapper. */
+.tp-trip-wrap .tp-trip {
+  border-left: none;
+}
+
+.tp-twisty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 0.2em;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: transform 100ms ease-in-out;
+  flex: none;
+}
+
+.tp-twisty:hover {
+  color: var(--text-normal);
+}
+
+.tp-twisty.is-open {
+  transform: rotate(90deg);
+}
+
+.tp-twisty .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+/* ------------------------------------------------------------ roll-up bar */
+
+.tp-trip-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35em;
+  margin-top: 0.3em;
+}
+
+.tp-progress-pill {
+  padding: 0.05em 0.5em;
+  border-radius: 999px;
+  font-size: var(--font-ui-smaller);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+
+.tp-progress-pill.is-complete {
+  color: var(--color-green);
+}
+
+.tp-progress-track {
+  margin-top: 0.35em;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+
+.tp-progress-fill {
+  height: 100%;
+  background: var(--color-blue);
+  border-radius: 999px;
+  transition: width 150ms ease-in-out;
+}
+
+/* ------------------------------------------------------------- sub-notes */
+
+.tp-subnotes {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0.1em 0 0.4em 1.5em;
+}
+
+.tp-subnote-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.3em 0.5em;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.tp-subnote-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* The status dot: hollow means nothing has been written in there yet. */
+
+.tp-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-faint);
+  background: transparent;
+}
+
+.tp-subnote-row.is-started .tp-dot {
+  border-color: var(--color-orange);
+  background: var(--color-orange);
+}
+
+.tp-subnote-row.is-complete .tp-dot {
+  border-color: var(--color-green);
+  background: var(--color-green);
+}
+
+.tp-subnote-icon {
+  display: flex;
+  color: var(--text-muted);
+  flex: none;
+}
+
+.tp-subnote-icon .svg-icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+.tp-subnote-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.tp-subnote-name {
+  font-size: var(--font-ui-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tp-subnote-row.is-empty .tp-subnote-name {
+  color: var(--text-muted);
+}
+
+.tp-subnote-detail {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.tp-mini-track {
+  width: 34px;
+  height: 3px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+
+.tp-mini-fill {
+  height: 100%;
+  background: var(--color-green);
+  border-radius: 999px;
+}
+
+.tp-subnote-empty {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  padding: 0.3em 0.5em;
+}
