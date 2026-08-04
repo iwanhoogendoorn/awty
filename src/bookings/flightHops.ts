@@ -1,5 +1,6 @@
 import { AIRPORTS } from "../data/airports";
 import type { TripStop } from "../types";
+import { PLACE_ALIASES } from "../data/placeAliases";
 
 /**
  * The flights a route implies.
@@ -21,8 +22,15 @@ export interface FlightHop {
 export function airportForCity(city: string): string {
   const wanted = city.trim().toLowerCase();
   if (!wanted) return "";
-  const hit = AIRPORTS.find((a) => a.c.trim().toLowerCase() === wanted);
-  return hit ? hit.i : "";
+
+  const direct = AIRPORTS.find((a) => a.c.trim().toLowerCase() === wanted);
+  if (direct) return direct.i;
+
+  // Someone may have typed the island rather than the city it is served from.
+  const alias = PLACE_ALIASES.find((entry) => entry.alias.toLowerCase() === wanted);
+  if (!alias) return "";
+  const viaAlias = AIRPORTS.find((a) => a.c.trim().toLowerCase() === alias.city.toLowerCase());
+  return viaAlias ? viaAlias.i : "";
 }
 
 /**

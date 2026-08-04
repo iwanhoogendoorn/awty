@@ -4,6 +4,7 @@ import { AIRLINES, airlineLabel } from "../../data/airlines";
 import { AIRPORTS, type AirportRecord } from "../../data/airports";
 import { CITIES } from "../../data/cities";
 import { foodSpots, type FoodSpotEntry } from "../../food/foodSpot";
+import { aliasMatches } from "../../data/placeAliases";
 import { flattenGroups, fold, rankMatches as rank } from "../../util/search";
 
 export class CountrySuggest extends AbstractInputSuggest<string> {
@@ -46,6 +47,8 @@ export class CountrySuggest extends AbstractInputSuggest<string> {
 export interface CityHit {
   city: string;
   country: string;
+  /** Set when this answers a name that is not itself a city, like "Bali". */
+  alias?: string;
 }
 
 let GLOBAL_CITIES: { value: string; group: string }[] | null = null;
@@ -67,9 +70,24 @@ export class CitySuggest extends AbstractInputSuggest<CityHit> {
   }
 
   protected getSuggestions(query: string): CityHit[] {
+    // "Bali" is an island, not a city, and the nearest city name — Balikpapan
+    // — is a real place on a different island. Offer the right answer first
+    // rather than let a plausible wrong one be picked.
+    const aliases: CityHit[] = aliasMatches(query).map((entry) => ({
+      city: entry.city,
+      country: entry.country,
+      alias: entry.alias,
+    }));
+
     const country = this.getCountry();
     if (country) {
-      return rank(CITIES[country] ?? [], query, 50).map((city) => ({ city, country }));
+      const local = aliases.filter((hit) => hit.country === country);
+      return [
+        ...local,
+        ...rank(CITIES[country] ?? [], query, 50)
+          .filter((city) => !local.some((hit) => hit.city === city))
+          .map((city) => ({ city, country })),
+      ];
     }
 
     // No country chosen: offer the country you usually travel from first, then
@@ -93,13 +111,18 @@ export class CitySuggest extends AbstractInputSuggest<CityHit> {
       if (seen.has(city)) continue;
       for (const country of byName.get(city) ?? []) global.push({ city, country });
     }
-    return [...local, ...global].slice(0, 40);
+    return [...aliases, ...local, ...global].slice(0, 40);
   }
 
   renderSuggestion(hit: CityHit, el: HTMLElement): void {
     el.setText(hit.city);
-    if (!this.getCountry()) {
-      el.createSpan({ cls: "awty-suggest-hint", text: hit.country });
+    // Say why this row answers what was typed, or picking it looks like a
+    // mistake: someone typing "Bali" needs to see that Denpasar is Bali.
+    const hint = [hit.alias ? `${hit.alias} — the city is ${hit.city}` : "", hit.country]
+      .filter(Boolean)
+      .join(" · ");
+    if (hint && (hit.alias || !this.getCountry())) {
+      el.createSpan({ cls: "awty-suggest-hint", text: hint });
     }
   }
 

@@ -52,6 +52,7 @@ export { budgetPlanTable, budgetLinesTable } from "./src/bookings/budgetTables.t
 export { readLegacyFoodTable } from "./src/bookings/legacyFood.ts";
 export { tripEndpoints, transferShortcuts } from "./src/bookings/tripEndpoints.ts";
 export { flightHops, airportForCity } from "./src/bookings/flightHops.ts";
+export { aliasMatches, PLACE_ALIASES } from "./src/data/placeAliases.ts";
 export { tripKml, tripMapNote, tripLinksText, directionsLink, placeLink, MAX_WAYPOINTS, MY_MAPS_URL } from "./src/export/mapsExport.ts";
 export { looksLikeMoreJourneys } from "./src/bookings/legs.ts";
 export { zoneForAirport, utcToLocal, localiseLegs } from "./src/flights/localTime.ts";
@@ -1776,6 +1777,34 @@ test("an arrival transfer comes before the check-in it delivers you to", () => {
     "2026-08-19",
   ).map((e) => e.title);
   assert.deepEqual(midTrip, ["Old town walls", "Bus to Kotor"]);
+});
+
+test("an island people book by name resolves to a city that exists", () => {
+  // Bali is not a city. Typing it found Balikpapan — a real place on another
+  // island, 1,300 km away — and nothing looked wrong, because Balikpapan is
+  // a perfectly good answer to the letters typed.
+  const bali = m.aliasMatches("Bali");
+  assert.equal(bali.length, 1);
+  assert.equal(bali[0].city, "Denpasar");
+  assert.equal(bali[0].country, "Indonesia");
+
+  // Partial typing still finds it, and unrelated text finds nothing.
+  assert.equal(m.aliasMatches("bal").some((a) => a.city === "Denpasar"), true);
+  assert.deepEqual(m.aliasMatches("Rotterdam"), []);
+  assert.deepEqual(m.aliasMatches(""), []);
+
+  // Every alias points at a city the dataset actually has.
+  for (const entry of m.PLACE_ALIASES) {
+    const cities = m.CITIES[entry.country] ?? [];
+    assert.ok(
+      cities.some((c) => c.toLowerCase() === entry.city.toLowerCase()),
+      `${entry.alias} -> ${entry.city} (${entry.country}) is not in the city data`,
+    );
+  }
+
+  // And the airport lookup follows the alias, so the flight is to DPS.
+  assert.equal(m.airportForCity("Bali"), m.airportForCity("Denpasar"));
+  assert.equal(m.airportForCity("Bali"), "DPS");
 });
 
 test("a multi-country route implies its flights", () => {
