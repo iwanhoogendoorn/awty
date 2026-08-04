@@ -208,15 +208,15 @@ export class TripPlanWizard extends Modal {
       {
         key: "budget",
         title: "Budget",
-        detail: "What you plan to spend, against what you have.",
+        detail: "What you plan the trip to cost, against what it does.",
         icon: "wallet",
-        done: budget.size > 0,
+        done: plugin.bookings.getBudgetTotal(trip) > 0,
         summary:
-          budget.size === 0
+          plugin.bookings.getBudgetTotal(trip) === 0
             ? "No budget set"
-            : `${formatTotals(spent, formatMoney({ amount: 0, currency: plugin.bookings.getCurrency(trip) }))} of ${formatMoney({ amount: [...budget.values()].reduce((n, v) => n + v, 0), currency: plugin.bookings.getCurrency(trip) })}`,
+            : `cost ${formatTotals(spent, formatMoney({ amount: 0, currency: plugin.bookings.getCurrency(trip) }))} of ${formatMoney({ amount: plugin.bookings.getBudgetTotal(trip), currency: plugin.bookings.getCurrency(trip) })} budget`,
         action: () => plugin.openBudgetModal(trip),
-        actionLabel: budget.size ? "Edit" : "Set",
+        actionLabel: plugin.bookings.getBudgetTotal(trip) > 0 ? "Edit" : "Set",
         applies: has("budget"),
       },
       {

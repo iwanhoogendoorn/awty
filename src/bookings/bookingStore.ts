@@ -138,6 +138,28 @@ export class BookingStore {
     return out;
   }
 
+  /**
+   * The overall budget for the trip.
+   *
+   * Separate from the per-category ones on purpose: most people know roughly
+   * what the whole trip should cost long before they can break it down.
+   * Falls back to the sum of the categories when no overall figure is set.
+   */
+  getBudgetTotal(trip: Trip): number {
+    const fm = this.app.metadataCache.getFileCache(trip.file)?.frontmatter;
+    const raw = fm?.budget_total;
+    const explicit = typeof raw === "number" ? raw : parseAmount(str(raw));
+    if (explicit !== null && Number.isFinite(explicit) && explicit > 0) return explicit;
+    return [...this.getBudget(trip).values()].reduce((n, v) => n + v, 0);
+  }
+
+  /** Whether the overall figure was set by hand, or inferred from categories. */
+  hasExplicitBudgetTotal(trip: Trip): boolean {
+    const raw = this.app.metadataCache.getFileCache(trip.file)?.frontmatter?.budget_total;
+    const value = typeof raw === "number" ? raw : parseAmount(str(raw));
+    return value !== null && Number.isFinite(value) && value > 0;
+  }
+
   /** Currency for a trip: its own frontmatter, else the vault default. */
   getCurrency(trip: Trip): string {
     const fm = this.app.metadataCache.getFileCache(trip.file)?.frontmatter;

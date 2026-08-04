@@ -8,6 +8,7 @@ import { COMMON_CURRENCIES, formatMoney, parseAmount } from "../../util/money";
 /** Budget targets per category, stored on the trip note's frontmatter. */
 export class BudgetModal extends Modal {
   private values = new Map<CostCategory, number>();
+  private total: number | null = null;
   private totalEl!: HTMLElement;
 
   constructor(
@@ -18,12 +19,19 @@ export class BudgetModal extends Modal {
     /** What the bookings and expenses already commit to, per category. */
     private actuals: Map<CostCategory, number>,
     /** Categories beyond the built-in set, and how to persist a new one. */
+    /** Overall budget already set by hand, or null if only categories exist. */
+    private explicitTotal: number | null,
     private custom: string[],
     private onAddCategory: (name: string) => Promise<void>,
-    private onSave: (budget: Map<CostCategory, number>, currency: string) => Promise<void>,
+    private onSave: (
+      budget: Map<CostCategory, number>,
+      currency: string,
+      total: number | null,
+    ) => Promise<void>,
   ) {
     super(app);
     this.values = new Map(existing);
+    this.total = explicitTotal;
   }
 
   onOpen(): void {
@@ -33,6 +41,20 @@ export class BudgetModal extends Modal {
     contentEl.addClass("tp-modal");
     contentEl.createEl("h2", { text: "Budget", cls: "tp-modal-title" });
     contentEl.createDiv({ cls: "tp-wizard-sub", text: this.trip.title });
+
+    new Setting(contentEl)
+      .setName("Budget for the whole trip")
+      .setDesc("What you want the trip to cost in total. Leave blank to just add up the categories.")
+      .addText((t) => {
+        t.setPlaceholder("3000");
+        t.setValue(this.total !== null ? String(this.total) : "");
+        t.inputEl.inputMode = "decimal";
+        t.onChange((v) => {
+          const amount = parseAmount(v);
+          this.total = amount !== null && amount > 0 ? amount : null;
+          this.renderTotal();
+        });
+      });
 
     new Setting(contentEl)
       .setName("Currency")
@@ -154,7 +176,7 @@ export class BudgetModal extends Modal {
           .setCta()
           .onClick(async () => {
             try {
-              await this.onSave(new Map(this.values), this.currency);
+              await this.onSave(new Map(this.values), this.currency, this.total);
               this.close();
             } catch (err) {
               new Notice(err instanceof Error ? err.message : "Could not save the budget.");
@@ -165,8 +187,35 @@ export class BudgetModal extends Modal {
   }
 
   private renderTotal(): void {
-    const total = [...this.values.values()].reduce((n, v) => n + v, 0);
-    this.totalEl.setText(`Total budget: ${formatMoney({ amount: total, currency: this.currency })}`);
+    const categories = [...this.values.values()].reduce((n, v) => n + v, 0);
+    const money = (amount: number) => formatMoney({ amount, currency: this.currency });
+
+    this.totalEl.empty();
+    this.totalEl.createDiv({ text: `Categories add up to ${money(categories)}` });
+
+    if (this.total === null) {
+      this.totalEl.createDiv({
+        cls: "tp-budget-note",
+        text: "No overall budget set — the categories are the budget.",
+      });
+      return;
+    }
+
+    this.totalEl.createDiv({ text: `Budget for the trip: ${money(this.total)}` });
+    // Categories that overshoot the overall figure are worth saying out loud
+    // rather than leaving to be discovered later.
+    const difference = categories - this.total;
+    if (difference > 0) {
+      this.totalEl.createDiv({
+        cls: "tp-budget-note is-over",
+        text: `Categories exceed the trip budget by ${money(difference)}.`,
+      });
+    } else if (difference < 0) {
+      this.totalEl.createDiv({
+        cls: "tp-budget-note",
+        text: `${money(-difference)} of the trip budget is not allocated to a category.`,
+      });
+    }
   }
 
   onClose(): void {

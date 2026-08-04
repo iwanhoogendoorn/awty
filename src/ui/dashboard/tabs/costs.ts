@@ -19,7 +19,7 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
   const lines = plugin.bookings.getCostLines(trip);
   const currency = plugin.bookings.getCurrency(trip);
   const budget = plugin.bookings.getBudget(trip);
-  const budgetTotal = [...budget.values()].reduce((n, v) => n + v, 0);
+  const budgetTotal = plugin.bookings.getBudgetTotal(trip);
 
   const actions = [
     {
@@ -54,9 +54,9 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
   const fromExpenses = sumMoney(counted.filter((l) => l.source === "expense").map((l) => l.money));
 
   statTiles(parent, [
-    { label: "Total spent", value: formatTotals(spent, formatMoney({ amount: 0, currency })), icon: "wallet" },
+    { label: "Total cost", value: formatTotals(spent, formatMoney({ amount: 0, currency })), icon: "wallet" },
     {
-      label: "Budget",
+      label: "Trip budget",
       value: budgetTotal > 0 ? formatMoney({ amount: budgetTotal, currency }) : "—",
       detail:
         budgetTotal > 0
@@ -78,7 +78,7 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
     ...budget.keys(),
   ]);
 
-  sectionTitle(parent, "By category");
+  sectionTitle(parent, "Cost by category");
   const catWrap = parent.createDiv({ cls: "tp-budget-list" });
   let anyCategory = false;
 
@@ -96,10 +96,10 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
       cls: `tp-budget-amount${target > 0 && actual > target ? " is-over" : ""}`,
       text:
         target > 0
-          ? `${formatMoney({ amount: actual, currency })} / ${formatMoney({ amount: target, currency })}`
-          : formatMoney({ amount: actual, currency }),
+          ? `cost ${formatMoney({ amount: actual, currency })} · budget ${formatMoney({ amount: target, currency })}`
+          : `cost ${formatMoney({ amount: actual, currency })}`,
     });
-    bar(row, ratio, target === 0 ? "good" : ratio > 1 ? "bad" : ratio > 0.85 ? "warn" : "good");
+    bar(row, ratio, target === 0 ? "good" : ratio > 1 ? "bad" : ratio > 0.9 ? "warn" : "good");
   }
   if (!anyCategory) catWrap.createDiv({ cls: "tp-dash-hint", text: "Nothing recorded yet." });
 

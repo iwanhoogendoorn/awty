@@ -417,6 +417,7 @@ export default class TravelPlannerPlugin extends Plugin {
           byCurrency.get(this.bookings.getCurrency(trip)) ?? 0,
         ]),
       ),
+      this.bookings.hasExplicitBudgetTotal(trip) ? this.bookings.getBudgetTotal(trip) : null,
       this.settings.customCategories,
       async (name) => {
         // An empty name means a removal; the modal has already updated its copy.
@@ -426,8 +427,8 @@ export default class TravelPlannerPlugin extends Plugin {
         this.settings.customCategories = next;
         await this.saveSettings();
       },
-      async (budget, currency) => {
-        await saveBudget(this.app, trip, budget, currency);
+      async (budget, currency, total) => {
+        await saveBudget(this.app, trip, budget, currency, total);
         this.bookings.invalidate();
         this.store.invalidate();
         new Notice("Budget saved.");

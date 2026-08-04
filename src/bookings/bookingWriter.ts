@@ -305,8 +305,11 @@ export async function saveBudget(
   trip: Trip,
   budget: Map<CostCategory, number>,
   currency: string,
+  total: number | null,
 ): Promise<void> {
   await app.fileManager.processFrontMatter(trip.file, (fm) => {
+    if (total !== null && total > 0) fm.budget_total = total;
+    else delete fm.budget_total;
     const out: Record<string, number> = {};
     for (const [category, amount] of budget) {
       if (Number.isFinite(amount) && amount > 0) out[category] = amount;

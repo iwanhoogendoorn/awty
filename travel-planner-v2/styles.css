@@ -2250,6 +2250,55 @@
   height: 0.95em;
 }
 
+/* --------------------------------------------------- cost against budget */
+
+.tp-budget-headline {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1em;
+  padding: 0.7em 0.9em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  margin-bottom: 0.5em;
+}
+
+.tp-budget-headline-right {
+  text-align: right;
+}
+
+.tp-budget-headline-label {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tp-budget-headline-value {
+  font-size: var(--font-ui-larger);
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.tp-budget-headline-delta {
+  font-size: var(--font-ui-smaller);
+  color: var(--color-green);
+}
+
+.tp-budget-headline-delta.is-over {
+  color: var(--color-red);
+}
+
+.tp-budget-note {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-top: 0.2em;
+}
+
+.tp-budget-note.is-over {
+  color: var(--color-orange);
+}
+
 
 /* === 55-travel.css === */
 /* ------------------------------------------------------- getting around */

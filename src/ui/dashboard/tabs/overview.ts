@@ -89,7 +89,7 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
   const spent = sumMoney(lines.filter((l) => l.counted).map((l) => l.money));
   const budget = plugin.bookings.getBudget(trip);
   const currency = plugin.bookings.getCurrency(trip);
-  const budgetTotal = [...budget.values()].reduce((n, v) => n + v, 0);
+  const budgetTotal = plugin.bookings.getBudgetTotal(trip);
   const spentPrimary = totalIn(spent, currency);
   const ready = readiness(plugin, trip);
   const until = daysUntil(trip.startDate);
@@ -128,9 +128,12 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
       icon: "calendar-days",
     },
     {
-      label: "Spent",
+      label: "Cost so far",
       value: formatTotals(spent, formatMoney({ amount: 0, currency })),
-      detail: budgetTotal > 0 ? `of ${formatMoney({ amount: budgetTotal, currency })} budget` : "No budget set",
+      detail:
+        budgetTotal > 0
+          ? `of ${formatMoney({ amount: budgetTotal, currency })} budget`
+          : "No budget set",
       icon: "wallet",
       tone: budgetTotal > 0 && spentPrimary > budgetTotal ? "bad" : "default",
     },
@@ -217,22 +220,66 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
     }
   }
 
-  // ------------------------------------------------------- budget bars
-  if (budget.size > 0) {
-    sectionTitle(parent, "Budget");
-    const byCategory = totalsByCategory(lines);
-    const wrap = parent.createDiv({ cls: "tp-budget-list" });
-    for (const [category, target] of budget) {
-      const actual = byCategory.get(category)?.get(currency) ?? 0;
-      const ratio = target === 0 ? 0 : actual / target;
-      const row = wrap.createDiv({ cls: "tp-budget-row" });
-      const head = row.createDiv({ cls: "tp-budget-head" });
-      head.createSpan({ cls: "tp-budget-cat", text: category });
-      head.createSpan({
-        cls: `tp-budget-amount${ratio > 1 ? " is-over" : ""}`,
-        text: `${formatMoney({ amount: actual, currency })} / ${formatMoney({ amount: target, currency })}`,
+  // ------------------------------------------------------ cost vs budget
+  //
+  // "Budget" is what you plan to spend; "Cost" is what it actually comes to.
+  // Showing a bare "€827 / €827" left it ambiguous which was which.
+  const budgetTotalSet = plugin.bookings.getBudgetTotal(trip);
+  if (budgetTotalSet > 0 || spentPrimary > 0) {
+    sectionTitle(parent, "Cost vs budget", {
+      label: budgetTotalSet > 0 ? "Edit budget" : "Set a budget",
+      icon: "sliders-horizontal",
+      onClick: () => plugin.openBudgetModal(trip),
+    });
+
+    const head = parent.createDiv({ cls: "tp-budget-headline" });
+    const left = head.createDiv();
+    left.createDiv({ cls: "tp-budget-headline-label", text: "Total cost so far" });
+    left.createDiv({
+      cls: "tp-budget-headline-value",
+      text: formatTotals(spent, formatMoney({ amount: 0, currency })),
+    });
+
+    if (budgetTotalSet > 0) {
+      const over = spentPrimary - budgetTotalSet;
+      const right = head.createDiv({ cls: "tp-budget-headline-right" });
+      right.createDiv({ cls: "tp-budget-headline-label", text: "Trip budget" });
+      right.createDiv({
+        cls: "tp-budget-headline-value",
+        text: formatMoney({ amount: budgetTotalSet, currency }),
       });
-      bar(row, ratio, ratio > 1 ? "bad" : ratio > 0.85 ? "warn" : "good");
+      right.createDiv({
+        cls: `tp-budget-headline-delta${over > 0 ? " is-over" : ""}`,
+        text:
+          over > 0
+            ? `${formatMoney({ amount: over, currency })} over budget`
+            : `${formatMoney({ amount: -over, currency })} left`,
+      });
+      bar(
+        parent,
+        budgetTotalSet === 0 ? 0 : spentPrimary / budgetTotalSet,
+        over > 0 ? "bad" : spentPrimary / budgetTotalSet > 0.9 ? "warn" : "good",
+      );
+    } else {
+      head.createDiv({ cls: "tp-dash-hint", text: "No budget set for this trip." });
+    }
+
+    if (budget.size > 0) {
+      const byCategory = totalsByCategory(lines);
+      const wrap = parent.createDiv({ cls: "tp-budget-list" });
+      for (const [category, target] of budget) {
+        const actual = byCategory.get(category)?.get(currency) ?? 0;
+        const ratio = target === 0 ? 0 : actual / target;
+        const row = wrap.createDiv({ cls: "tp-budget-row" });
+        const rowHead = row.createDiv({ cls: "tp-budget-head" });
+        rowHead.createSpan({ cls: "tp-budget-cat", text: category });
+        rowHead.createSpan({
+          cls: `tp-budget-amount${ratio > 1 ? " is-over" : ""}`,
+          text: `cost ${formatMoney({ amount: actual, currency })} · budget ${formatMoney({ amount: target, currency })}`,
+        });
+        // Exactly on budget is fine, not a warning.
+        bar(row, ratio, ratio > 1 ? "bad" : ratio > 0.9 ? "warn" : "good");
+      }
     }
   }
 }

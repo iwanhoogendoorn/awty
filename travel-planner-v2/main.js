@@ -757,6 +757,26 @@ var BookingStore = class {
     }
     return out;
   }
+  /**
+   * The overall budget for the trip.
+   *
+   * Separate from the per-category ones on purpose: most people know roughly
+   * what the whole trip should cost long before they can break it down.
+   * Falls back to the sum of the categories when no overall figure is set.
+   */
+  getBudgetTotal(trip) {
+    const fm = this.app.metadataCache.getFileCache(trip.file)?.frontmatter;
+    const raw = fm?.budget_total;
+    const explicit = typeof raw === "number" ? raw : parseAmount(str2(raw));
+    if (explicit !== null && Number.isFinite(explicit) && explicit > 0) return explicit;
+    return [...this.getBudget(trip).values()].reduce((n, v) => n + v, 0);
+  }
+  /** Whether the overall figure was set by hand, or inferred from categories. */
+  hasExplicitBudgetTotal(trip) {
+    const raw = this.app.metadataCache.getFileCache(trip.file)?.frontmatter?.budget_total;
+    const value = typeof raw === "number" ? raw : parseAmount(str2(raw));
+    return value !== null && Number.isFinite(value) && value > 0;
+  }
   /** Currency for a trip: its own frontmatter, else the vault default. */
   getCurrency(trip) {
     const fm = this.app.metadataCache.getFileCache(trip.file)?.frontmatter;
@@ -1873,8 +1893,10 @@ async function assignBookingToDay(app, file, date, slot) {
     else delete fm.slot;
   });
 }
-async function saveBudget(app, trip, budget, currency) {
+async function saveBudget(app, trip, budget, currency, total) {
   await app.fileManager.processFrontMatter(trip.file, (fm) => {
+    if (total !== null && total > 0) fm.budget_total = total;
+    else delete fm.budget_total;
     const out = {};
     for (const [category, amount] of budget) {
       if (Number.isFinite(amount) && amount > 0) out[category] = amount;
@@ -2444,7 +2466,7 @@ function renderOverview(parent, ctx) {
   const spent = sumMoney(lines2.filter((l) => l.counted).map((l) => l.money));
   const budget = plugin.bookings.getBudget(trip);
   const currency = plugin.bookings.getCurrency(trip);
-  const budgetTotal = [...budget.values()].reduce((n, v) => n + v, 0);
+  const budgetTotal = plugin.bookings.getBudgetTotal(trip);
   const spentPrimary = totalIn(spent, currency);
   const ready = readiness(plugin, trip);
   const until = daysUntil(trip.startDate);
@@ -2477,7 +2499,7 @@ function renderOverview(parent, ctx) {
       icon: "calendar-days"
     },
     {
-      label: "Spent",
+      label: "Cost so far",
       value: formatTotals(spent, formatMoney({ amount: 0, currency })),
       detail: budgetTotal > 0 ? `of ${formatMoney({ amount: budgetTotal, currency })} budget` : "No budget set",
       icon: "wallet",
@@ -2555,21 +2577,55 @@ function renderOverview(parent, ctx) {
       if (item.action) row2.addEventListener("click", item.action);
     }
   }
-  if (budget.size > 0) {
-    sectionTitle(parent, "Budget");
-    const byCategory = totalsByCategory(lines2);
-    const wrap = parent.createDiv({ cls: "tp-budget-list" });
-    for (const [category, target] of budget) {
-      const actual = byCategory.get(category)?.get(currency) ?? 0;
-      const ratio = target === 0 ? 0 : actual / target;
-      const row2 = wrap.createDiv({ cls: "tp-budget-row" });
-      const head = row2.createDiv({ cls: "tp-budget-head" });
-      head.createSpan({ cls: "tp-budget-cat", text: category });
-      head.createSpan({
-        cls: `tp-budget-amount${ratio > 1 ? " is-over" : ""}`,
-        text: `${formatMoney({ amount: actual, currency })} / ${formatMoney({ amount: target, currency })}`
+  const budgetTotalSet = plugin.bookings.getBudgetTotal(trip);
+  if (budgetTotalSet > 0 || spentPrimary > 0) {
+    sectionTitle(parent, "Cost vs budget", {
+      label: budgetTotalSet > 0 ? "Edit budget" : "Set a budget",
+      icon: "sliders-horizontal",
+      onClick: () => plugin.openBudgetModal(trip)
+    });
+    const head = parent.createDiv({ cls: "tp-budget-headline" });
+    const left = head.createDiv();
+    left.createDiv({ cls: "tp-budget-headline-label", text: "Total cost so far" });
+    left.createDiv({
+      cls: "tp-budget-headline-value",
+      text: formatTotals(spent, formatMoney({ amount: 0, currency }))
+    });
+    if (budgetTotalSet > 0) {
+      const over = spentPrimary - budgetTotalSet;
+      const right = head.createDiv({ cls: "tp-budget-headline-right" });
+      right.createDiv({ cls: "tp-budget-headline-label", text: "Trip budget" });
+      right.createDiv({
+        cls: "tp-budget-headline-value",
+        text: formatMoney({ amount: budgetTotalSet, currency })
       });
-      bar(row2, ratio, ratio > 1 ? "bad" : ratio > 0.85 ? "warn" : "good");
+      right.createDiv({
+        cls: `tp-budget-headline-delta${over > 0 ? " is-over" : ""}`,
+        text: over > 0 ? `${formatMoney({ amount: over, currency })} over budget` : `${formatMoney({ amount: -over, currency })} left`
+      });
+      bar(
+        parent,
+        budgetTotalSet === 0 ? 0 : spentPrimary / budgetTotalSet,
+        over > 0 ? "bad" : spentPrimary / budgetTotalSet > 0.9 ? "warn" : "good"
+      );
+    } else {
+      head.createDiv({ cls: "tp-dash-hint", text: "No budget set for this trip." });
+    }
+    if (budget.size > 0) {
+      const byCategory = totalsByCategory(lines2);
+      const wrap = parent.createDiv({ cls: "tp-budget-list" });
+      for (const [category, target] of budget) {
+        const actual = byCategory.get(category)?.get(currency) ?? 0;
+        const ratio = target === 0 ? 0 : actual / target;
+        const row2 = wrap.createDiv({ cls: "tp-budget-row" });
+        const rowHead = row2.createDiv({ cls: "tp-budget-head" });
+        rowHead.createSpan({ cls: "tp-budget-cat", text: category });
+        rowHead.createSpan({
+          cls: `tp-budget-amount${ratio > 1 ? " is-over" : ""}`,
+          text: `cost ${formatMoney({ amount: actual, currency })} \xB7 budget ${formatMoney({ amount: target, currency })}`
+        });
+        bar(row2, ratio, ratio > 1 ? "bad" : ratio > 0.9 ? "warn" : "good");
+      }
     }
   }
 }
@@ -2939,7 +2995,7 @@ function renderCosts(parent, ctx) {
   const lines2 = plugin.bookings.getCostLines(trip);
   const currency = plugin.bookings.getCurrency(trip);
   const budget = plugin.bookings.getBudget(trip);
-  const budgetTotal = [...budget.values()].reduce((n, v) => n + v, 0);
+  const budgetTotal = plugin.bookings.getBudgetTotal(trip);
   const actions = [
     {
       label: "Log an expense",
@@ -2969,9 +3025,9 @@ function renderCosts(parent, ctx) {
   const fromBookings = sumMoney(counted.filter((l) => l.source === "booking").map((l) => l.money));
   const fromExpenses = sumMoney(counted.filter((l) => l.source === "expense").map((l) => l.money));
   statTiles(parent, [
-    { label: "Total spent", value: formatTotals(spent, formatMoney({ amount: 0, currency })), icon: "wallet" },
+    { label: "Total cost", value: formatTotals(spent, formatMoney({ amount: 0, currency })), icon: "wallet" },
     {
-      label: "Budget",
+      label: "Trip budget",
       value: budgetTotal > 0 ? formatMoney({ amount: budgetTotal, currency }) : "\u2014",
       detail: budgetTotal > 0 ? spentPrimary > budgetTotal ? `${formatMoney({ amount: spentPrimary - budgetTotal, currency })} over` : `${formatMoney({ amount: budgetTotal - spentPrimary, currency })} left` : "Not set",
       icon: "target",
@@ -2985,7 +3041,7 @@ function renderCosts(parent, ctx) {
     ...byCategory.keys(),
     ...budget.keys()
   ]);
-  sectionTitle(parent, "By category");
+  sectionTitle(parent, "Cost by category");
   const catWrap = parent.createDiv({ cls: "tp-budget-list" });
   let anyCategory = false;
   for (const category of categories) {
@@ -2999,9 +3055,9 @@ function renderCosts(parent, ctx) {
     head.createSpan({ cls: "tp-budget-cat", text: category });
     head.createSpan({
       cls: `tp-budget-amount${target > 0 && actual > target ? " is-over" : ""}`,
-      text: target > 0 ? `${formatMoney({ amount: actual, currency })} / ${formatMoney({ amount: target, currency })}` : formatMoney({ amount: actual, currency })
+      text: target > 0 ? `cost ${formatMoney({ amount: actual, currency })} \xB7 budget ${formatMoney({ amount: target, currency })}` : `cost ${formatMoney({ amount: actual, currency })}`
     });
-    bar(row2, ratio, target === 0 ? "good" : ratio > 1 ? "bad" : ratio > 0.85 ? "warn" : "good");
+    bar(row2, ratio, target === 0 ? "good" : ratio > 1 ? "bad" : ratio > 0.9 ? "warn" : "good");
   }
   if (!anyCategory) catWrap.createDiv({ cls: "tp-dash-hint", text: "Nothing recorded yet." });
   if (lines2.length > 0) {
@@ -4178,16 +4234,19 @@ var ExpenseModal = class extends import_obsidian20.Modal {
 // src/ui/modals/budgetModal.ts
 var import_obsidian21 = require("obsidian");
 var BudgetModal = class extends import_obsidian21.Modal {
-  constructor(app, trip, existing, currency, actuals, custom, onAddCategory, onSave) {
+  constructor(app, trip, existing, currency, actuals, explicitTotal, custom, onAddCategory, onSave) {
     super(app);
     this.trip = trip;
     this.currency = currency;
     this.actuals = actuals;
+    this.explicitTotal = explicitTotal;
     this.custom = custom;
     this.onAddCategory = onAddCategory;
     this.onSave = onSave;
     this.values = /* @__PURE__ */ new Map();
+    this.total = null;
     this.values = new Map(existing);
+    this.total = explicitTotal;
   }
   onOpen() {
     keepOpenOnBackgroundClick(this);
@@ -4196,6 +4255,16 @@ var BudgetModal = class extends import_obsidian21.Modal {
     contentEl.addClass("tp-modal");
     contentEl.createEl("h2", { text: "Budget", cls: "tp-modal-title" });
     contentEl.createDiv({ cls: "tp-wizard-sub", text: this.trip.title });
+    new import_obsidian21.Setting(contentEl).setName("Budget for the whole trip").setDesc("What you want the trip to cost in total. Leave blank to just add up the categories.").addText((t) => {
+      t.setPlaceholder("3000");
+      t.setValue(this.total !== null ? String(this.total) : "");
+      t.inputEl.inputMode = "decimal";
+      t.onChange((v) => {
+        const amount = parseAmount(v);
+        this.total = amount !== null && amount > 0 ? amount : null;
+        this.renderTotal();
+      });
+    });
     new import_obsidian21.Setting(contentEl).setName("Currency").setDesc("Used for this trip's budget and totals.").addDropdown((dd) => {
       const options = /* @__PURE__ */ new Set([this.currency, ...COMMON_CURRENCIES]);
       for (const c of options) dd.addOption(c, c);
@@ -4292,7 +4361,7 @@ var BudgetModal = class extends import_obsidian21.Modal {
     new import_obsidian21.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton(
       (b) => b.setButtonText("Save budget").setCta().onClick(async () => {
         try {
-          await this.onSave(new Map(this.values), this.currency);
+          await this.onSave(new Map(this.values), this.currency, this.total);
           this.close();
         } catch (err) {
           new import_obsidian21.Notice(err instanceof Error ? err.message : "Could not save the budget.");
@@ -4302,8 +4371,30 @@ var BudgetModal = class extends import_obsidian21.Modal {
     );
   }
   renderTotal() {
-    const total = [...this.values.values()].reduce((n, v) => n + v, 0);
-    this.totalEl.setText(`Total budget: ${formatMoney({ amount: total, currency: this.currency })}`);
+    const categories = [...this.values.values()].reduce((n, v) => n + v, 0);
+    const money2 = (amount) => formatMoney({ amount, currency: this.currency });
+    this.totalEl.empty();
+    this.totalEl.createDiv({ text: `Categories add up to ${money2(categories)}` });
+    if (this.total === null) {
+      this.totalEl.createDiv({
+        cls: "tp-budget-note",
+        text: "No overall budget set \u2014 the categories are the budget."
+      });
+      return;
+    }
+    this.totalEl.createDiv({ text: `Budget for the trip: ${money2(this.total)}` });
+    const difference = categories - this.total;
+    if (difference > 0) {
+      this.totalEl.createDiv({
+        cls: "tp-budget-note is-over",
+        text: `Categories exceed the trip budget by ${money2(difference)}.`
+      });
+    } else if (difference < 0) {
+      this.totalEl.createDiv({
+        cls: "tp-budget-note",
+        text: `${money2(-difference)} of the trip budget is not allocated to a category.`
+      });
+    }
   }
   onClose() {
     this.contentEl.empty();
@@ -5145,12 +5236,12 @@ var TripPlanWizard = class extends import_obsidian26.Modal {
       {
         key: "budget",
         title: "Budget",
-        detail: "What you plan to spend, against what you have.",
+        detail: "What you plan the trip to cost, against what it does.",
         icon: "wallet",
-        done: budget.size > 0,
-        summary: budget.size === 0 ? "No budget set" : `${formatTotals(spent, formatMoney({ amount: 0, currency: plugin.bookings.getCurrency(trip) }))} of ${formatMoney({ amount: [...budget.values()].reduce((n, v) => n + v, 0), currency: plugin.bookings.getCurrency(trip) })}`,
+        done: plugin.bookings.getBudgetTotal(trip) > 0,
+        summary: plugin.bookings.getBudgetTotal(trip) === 0 ? "No budget set" : `cost ${formatTotals(spent, formatMoney({ amount: 0, currency: plugin.bookings.getCurrency(trip) }))} of ${formatMoney({ amount: plugin.bookings.getBudgetTotal(trip), currency: plugin.bookings.getCurrency(trip) })} budget`,
         action: () => plugin.openBudgetModal(trip),
-        actionLabel: budget.size ? "Edit" : "Set",
+        actionLabel: plugin.bookings.getBudgetTotal(trip) > 0 ? "Edit" : "Set",
         applies: has("budget")
       },
       {
@@ -7535,14 +7626,15 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
           byCurrency.get(this.bookings.getCurrency(trip)) ?? 0
         ])
       ),
+      this.bookings.hasExplicitBudgetTotal(trip) ? this.bookings.getBudgetTotal(trip) : null,
       this.settings.customCategories,
       async (name) => {
         const next = name ? [.../* @__PURE__ */ new Set([...this.settings.customCategories, name])] : this.settings.customCategories;
         this.settings.customCategories = next;
         await this.saveSettings();
       },
-      async (budget, currency) => {
-        await saveBudget(this.app, trip, budget, currency);
+      async (budget, currency, total) => {
+        await saveBudget(this.app, trip, budget, currency, total);
         this.bookings.invalidate();
         this.store.invalidate();
         new import_obsidian35.Notice("Budget saved.");
