@@ -18,6 +18,14 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.addClass("tp-settings");
 
+    // Obsidian only re-reads main.js when the plugin is toggled or the app
+    // restarts, so a rebuilt plugin can sit on disk unused. Showing the running
+    // build makes that visible instead of leaving you guessing.
+    containerEl.createDiv({
+      cls: "tp-settings-version",
+      text: `Travel Planner ${this.plugin.manifest.version} — running build loaded ${this.plugin.loadedAt}`,
+    });
+
     new Setting(containerEl).setName("Trips").setHeading();
 
     new Setting(containerEl)

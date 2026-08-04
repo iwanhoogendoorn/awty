@@ -2,8 +2,10 @@
 /* Everything is expressed in Obsidian's own CSS variables so the plugin follows
    whatever theme is active instead of fighting it. */
 
+/* A form this shape reads badly stretched across a wide window; cap it and let
+   Obsidian's own modal-content handle the scrolling. */
 .tp-modal-shell {
-  --tp-radius: 8px;
+  width: min(640px, 92vw);
 }
 
 .tp-modal .tp-modal-title {
@@ -449,18 +451,28 @@
 /* === 30-components.css === */
 /* --------------------------------------------------------- kind selector */
 
+/* Exactly six kinds, so the columns are fixed rather than auto-fit: letting the
+   browser pack by width gave five across and one stranded on its own row. */
 .tp-kind-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.4em;
+}
+
+@media (max-width: 420px) {
+  .tp-kind-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .tp-kind {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.3em;
-  padding: 0.65em 0.4em;
+  justify-content: center;
+  gap: 0.35em;
+  min-height: 4.4em;
+  padding: 0.7em 0.5em;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
@@ -495,8 +507,12 @@
 
 .tp-kind-label {
   font-size: var(--font-ui-smaller);
-  line-height: 1.1;
+  line-height: 1.15;
   text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ------------------------------------------------------------ date range */
@@ -1753,6 +1769,13 @@
 .tp-leg-icon .svg-icon {
   width: 0.85em;
   height: 0.85em;
+}
+
+.tp-settings-version {
+  margin-bottom: 1em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  font-family: var(--font-monospace);
 }
 
 .tp-settings-note {

@@ -4637,6 +4637,10 @@ var TravelPlannerSettingTab = class extends import_obsidian25.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass("tp-settings");
+    containerEl.createDiv({
+      cls: "tp-settings-version",
+      text: `Travel Planner ${this.plugin.manifest.version} \u2014 running build loaded ${this.plugin.loadedAt}`
+    });
     new import_obsidian25.Setting(containerEl).setName("Trips").setHeading();
     new import_obsidian25.Setting(containerEl).setName("Trips folder").setDesc("Root folder holding every trip.").addText(
       (t) => t.setPlaceholder("Trips").setValue(this.plugin.settings.tripsFolder).onChange(async (v) => {
@@ -4838,8 +4842,11 @@ var TravelPlannerPlugin = class extends import_obsidian26.Plugin {
     this.travelCache = emptyTravelCache();
     /** Resolved places per trip folder, populated only after an explicit calculate. */
     this.travelPlaces = /* @__PURE__ */ new Map();
+    /** Wall-clock time this build was loaded, shown in settings to spot a stale plugin. */
+    this.loadedAt = "";
   }
   async onload() {
+    this.loadedAt = (/* @__PURE__ */ new Date()).toLocaleTimeString();
     await this.loadSettings();
     this.store = new TripStore(this.app, () => this.settings);
     this.store.register(this);
@@ -4854,8 +4861,7 @@ var TravelPlannerPlugin = class extends import_obsidian26.Plugin {
     this.store.onChange(() => this.bookings.invalidate());
     this.registerView(TRAVEL_VIEW_TYPE, (leaf) => new TravelSidebarView(leaf, this));
     this.registerView(TRAVEL_DASHBOARD_TYPE, (leaf) => new TravelDashboardView(leaf, this));
-    this.addRibbonIcon("plane", "Travel Planner", () => void this.activateSidebar());
-    this.addRibbonIcon("layout-dashboard", "Travel dashboard", () => void this.activateDashboard());
+    this.addRibbonIcon("plane", "Travel Planner", () => void this.activateDashboard());
     this.addSettingTab(new TravelPlannerSettingTab(this.app, this));
     this.addCommand({
       id: "open-sidebar",

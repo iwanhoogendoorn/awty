@@ -1,8 +1,10 @@
 /* Everything is expressed in Obsidian's own CSS variables so the plugin follows
    whatever theme is active instead of fighting it. */
 
+/* A form this shape reads badly stretched across a wide window; cap it and let
+   Obsidian's own modal-content handle the scrolling. */
 .tp-modal-shell {
-  --tp-radius: 8px;
+  width: min(640px, 92vw);
 }
 
 .tp-modal .tp-modal-title {

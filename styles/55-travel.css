@@ -106,6 +106,13 @@
   height: 0.85em;
 }
 
+.tp-settings-version {
+  margin-bottom: 1em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  font-family: var(--font-monospace);
+}
+
 .tp-settings-note {
   margin: 0.4em 0 0.9em;
   padding: 0.7em 0.9em;

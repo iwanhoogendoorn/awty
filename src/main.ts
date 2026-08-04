@@ -92,8 +92,11 @@ export default class TravelPlannerPlugin extends Plugin {
   travelCache: TravelCache = emptyTravelCache();
   /** Resolved places per trip folder, populated only after an explicit calculate. */
   travelPlaces = new Map<string, TripPlaces>();
+  /** Wall-clock time this build was loaded, shown in settings to spot a stale plugin. */
+  loadedAt = "";
 
   async onload(): Promise<void> {
+    this.loadedAt = new Date().toLocaleTimeString();
     await this.loadSettings();
 
     this.store = new TripStore(this.app, () => this.settings);
@@ -112,8 +115,9 @@ export default class TravelPlannerPlugin extends Plugin {
     this.registerView(TRAVEL_VIEW_TYPE, (leaf) => new TravelSidebarView(leaf, this));
     this.registerView(TRAVEL_DASHBOARD_TYPE, (leaf) => new TravelDashboardView(leaf, this));
 
-    this.addRibbonIcon("plane", "Travel Planner", () => void this.activateSidebar());
-    this.addRibbonIcon("layout-dashboard", "Travel dashboard", () => void this.activateDashboard());
+    // One ribbon icon, and it lands on the dashboard. The sidebar is still a
+    // registered view — dock it from the command palette if you want it pinned.
+    this.addRibbonIcon("plane", "Travel Planner", () => void this.activateDashboard());
     this.addSettingTab(new TravelPlannerSettingTab(this.app, this));
 
     this.addCommand({
