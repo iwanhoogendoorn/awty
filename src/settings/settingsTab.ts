@@ -161,6 +161,7 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
 
     this.displayDocuments(containerEl);
     this.displayFoodSpot(containerEl);
+    this.displayFlightData(containerEl);
     this.displayTravel(containerEl);
     this.displayTemplates(containerEl);
   }
@@ -250,6 +251,66 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
       .addButton((b) => b.setButtonText("Add").onClick(() => void add()));
 
     draw();
+  }
+
+  private displayFlightData(containerEl: HTMLElement): void {
+    new Setting(containerEl).setName("Flight data").setHeading();
+
+    containerEl.createDiv({
+      cls: "tp-settings-note",
+      text:
+        "Pasting a confirmation needs nothing at all and works offline. The two lookups below are optional, " +
+        "use your own accounts, and are only called when you press the button.",
+    });
+
+    new Setting(containerEl)
+      .setName("RapidAPI key")
+      .setDesc("Looks a flight up by its number and date, via AeroDataBox. Leave blank to skip.")
+      .addText((t) => {
+        t.inputEl.type = "password";
+        t.setPlaceholder("Optional");
+        t.setValue(this.plugin.settings.rapidApiKey);
+        t.onChange(async (v) => {
+          this.plugin.settings.rapidApiKey = v.trim();
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Amadeus API key")
+      .setDesc("Searches for bookable fares. Leave blank to skip.")
+      .addText((t) => {
+        t.setPlaceholder("Client ID");
+        t.setValue(this.plugin.settings.amadeusClientId);
+        t.onChange(async (v) => {
+          this.plugin.settings.amadeusClientId = v.trim();
+          await this.plugin.saveSettings();
+        });
+      })
+      .addText((t) => {
+        t.inputEl.type = "password";
+        t.setPlaceholder("Client secret");
+        t.setValue(this.plugin.settings.amadeusClientSecret);
+        t.onChange(async (v) => {
+          this.plugin.settings.amadeusClientSecret = v.trim();
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Amadeus environment")
+      .setDesc(
+        "Test returns sample data, not real fares — useful for trying it out, useless for booking.",
+      )
+      .addDropdown((dd) => {
+        dd.addOption("test", "Test (sample data)");
+        dd.addOption("production", "Production (real fares)");
+        dd.setValue(this.plugin.settings.amadeusEnvironment);
+        dd.onChange(async (v) => {
+          this.plugin.settings.amadeusEnvironment = v as "test" | "production";
+          await this.plugin.saveSettings();
+        });
+      });
   }
 
   private displayTravel(containerEl: HTMLElement): void {

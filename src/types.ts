@@ -203,6 +203,12 @@ export interface TravelPlannerSettings {
   travelAdviceEnabled: boolean;
   /** Cost categories you added yourself, alongside the built-in ones. */
   customCategories: string[];
+  /** RapidAPI key for looking a flight up by its number. Optional. */
+  rapidApiKey: string;
+  /** Amadeus credentials for fare search. Optional, and billed by them. */
+  amadeusClientId: string;
+  amadeusClientSecret: string;
+  amadeusEnvironment: "test" | "production";
   /** Where you normally travel from, used to pre-fill the origin of a new trip. */
   homeCity: string;
   homeAirport: string;
@@ -240,6 +246,10 @@ export const DEFAULT_SETTINGS: TravelPlannerSettings = {
   passportCountries: ["Netherlands"],
   travelAdviceEnabled: true,
   customCategories: [],
+  rapidApiKey: "",
+  amadeusClientId: "",
+  amadeusClientSecret: "",
+  amadeusEnvironment: "test",
   homeCity: "",
   homeAirport: "",
   household: [],

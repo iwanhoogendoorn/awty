@@ -7,7 +7,11 @@ import type { TravelPlannerSettings, Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
 import { AirlineSuggest, AirportSuggest, CitySuggest } from "../components/suggest";
 import { LegsField } from "../components/legsField";
-import { emptyLeg, routeTitle, totalJourneyMinutes, formatLayover } from "../../bookings/legs";
+import { airportFromLabel } from "../components/suggest";
+import { parseConfirmation, type ParsedConfirmation } from "../../flights/parseConfirmation";
+import { lookupFlight, searchFlights } from "../../flights/providers";
+import { FlightOfferModal } from "./flightOfferModal";
+import { emptyLeg, routeTitle, totalJourneyMinutes, formatLayover, type FlightLeg } from "../../bookings/legs";
 import { COMMON_CURRENCIES, formatMoney, parseAmount } from "../../util/money";
 import { formatDateRange, isValidISODate, todayISO } from "../../util/dates";
 
@@ -242,7 +246,141 @@ export class BookingWizard extends Modal {
   }
 
   /** Direct or connecting; the editor handles both and works out the layovers. */
+  /** Three ways to avoid typing a flight in by hand. */
+  private renderFlightTools(): void {
+    const tools = this.bodyEl.createDiv({ cls: "tp-flight-tools" });
+
+    const paste = tools.createEl("button", { cls: "tp-dash-add" });
+    paste.type = "button";
+    setIcon(paste.createSpan(), "clipboard-paste");
+    paste.createSpan({ text: "Paste a confirmation" });
+    paste.addEventListener("click", () => this.openPasteBox());
+
+    if (this.settings.amadeusClientId.trim() && this.settings.amadeusClientSecret.trim()) {
+      const search = tools.createEl("button", { cls: "tp-dash-add" });
+      search.type = "button";
+      setIcon(search.createSpan(), "search");
+      search.createSpan({ text: "Search flights" });
+      search.addEventListener("click", () => this.searchFares());
+    }
+  }
+
+  /** Paste the email or drop the calendar invite; the legs fill themselves in. */
+  private openPasteBox(): void {
+    const host = this.bodyEl.createDiv({ cls: "tp-paste-box" });
+    host.createDiv({
+      cls: "tp-dash-hint",
+      text: "Paste the confirmation email, or the contents of the calendar invite the airline attached.",
+    });
+    const area = host.createEl("textarea", { cls: "tp-paste-area" });
+    area.rows = 6;
+    area.placeholder = "Paste here…";
+
+    const actions = host.createDiv({ cls: "tp-flight-tools" });
+    const apply = actions.createEl("button", { cls: "tp-dash-add is-cta", text: "Read it" });
+    apply.type = "button";
+    apply.addEventListener("click", () => {
+      const parsed = parseConfirmation(area.value);
+      if (!parsed || parsed.legs.length === 0) {
+        new Notice("Could not find any flights in that. Fill the legs in by hand.");
+        return;
+      }
+      this.applyParsed(parsed);
+    });
+
+    const cancel = actions.createEl("button", { cls: "tp-dash-add", text: "Cancel" });
+    cancel.type = "button";
+    cancel.addEventListener("click", () => host.remove());
+
+    window.setTimeout(() => area.focus(), 0);
+  }
+
+  private applyParsed(parsed: ParsedConfirmation): void {
+    // Legs before the trip's end date are the way out; anything later is the
+    // way home. Works for a one-way too, which simply has no later legs.
+    const sorted = [...parsed.legs].sort((a, b) => `${a.date}${a.depTime}`.localeCompare(`${b.date}${b.depTime}`));
+    const pivot = sorted.findIndex((leg) => leg.from && leg.from === sorted[sorted.length - 1].to);
+
+    let outbound = sorted;
+    let back: typeof sorted = [];
+    if (sorted.length > 1 && pivot > 0) {
+      outbound = sorted.slice(0, pivot);
+      back = sorted.slice(pivot);
+    }
+
+    this.draft.legs = outbound;
+    this.draft.returnLegs = back;
+    this.hasReturn = back.length > 0;
+    if (parsed.reference) this.draft.reference = parsed.reference;
+    if (parsed.amount !== null) {
+      this.draft.amount = parsed.amount;
+      this.amountRaw = String(parsed.amount);
+      if (parsed.currency) this.draft.currency = parsed.currency;
+    }
+
+    new Notice(
+      `Read ${sorted.length} leg${sorted.length === 1 ? "" : "s"}${parsed.source === "ics" ? " from the calendar invite" : ""}. Check the times before saving.`,
+    );
+    this.renderBody();
+  }
+
+  private async lookUpLeg(number: string, date: string): Promise<FlightLeg | null> {
+    try {
+      const matches = await lookupFlight(number, date, this.settings);
+      if (matches.length === 0) return null;
+      new Notice(`Found ${number} on ${date}.`);
+      return matches[0];
+    } catch (err) {
+      new Notice(err instanceof Error ? err.message : "Flight lookup failed.", 8000);
+      console.error("[travel-planner]", err);
+      return null;
+    }
+  }
+
+  private async searchFares(): Promise<void> {
+    const from = airportFromLabel(this.draft.legs[0]?.from ?? "");
+    const to = airportFromLabel(this.draft.legs[this.draft.legs.length - 1]?.to ?? "");
+    if (!from || !to) {
+      new Notice("Set the from and to airports first.");
+      return;
+    }
+
+    const notice = new Notice("Searching…", 0);
+    try {
+      const offers = await searchFlights(
+        {
+          origin: from.i,
+          destination: to.i,
+          departureDate: this.draft.legs[0]?.date || this.trip.startDate,
+          returnDate: this.hasReturn ? this.trip.endDate : undefined,
+          adults: Math.max(1, this.trip.travellers.length),
+          currency: this.draft.currency,
+        },
+        this.settings,
+      );
+      notice.hide();
+      if (offers.length === 0) {
+        new Notice("No fares came back for those dates.");
+        return;
+      }
+      new FlightOfferModal(this.app, offers, this.settings.amadeusEnvironment, (offer) => {
+        this.draft.legs = offer.outbound;
+        this.draft.returnLegs = offer.inbound;
+        this.hasReturn = offer.inbound.length > 0;
+        this.draft.amount = offer.price;
+        this.amountRaw = String(offer.price);
+        this.draft.currency = offer.currency;
+        this.renderBody();
+      }).open();
+    } catch (err) {
+      notice.hide();
+      new Notice(err instanceof Error ? err.message : "Flight search failed.", 8000);
+      console.error("[travel-planner]", err);
+    }
+  }
+
   private renderFlightLegs(): void {
+    this.renderFlightTools();
     this.bodyEl.createDiv({ cls: "tp-section-label", text: "Outbound" });
     this.legsField = new LegsField({
       app: this.app,
@@ -252,6 +390,8 @@ export class BookingWizard extends Modal {
       stars: this.stars,
       nearby: () => ({ country: this.trip.country, city: this.trip.city }),
       onChange: () => this.syncFromLegs(),
+      canLookUp: () => this.settings.rapidApiKey.trim().length > 0,
+      lookUp: (number, date) => this.lookUpLeg(number, date),
     });
 
     // Almost every holiday flight is a return, so this is one toggle rather
@@ -288,6 +428,8 @@ export class BookingWizard extends Modal {
         stars: this.stars,
         nearby: () => ({ country: this.trip.country, city: this.trip.city }),
         onChange: () => this.syncFromLegs(),
+        canLookUp: () => this.settings.rapidApiKey.trim().length > 0,
+        lookUp: (number, date) => this.lookUpLeg(number, date),
       });
     } else {
       this.returnField = null;

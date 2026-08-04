@@ -17,6 +17,7 @@ export { foodSpotBlock } from "./src/store/templates.ts";
 export { analyseNote } from "./src/store/noteProgress.ts";
 export { emptyDayDates } from "./src/store/itinerary.ts";
 export { routeTitle, layoverMinutes, formatLayover } from "./src/bookings/legs.ts";
+export { parseConfirmation, parseIcs, parseConfirmationText, parseLooseDate } from "./src/flights/parseConfirmation.ts";
 export { fold, rankMatches, flattenByRank } from "./src/util/search.ts";
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
 export { allCategories, COST_CATEGORIES } from "./src/bookings/types.ts";
@@ -484,6 +485,109 @@ test("packing counts as done once the list exists", () => {
   assert.equal(p.detail, "0/2 packed");
   // A note with no list at all is still genuinely empty.
   assert.equal(m.analyseNote("packing", "# Packing\n\nnothing here\n").state, "empty");
+});
+
+// ------------------------------------------------------- confirmations
+
+test("dates parse in the shapes airlines actually send", () => {
+  assert.equal(m.parseLooseDate("2026-08-17"), "2026-08-17");
+  assert.equal(m.parseLooseDate("17 Aug 2026"), "2026-08-17");
+  assert.equal(m.parseLooseDate("Aug 17, 2026"), "2026-08-17");
+  assert.equal(m.parseLooseDate("17/08/2026"), "2026-08-17");
+  // Day-first, because European confirmations far outnumber American ones.
+  assert.equal(m.parseLooseDate("08/09/2026"), "2026-09-08");
+  assert.equal(m.parseLooseDate("17 Aug", 2026), "2026-08-17");
+  assert.equal(m.parseLooseDate("nothing here"), null);
+  assert.equal(m.parseLooseDate("31 Feb 2026"), null, "impossible dates are rejected");
+});
+
+test("an airline calendar invite parses exactly", () => {
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "BEGIN:VEVENT",
+    "SUMMARY:Flight KL1885 AMS - DBV",
+    "DTSTART:20260817T101500",
+    "DTEND:20260817T123500",
+    "LOCATION:Amsterdam Airport Schiphol",
+    "DESCRIPTION:Booking reference: ABC123",
+    "END:VEVENT",
+    "BEGIN:VEVENT",
+    "SUMMARY:Flight KL1886 DBV - AMS",
+    "DTSTART:20260824T133000",
+    "DTEND:20260824T160500",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+
+  const parsed = m.parseConfirmation(ics);
+  assert.equal(parsed.source, "ics");
+  assert.equal(parsed.legs.length, 2);
+  assert.deepEqual(
+    { ...parsed.legs[0] },
+    {
+      operator: "",
+      number: "KL1885",
+      from: "AMS",
+      to: "DBV",
+      date: "2026-08-17",
+      depTime: "10:15",
+      arrDate: "2026-08-17",
+      arrTime: "12:35",
+    },
+  );
+  assert.equal(parsed.legs[1].number, "KL1886");
+  assert.equal(parsed.reference, "ABC123");
+});
+
+test("folded calendar lines are rejoined before parsing", () => {
+  // RFC 5545 folds long lines; not unfolding them loses the airport pair.
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "BEGIN:VEVENT",
+    "SUMMARY:Flight KL1885 AMS",
+    " - DBV",
+    "DTSTART:20260817T101500",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+  const parsed = m.parseIcs(ics);
+  assert.equal(parsed.legs[0].from, "AMS");
+  assert.equal(parsed.legs[0].to, "DBV");
+});
+
+test("a pasted confirmation yields legs, reference and total", () => {
+  const email = [
+    "Your booking is confirmed.",
+    "Booking reference: XY7K2Q",
+    "",
+    "17 Aug 2026   KL1885   AMS - DBV   10:15   12:35",
+    "24 Aug 2026   KL1886   DBV - AMS   13:30   16:05",
+    "",
+    "Total paid: EUR 827,50",
+  ].join("\n");
+
+  const parsed = m.parseConfirmation(email);
+  assert.equal(parsed.source, "text");
+  assert.equal(parsed.legs.length, 2);
+  assert.equal(parsed.legs[0].number, "KL1885");
+  assert.equal(parsed.legs[0].date, "2026-08-17");
+  assert.equal(parsed.legs[0].depTime, "10:15");
+  assert.equal(parsed.legs[0].arrTime, "12:35");
+  assert.equal(parsed.legs[1].to, "AMS");
+  assert.equal(parsed.reference, "XY7K2Q");
+  assert.equal(parsed.amount, 827.5);
+  assert.equal(parsed.currency, "EUR");
+});
+
+test("12-hour times are converted, and prose is not mistaken for a flight", () => {
+  const email = "Depart 5 Sep 2026 BA0430 LHR - AMS 7:45 pm to 10:05 pm";
+  const parsed = m.parseConfirmationText(email);
+  assert.equal(parsed.legs[0].depTime, "19:45");
+  assert.equal(parsed.legs[0].arrTime, "22:05");
+
+  // A line has to carry both a flight number and an airport pair.
+  assert.equal(m.parseConfirmationText("Thanks for flying with us. See you soon!"), null);
+  assert.equal(m.parseConfirmationText("Your reference is ABC123"), null);
 });
 
 // ---------------------------------------------------------------- flights

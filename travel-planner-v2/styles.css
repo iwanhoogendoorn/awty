@@ -1330,6 +1330,115 @@
   right: 0.2em;
 }
 
+/* --------------------------------------------------------- flight tools */
+
+.tp-flight-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  margin-bottom: 0.7em;
+}
+
+.tp-dash-add.is-cta {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.tp-paste-box {
+  padding: 0.7em;
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  margin-bottom: 0.7em;
+}
+
+.tp-paste-area {
+  width: 100%;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  resize: vertical;
+  margin: 0.4em 0;
+}
+
+.tp-leg-lookup {
+  position: absolute;
+  right: 0.25em;
+  bottom: 0.25em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15em;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.tp-leg-lookup:hover {
+  color: var(--text-accent);
+}
+
+.tp-leg-lookup .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+.tp-leg-cell {
+  position: relative;
+}
+
+/* --------------------------------------------------------- fare offers */
+
+.tp-offer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.tp-offer {
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+  padding: 0.6em 0.8em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.tp-offer-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.tp-offer-route {
+  font-size: var(--font-ui-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.tp-offer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15em 0.7em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.tp-offer-right {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  flex: none;
+}
+
+.tp-offer-price {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
 
 /* === 50-dashboard.css === */
 .tp-dashboard {
