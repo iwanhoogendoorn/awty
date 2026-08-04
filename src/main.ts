@@ -469,7 +469,7 @@ export default class AwtyPlugin extends Plugin {
         this.travelPlaces.delete(trip.folderPath);
         this.bookings.invalidate();
         this.store.invalidate();
-        await syncBookingNotes(this.app, trip, this.bookings.getBookings(trip));
+        await this.syncTripNotes(trip);
         new Notice(existing ? `Updated “${draft.title}”.` : `Added “${draft.title}”.`);
       },
       existing ? await draftFromBooking(this.app, existing) : undefined,
@@ -492,6 +492,7 @@ export default class AwtyPlugin extends Plugin {
         }
         this.bookings.invalidate();
         this.store.invalidate();
+        await this.syncTripNotes(trip);
         new Notice(existing ? `Updated “${draft.description}”.` : `Logged “${draft.description}”.`);
       },
       existing
@@ -592,6 +593,15 @@ export default class AwtyPlugin extends Plugin {
     new TripPlanWizard(this.app, this, trip).open();
   }
 
+  /** Regenerates the sub-note tables from bookings, expenses and targets. */
+  private async syncTripNotes(trip: Trip): Promise<void> {
+    await syncBookingNotes(this.app, trip, this.bookings.getBookings(trip), {
+      targets: this.bookings.getBudget(trip),
+      lines: this.bookings.getCostLines(trip),
+      currency: this.bookings.getCurrency(trip),
+    });
+  }
+
   openBudgetModal(trip: Trip): void {
     new BudgetModal(
       this.app,
@@ -618,6 +628,10 @@ export default class AwtyPlugin extends Plugin {
         await saveBudget(this.app, trip, budget, currency, total);
         this.bookings.invalidate();
         this.store.invalidate();
+        // The targets went onto the trip note; the Budget note has to be told.
+        await this.syncTripNotes(trip);
+        this.progress.clear();
+        this.refreshViews();
         new Notice("Budget saved.");
       },
     ).open();

@@ -47,6 +47,7 @@ export { readLegs, summariseFlight } from "./src/bookings/flightSummary.ts";
 export { renderMarkdown, stripFrontmatter } from "./src/export/markdown.ts";
 export { customSections, customParts, weaveKept, sectionText } from "./src/bookings/noteSections.ts";
 export { bookingBody, expenseBody } from "./src/bookings/noteBody.ts";
+export { budgetPlanTable, budgetLinesTable } from "./src/bookings/budgetTables.ts";
 export { looksLikeMoreJourneys } from "./src/bookings/legs.ts";
 export { zoneForAirport, utcToLocal, localiseLegs } from "./src/flights/localTime.ts";
 export { linkTarget } from "./src/bookings/linkTarget.ts";
@@ -1533,6 +1534,34 @@ test("an untimed morning activity comes before a timed evening one", () => {
   // Sorting untimed events to "99:99" put the concert first, and built the
   // travel legs between them in that order too.
   assert.deepEqual(order, ["Museum", "Concert"]);
+});
+
+test("setting a budget makes the Budget note say so", () => {
+  // Targets are written to the trip note and prices to each booking, so the
+  // Budget note itself was never filled by anything: its card read "Not
+  // started" however much of the trip was budgeted and spent.
+  const lines = [
+    { source: "booking", file: { basename: "AMS to DBV" }, date: "2026-08-17",
+      description: "AMS ⇄ DBV", category: "Transport",
+      money: { amount: 827, currency: "EUR" }, counted: true },
+    { source: "expense", file: { basename: "Dinner" }, date: "2026-08-19",
+      description: "Dinner at Proto", category: "Food & drink",
+      money: { amount: 62.5, currency: "EUR" }, counted: true },
+  ];
+  const targets = new Map([["Transport", 900], ["Food & drink", 400]]);
+  const table = m.budgetPlanTable(targets, lines, "EUR");
+
+  assert.match(table, /\| Transport \| €900 \| €827 \| €73 \|/, table);
+  assert.match(table, /\*\*Total\*\* \| \*\*€1,300\*\* \| \*\*€889\.50\*\* \| \*\*€410\.50\*\*/, table);
+
+  // And that table is what the progress reader counts, so the card follows.
+  const note = `# Budget\n\n## Planned\n\n${table}\n`;
+  const p = m.analyseNote("budget", note);
+  assert.equal(p.state, "complete");
+  assert.equal(p.detail, "2 lines", "the bold Total row is a header, not a line");
+
+  // Nothing set and nothing costed stays honestly empty.
+  assert.equal(m.analyseNote("budget", `# Budget\n\n## Planned\n\n${m.budgetPlanTable(new Map(), [], "EUR")}\n`).state, "empty");
 });
 
 test("an untouched Budget note is not a finished Budget note", () => {

@@ -1,5 +1,6 @@
 import { App } from "obsidian";
-import type { Booking, BookingKind } from "./types";
+import type { Booking, BookingKind, CostCategory, CostLine } from "./types";
+import { budgetLinesTable, budgetPlanTable } from "./budgetTables";
 import type { SubNoteId, Trip } from "../types";
 import { replaceSection, subNoteFile } from "../store/sectionWriter";
 import { formatMoney } from "../util/money";
@@ -41,7 +42,12 @@ function row(booking: Booking): string {
 
 const HEADER = ["When", "Time", "Booking", "Where", "Reference", "Cost", "Status"];
 
-export async function syncBookingNotes(app: App, trip: Trip, bookings: Booking[]): Promise<void> {
+export async function syncBookingNotes(
+  app: App,
+  trip: Trip,
+  bookings: Booking[],
+  budget?: { targets: Map<CostCategory, number>; lines: CostLine[]; currency: string },
+): Promise<void> {
   for (const spec of SYNCED) {
     const file = subNoteFile(app, trip, spec.id);
     if (!file) continue;
@@ -59,6 +65,23 @@ export async function syncBookingNotes(app: App, trip: Trip, bookings: Booking[]
           ].join("\n");
 
     await replaceSection(app, file, spec.heading, body);
+  }
+
+  // The Budget note is generated the same way. Targets live on the trip note
+  // and prices on the bookings, so left to itself this note stayed empty
+  // however much of the trip was budgeted — and its card said "Not started"
+  // for ever.
+  if (budget) {
+    const file = subNoteFile(app, trip, "budget");
+    if (file) {
+      await replaceSection(
+        app,
+        file,
+        "Planned",
+        budgetPlanTable(budget.targets, budget.lines, budget.currency),
+      );
+      await replaceSection(app, file, "Expenses", budgetLinesTable(budget.lines));
+    }
   }
 }
 
