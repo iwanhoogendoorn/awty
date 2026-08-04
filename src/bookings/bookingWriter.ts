@@ -279,6 +279,26 @@ export async function createExpense(
   return file;
 }
 
+/**
+ * Places an activity on a day.
+ *
+ * The itinerary and the activity list used to be two disconnected records of
+ * the same plan; this is the link between them, so the timeline, the day-by-day
+ * note and the booking all agree.
+ */
+export async function assignBookingToDay(
+  app: App,
+  file: TFile,
+  date: string,
+  slot: string | null,
+): Promise<void> {
+  await app.fileManager.processFrontMatter(file, (fm) => {
+    fm.date = date;
+    if (slot) fm.slot = slot;
+    else delete fm.slot;
+  });
+}
+
 /** Writes budget targets onto the trip note as a `budget:` map. */
 export async function saveBudget(
   app: App,

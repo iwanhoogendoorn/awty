@@ -470,3 +470,71 @@
   background: color-mix(in srgb, var(--color-orange) 20%, transparent);
   color: var(--color-orange);
 }
+
+/* ------------------------------------------------------------ day planner */
+
+.tp-slot {
+  margin-bottom: 1.1em;
+}
+
+.tp-slot-activity {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.25em 0.4em;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.tp-slot-activity:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* Already on another day: offered, but visibly spoken for. */
+.tp-slot-activity.is-elsewhere .tp-slot-activity-name {
+  color: var(--text-muted);
+}
+
+.tp-slot-activity input {
+  margin: 0;
+}
+
+.tp-slot-activity-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tp-slot-activity-meta {
+  flex: none;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.tp-slot-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  margin: 0.2em 0 0.35em 0.4em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-accent);
+  cursor: pointer;
+}
+
+.tp-slot-add:hover {
+  text-decoration: underline;
+}
+
+.tp-slot-add .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+.tp-slot-notes {
+  width: 100%;
+  font-family: inherit;
+  resize: vertical;
+}

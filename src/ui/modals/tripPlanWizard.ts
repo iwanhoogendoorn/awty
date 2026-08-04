@@ -174,7 +174,7 @@ export class TripPlanWizard extends Modal {
         summary:
           activities.length === 0
             ? "Nothing booked"
-            : `${activities.length} booked`,
+            : `${activities.length} booked · ${activities.filter((a) => !a.slot).length} not on a day yet`,
         action: () => plugin.openBookingWizard(trip, "activity"),
         actionLabel: activities.length ? "Add another" : "Add",
         applies: true,
@@ -182,10 +182,14 @@ export class TripPlanWizard extends Modal {
       {
         key: "itinerary",
         title: "Day by day",
-        detail: "Plan out what happens when.",
+        detail: "Put the activities you added onto the days you will do them.",
         icon: "calendar-days",
         done: (progressOf("itinerary")?.state ?? "empty") !== "empty",
-        summary: progressOf("itinerary")?.detail ?? "Not started",
+        summary: (() => {
+          const planned = progressOf("itinerary")?.detail ?? "Not started";
+          const loose = activities.filter((a) => !a.slot).length;
+          return loose > 0 ? `${planned} · ${loose} activity to place` : planned;
+        })(),
         action: () => plugin.openNoteWizard(trip, "itinerary"),
         actionLabel: "Add a day",
         applies: has("itinerary"),

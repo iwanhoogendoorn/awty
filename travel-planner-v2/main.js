@@ -547,6 +547,11 @@ var ProgressCache = class {
 var import_obsidian2 = require("obsidian");
 
 // src/bookings/types.ts
+var DAY_SLOTS = [
+  { id: "morning", label: "Morning" },
+  { id: "afternoon", label: "Afternoon" },
+  { id: "evening", label: "Evening" }
+];
 var BOOKING_KINDS = [
   { id: "flight", label: "Flight", icon: "plane", category: "Transport", folder: "Bookings" },
   { id: "stay", label: "Accommodation", icon: "bed", category: "Accommodation", folder: "Bookings" },
@@ -777,6 +782,7 @@ var BookingStore = class {
           date,
           endDate: isValidISODate(endDate) ? endDate : date,
           time: str2(fm.time),
+          slot: ["morning", "afternoon", "evening"].includes(str2(fm.slot)) ? str2(fm.slot) : "",
           endTime: str2(fm.end_time),
           cost: money(fm.cost, fm.currency, fallbackCurrency),
           category: str2(fm.category) || (KIND_BY_ID2.get(kind)?.category ?? "Misc"),
@@ -1847,6 +1853,13 @@ async function createExpense(app, settings, trip, draft) {
 
 ${body.join("\n")}`);
   return file;
+}
+async function assignBookingToDay(app, file, date, slot) {
+  await app.fileManager.processFrontMatter(file, (fm) => {
+    fm.date = date;
+    if (slot) fm.slot = slot;
+    else delete fm.slot;
+  });
 }
 async function saveBudget(app, trip, budget, currency) {
   await app.fileManager.processFrontMatter(trip.file, (fm) => {
@@ -5034,7 +5047,7 @@ var TripPlanWizard = class extends import_obsidian26.Modal {
         detail: "Tours, tickets, museums, the things you're going for.",
         icon: "map",
         done: activities.length > 0,
-        summary: activities.length === 0 ? "Nothing booked" : `${activities.length} booked`,
+        summary: activities.length === 0 ? "Nothing booked" : `${activities.length} booked \xB7 ${activities.filter((a) => !a.slot).length} not on a day yet`,
         action: () => plugin.openBookingWizard(trip, "activity"),
         actionLabel: activities.length ? "Add another" : "Add",
         applies: true
@@ -5042,10 +5055,14 @@ var TripPlanWizard = class extends import_obsidian26.Modal {
       {
         key: "itinerary",
         title: "Day by day",
-        detail: "Plan out what happens when.",
+        detail: "Put the activities you added onto the days you will do them.",
         icon: "calendar-days",
         done: (progressOf("itinerary")?.state ?? "empty") !== "empty",
-        summary: progressOf("itinerary")?.detail ?? "Not started",
+        summary: (() => {
+          const planned = progressOf("itinerary")?.detail ?? "Not started";
+          const loose = activities.filter((a) => !a.slot).length;
+          return loose > 0 ? `${planned} \xB7 ${loose} activity to place` : planned;
+        })(),
         action: () => plugin.openNoteWizard(trip, "itinerary"),
         actionLabel: "Add a day",
         applies: has("itinerary")
@@ -6686,23 +6703,23 @@ var ConfirmDeleteModal = class extends import_obsidian32.Modal {
 // src/ui/modals/addDayModal.ts
 var import_obsidian33 = require("obsidian");
 var AddDayModal = class extends import_obsidian33.Modal {
-  constructor(app, store, preselected, onDone) {
+  constructor(app, plugin, preselected, onDone) {
     super(app);
-    this.store = store;
+    this.plugin = plugin;
     this.onDone = onDone;
-    this.morning = "";
-    this.afternoon = "";
-    this.evening = "";
+    this.notes = { morning: "", afternoon: "", evening: "" };
+    /** Activity note path -> the slot it has been put in for this day. */
+    this.placement = /* @__PURE__ */ new Map();
     this.trip = preselected ?? this.inferTrip();
     this.date = this.defaultDate();
   }
   inferTrip() {
     const active = this.app.workspace.getActiveFile();
     if (active) {
-      const fromActive = this.store.getTripForFile(active);
+      const fromActive = this.plugin.store.getTripForFile(active);
       if (fromActive) return fromActive;
     }
-    const trips = this.store.getTrips();
+    const trips = this.plugin.store.getTrips();
     return trips.find((t) => t.status === "current") ?? trips.find((t) => t.status === "upcoming") ?? null;
   }
   defaultDate() {
@@ -6711,33 +6728,36 @@ var AddDayModal = class extends import_obsidian33.Modal {
     if (today >= this.trip.startDate && today <= this.trip.endDate) return today;
     return isValidISODate(this.trip.startDate) ? this.trip.startDate : today;
   }
+  activities() {
+    if (!this.trip) return [];
+    return this.plugin.bookings.getBookings(this.trip).filter((b) => b.kind === "activity" && b.status !== "cancelled");
+  }
   async onOpen() {
     keepOpenOnBackgroundClick(this);
     await this.useFirstUnplannedDay();
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
-    contentEl.createEl("h2", { text: "Add itinerary day", cls: "tp-modal-title" });
-    const trips = this.store.getTrips();
+    this.modalEl.addClass("tp-modal-shell");
+    contentEl.createEl("h2", { text: "Plan a day", cls: "tp-modal-title" });
+    const trips = this.plugin.store.getTrips();
     if (trips.length === 0) {
       contentEl.createEl("p", { text: "No trips yet. Create one first." });
       new import_obsidian33.Setting(contentEl).addButton((b) => b.setButtonText("Close").onClick(() => this.close()));
       return;
     }
     new import_obsidian33.Setting(contentEl).setName("Trip").addDropdown((dd) => {
-      for (const trip of trips) {
-        dd.addOption(trip.file.path, `${trip.title} (${trip.startDate})`);
-      }
+      for (const trip of trips) dd.addOption(trip.file.path, trip.title);
       dd.setValue(this.trip?.file.path ?? trips[0].file.path);
       if (!this.trip) this.trip = trips[0];
-      dd.onChange((path) => {
+      dd.onChange(async (path) => {
         this.trip = trips.find((t) => t.file.path === path) ?? null;
         this.date = this.defaultDate();
-        void this.useFirstUnplannedDay().then(() => {
-          this.dateInput.value = this.date;
-        });
+        await this.useFirstUnplannedDay();
         this.dateInput.value = this.date;
         this.applyDateBounds();
+        this.syncPlacement();
+        this.renderSlots();
       });
     });
     const dateSetting = new import_obsidian33.Setting(contentEl).setName("Date");
@@ -6745,24 +6765,65 @@ var AddDayModal = class extends import_obsidian33.Modal {
     this.dateInput.type = "date";
     this.dateInput.value = this.date;
     this.dateInput.addEventListener("change", () => {
-      if (isValidISODate(this.dateInput.value)) this.date = this.dateInput.value;
+      if (!isValidISODate(this.dateInput.value)) return;
+      this.date = this.dateInput.value;
+      this.syncPlacement();
+      this.renderSlots();
     });
     this.applyDateBounds();
-    const field = (name, onChange) => new import_obsidian33.Setting(contentEl).setName(name).addTextArea((ta) => {
-      ta.inputEl.rows = 3;
-      ta.setPlaceholder(`${name} plans\u2026`);
-      ta.onChange(onChange);
-    });
-    field("Morning", (v) => this.morning = v);
-    field("Afternoon", (v) => this.afternoon = v);
-    field("Evening", (v) => this.evening = v);
-    new import_obsidian33.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton((btn) => btn.setButtonText("Add day").setCta().onClick(() => void this.addDay()));
+    this.bodyEl = contentEl.createDiv();
+    this.syncPlacement();
+    this.renderSlots();
+    new import_obsidian33.Setting(contentEl).addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close())).addButton((btn) => btn.setButtonText("Save day").setCta().onClick(() => void this.addDay()));
   }
-  /** Constrain the picker to the trip's own dates — a nudge, not a hard block. */
-  applyDateBounds() {
-    if (!this.trip) return;
-    if (isValidISODate(this.trip.startDate)) this.dateInput.min = this.trip.startDate;
-    if (isValidISODate(this.trip.endDate)) this.dateInput.max = this.trip.endDate;
+  /** Reflect what the activities already say about this date. */
+  syncPlacement() {
+    this.placement.clear();
+    for (const activity of this.activities()) {
+      if (activity.date === this.date && activity.slot) {
+        this.placement.set(activity.file.path, activity.slot);
+      }
+    }
+  }
+  renderSlots() {
+    this.bodyEl.empty();
+    const activities = this.activities();
+    for (const slot of DAY_SLOTS) {
+      const section = this.bodyEl.createDiv({ cls: "tp-slot" });
+      section.createDiv({ cls: "tp-section-label", text: slot.label });
+      for (const activity of activities) {
+        const placedIn = this.placement.get(activity.file.path);
+        const elsewhere = activity.date && activity.date !== this.date && activity.slot ? activity.date : null;
+        const row2 = section.createEl("label", {
+          cls: `tp-slot-activity${elsewhere ? " is-elsewhere" : ""}`
+        });
+        const box = row2.createEl("input");
+        box.type = "checkbox";
+        box.checked = placedIn === slot.id;
+        box.addEventListener("change", () => {
+          if (box.checked) this.placement.set(activity.file.path, slot.id);
+          else this.placement.delete(activity.file.path);
+          this.renderSlots();
+        });
+        row2.createSpan({ cls: "tp-slot-activity-name", text: activity.title });
+        if (activity.time) row2.createSpan({ cls: "tp-slot-activity-meta", text: activity.time });
+        if (activity.cost) {
+          row2.createSpan({ cls: "tp-slot-activity-meta", text: formatMoney(activity.cost) });
+        }
+        if (elsewhere) row2.createSpan({ cls: "tp-slot-activity-meta", text: `on ${elsewhere}` });
+      }
+      const addRow = section.createDiv({ cls: "tp-slot-add" });
+      (0, import_obsidian33.setIcon)(addRow.createSpan(), "plus");
+      addRow.createSpan({ text: activities.length ? "Add another activity" : "Add an activity" });
+      addRow.addEventListener("click", () => {
+        if (this.trip) this.plugin.openBookingWizard(this.trip, "activity");
+      });
+      const notes = section.createEl("textarea", { cls: "tp-slot-notes" });
+      notes.rows = 2;
+      notes.placeholder = "Anything else \u2014 breakfast, a walk, nothing booked\u2026";
+      notes.value = this.notes[slot.id];
+      notes.addEventListener("input", () => this.notes[slot.id] = notes.value);
+    }
   }
   /**
    * Trips are created with every day already headed, so "the first day" is
@@ -6778,6 +6839,11 @@ var AddDayModal = class extends import_obsidian33.Modal {
     const next = [...empty].sort().find((d) => d >= this.trip.startDate);
     if (next) this.date = next;
   }
+  applyDateBounds() {
+    if (!this.trip) return;
+    if (isValidISODate(this.trip.startDate)) this.dateInput.min = this.trip.startDate;
+    if (isValidISODate(this.trip.endDate)) this.dateInput.max = this.trip.endDate;
+  }
   async addDay() {
     if (!this.trip) {
       new import_obsidian33.Notice("Pick a trip first.");
@@ -6787,6 +6853,18 @@ var AddDayModal = class extends import_obsidian33.Modal {
       new import_obsidian33.Notice("Pick a valid date.");
       return;
     }
+    const byPath = new Map(this.activities().map((a) => [a.file.path, a]));
+    const sectionFor = (slot) => {
+      const lines2 = [];
+      for (const [path2, placed2] of this.placement) {
+        if (placed2 !== slot) continue;
+        const activity = byPath.get(path2);
+        if (activity) lines2.push(`- [[${activity.file.basename}]]`);
+      }
+      const note = this.notes[slot].trim();
+      if (note) lines2.push(note);
+      return lines2.join("\n");
+    };
     const path = `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`;
     let file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof import_obsidian33.TFile)) {
@@ -6801,17 +6879,27 @@ type: itinerary
       );
     }
     const result = await insertItineraryDay(this.app, file, this.date, {
-      morning: this.morning,
-      afternoon: this.afternoon,
-      evening: this.evening
+      morning: sectionFor("morning"),
+      afternoon: sectionFor("afternoon"),
+      evening: sectionFor("evening")
     });
     if (result === "duplicate") {
       new import_obsidian33.Notice(`${this.date} already has plans. Edit the note to change them.`);
       return;
     }
+    for (const activity of this.activities()) {
+      const placed2 = this.placement.get(activity.file.path);
+      if (placed2) {
+        await assignBookingToDay(this.app, activity.file, this.date, placed2);
+      } else if (activity.date === this.date && activity.slot) {
+        await assignBookingToDay(this.app, activity.file, activity.date, null);
+      }
+    }
+    const placed = this.placement.size;
     new import_obsidian33.Notice(
-      result === "filled" ? `Planned ${this.date} for ${this.trip.title}.` : `Added ${this.date} to ${this.trip.title}.`
+      placed > 0 ? `Planned ${this.date} with ${placed} activit${placed === 1 ? "y" : "ies"}.` : `Planned ${this.date}.`
     );
+    this.plugin.bookings.invalidate();
     this.onDone();
     this.close();
   }
@@ -7422,7 +7510,7 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
     }).open();
   }
   openAddDayModal(trip) {
-    new AddDayModal(this.app, this.store, trip ?? null, () => {
+    new AddDayModal(this.app, this, trip ?? null, () => {
       this.store.invalidate();
       this.refreshViews();
     }).open();

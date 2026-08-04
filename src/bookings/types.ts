@@ -10,6 +10,14 @@ export type BookingKind = "flight" | "stay" | "activity" | "transport";
 
 export type BookingStatus = "idea" | "reserved" | "booked" | "cancelled";
 
+export type DaySlot = "morning" | "afternoon" | "evening";
+
+export const DAY_SLOTS: { id: DaySlot; label: string }[] = [
+  { id: "morning", label: "Morning" },
+  { id: "afternoon", label: "Afternoon" },
+  { id: "evening", label: "Evening" },
+];
+
 export const BOOKING_KINDS: {
   id: BookingKind;
   label: string;
@@ -66,6 +74,8 @@ export interface Booking {
   endDate: string;
   time: string;
   endTime: string;
+  /** Which part of the day the itinerary put this in, if any. */
+  slot: DaySlot | "";
   cost: Money | null;
   category: CostCategory;
   reference: string;

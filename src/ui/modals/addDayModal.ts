@@ -1,35 +1,40 @@
-import { App, Modal, Notice, Setting, TFile } from "obsidian";
+import { App, Modal, Notice, Setting, TFile, setIcon } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
+import type TravelPlannerPlugin from "../../main";
 import type { Trip } from "../../types";
 import { SUB_NOTE_LABELS } from "../../types";
-import type { TripStore } from "../../store/tripStore";
+import type { Booking, DaySlot } from "../../bookings/types";
+import { DAY_SLOTS } from "../../bookings/types";
+import { assignBookingToDay } from "../../bookings/bookingWriter";
 import { emptyDayDates, insertItineraryDay } from "../../store/noteWriter";
+import { formatMoney } from "../../util/money";
 import { isValidISODate, todayISO } from "../../util/dates";
 
 /**
- * Adds a day to a trip's itinerary.
+ * Plans a day out of the activities you have already added.
  *
- * 1.x refused outright when more than one Itinerary note existed and you didn't
- * happen to have the right one open. This offers a trip picker instead, seeded
- * from the active file when that's unambiguous.
+ * "What to do" and "Day by day" used to be two unconnected records of the same
+ * plan — you added a museum, then retyped "museum" into a day. Activities are
+ * picked here instead, and the choice is written back onto the activity itself,
+ * so the booking, the timeline and the itinerary note all agree on when it
+ * happens.
  */
 export class AddDayModal extends Modal {
   private trip: Trip | null;
   private date: string;
-  private morning = "";
-  private afternoon = "";
-  private evening = "";
+  private notes: Record<DaySlot, string> = { morning: "", afternoon: "", evening: "" };
+  /** Activity note path -> the slot it has been put in for this day. */
+  private placement = new Map<string, DaySlot>();
   private dateInput!: HTMLInputElement;
+  private bodyEl!: HTMLElement;
 
   constructor(
     app: App,
-    private store: TripStore,
+    private plugin: TravelPlannerPlugin,
     preselected: Trip | null,
     private onDone: () => void,
   ) {
     super(app);
-    // A caller that already knows the trip shouldn't need the note opened first
-    // just so this can guess it back.
     this.trip = preselected ?? this.inferTrip();
     this.date = this.defaultDate();
   }
@@ -37,11 +42,10 @@ export class AddDayModal extends Modal {
   private inferTrip(): Trip | null {
     const active = this.app.workspace.getActiveFile();
     if (active) {
-      const fromActive = this.store.getTripForFile(active);
+      const fromActive = this.plugin.store.getTripForFile(active);
       if (fromActive) return fromActive;
     }
-    const trips = this.store.getTrips();
-    // Fall back to the trip that's happening now, then the next one up.
+    const trips = this.plugin.store.getTrips();
     return (
       trips.find((t) => t.status === "current") ?? trips.find((t) => t.status === "upcoming") ?? null
     );
@@ -54,15 +58,24 @@ export class AddDayModal extends Modal {
     return isValidISODate(this.trip.startDate) ? this.trip.startDate : today;
   }
 
+  private activities(): Booking[] {
+    if (!this.trip) return [];
+    return this.plugin.bookings
+      .getBookings(this.trip)
+      .filter((b) => b.kind === "activity" && b.status !== "cancelled");
+  }
+
   async onOpen(): Promise<void> {
     keepOpenOnBackgroundClick(this);
     await this.useFirstUnplannedDay();
+
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("tp-modal");
-    contentEl.createEl("h2", { text: "Add itinerary day", cls: "tp-modal-title" });
+    this.modalEl.addClass("tp-modal-shell");
+    contentEl.createEl("h2", { text: "Plan a day", cls: "tp-modal-title" });
 
-    const trips = this.store.getTrips();
+    const trips = this.plugin.store.getTrips();
     if (trips.length === 0) {
       contentEl.createEl("p", { text: "No trips yet. Create one first." });
       new Setting(contentEl).addButton((b) => b.setButtonText("Close").onClick(() => this.close()));
@@ -70,19 +83,17 @@ export class AddDayModal extends Modal {
     }
 
     new Setting(contentEl).setName("Trip").addDropdown((dd) => {
-      for (const trip of trips) {
-        dd.addOption(trip.file.path, `${trip.title} (${trip.startDate})`);
-      }
+      for (const trip of trips) dd.addOption(trip.file.path, trip.title);
       dd.setValue(this.trip?.file.path ?? trips[0].file.path);
       if (!this.trip) this.trip = trips[0];
-      dd.onChange((path) => {
+      dd.onChange(async (path) => {
         this.trip = trips.find((t) => t.file.path === path) ?? null;
         this.date = this.defaultDate();
-        void this.useFirstUnplannedDay().then(() => {
-          this.dateInput.value = this.date;
-        });
+        await this.useFirstUnplannedDay();
         this.dateInput.value = this.date;
         this.applyDateBounds();
+        this.syncPlacement();
+        this.renderSlots();
       });
     });
 
@@ -91,31 +102,80 @@ export class AddDayModal extends Modal {
     this.dateInput.type = "date";
     this.dateInput.value = this.date;
     this.dateInput.addEventListener("change", () => {
-      if (isValidISODate(this.dateInput.value)) this.date = this.dateInput.value;
+      if (!isValidISODate(this.dateInput.value)) return;
+      this.date = this.dateInput.value;
+      this.syncPlacement();
+      this.renderSlots();
     });
     this.applyDateBounds();
 
-    const field = (name: string, onChange: (v: string) => void) =>
-      new Setting(contentEl).setName(name).addTextArea((ta) => {
-        ta.inputEl.rows = 3;
-        ta.setPlaceholder(`${name} plans…`);
-        ta.onChange(onChange);
-      });
-
-    field("Morning", (v) => (this.morning = v));
-    field("Afternoon", (v) => (this.afternoon = v));
-    field("Evening", (v) => (this.evening = v));
+    this.bodyEl = contentEl.createDiv();
+    this.syncPlacement();
+    this.renderSlots();
 
     new Setting(contentEl)
       .addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close()))
-      .addButton((btn) => btn.setButtonText("Add day").setCta().onClick(() => void this.addDay()));
+      .addButton((btn) => btn.setButtonText("Save day").setCta().onClick(() => void this.addDay()));
   }
 
-  /** Constrain the picker to the trip's own dates — a nudge, not a hard block. */
-  private applyDateBounds(): void {
-    if (!this.trip) return;
-    if (isValidISODate(this.trip.startDate)) this.dateInput.min = this.trip.startDate;
-    if (isValidISODate(this.trip.endDate)) this.dateInput.max = this.trip.endDate;
+  /** Reflect what the activities already say about this date. */
+  private syncPlacement(): void {
+    this.placement.clear();
+    for (const activity of this.activities()) {
+      if (activity.date === this.date && activity.slot) {
+        this.placement.set(activity.file.path, activity.slot);
+      }
+    }
+  }
+
+  private renderSlots(): void {
+    this.bodyEl.empty();
+    const activities = this.activities();
+
+    for (const slot of DAY_SLOTS) {
+      const section = this.bodyEl.createDiv({ cls: "tp-slot" });
+      section.createDiv({ cls: "tp-section-label", text: slot.label });
+
+      for (const activity of activities) {
+        const placedIn = this.placement.get(activity.file.path);
+        // Already on another day, so it is offered but visibly spoken for.
+        const elsewhere =
+          activity.date && activity.date !== this.date && activity.slot ? activity.date : null;
+
+        const row = section.createEl("label", {
+          cls: `tp-slot-activity${elsewhere ? " is-elsewhere" : ""}`,
+        });
+        const box = row.createEl("input");
+        box.type = "checkbox";
+        box.checked = placedIn === slot.id;
+        box.addEventListener("change", () => {
+          // One activity, one slot: ticking it here takes it out of any other.
+          if (box.checked) this.placement.set(activity.file.path, slot.id);
+          else this.placement.delete(activity.file.path);
+          this.renderSlots();
+        });
+
+        row.createSpan({ cls: "tp-slot-activity-name", text: activity.title });
+        if (activity.time) row.createSpan({ cls: "tp-slot-activity-meta", text: activity.time });
+        if (activity.cost) {
+          row.createSpan({ cls: "tp-slot-activity-meta", text: formatMoney(activity.cost) });
+        }
+        if (elsewhere) row.createSpan({ cls: "tp-slot-activity-meta", text: `on ${elsewhere}` });
+      }
+
+      const addRow = section.createDiv({ cls: "tp-slot-add" });
+      setIcon(addRow.createSpan(), "plus");
+      addRow.createSpan({ text: activities.length ? "Add another activity" : "Add an activity" });
+      addRow.addEventListener("click", () => {
+        if (this.trip) this.plugin.openBookingWizard(this.trip, "activity");
+      });
+
+      const notes = section.createEl("textarea", { cls: "tp-slot-notes" });
+      notes.rows = 2;
+      notes.placeholder = "Anything else — breakfast, a walk, nothing booked…";
+      notes.value = this.notes[slot.id];
+      notes.addEventListener("input", () => (this.notes[slot.id] = notes.value));
+    }
   }
 
   /**
@@ -133,6 +193,12 @@ export class AddDayModal extends Modal {
     if (next) this.date = next;
   }
 
+  private applyDateBounds(): void {
+    if (!this.trip) return;
+    if (isValidISODate(this.trip.startDate)) this.dateInput.min = this.trip.startDate;
+    if (isValidISODate(this.trip.endDate)) this.dateInput.max = this.trip.endDate;
+  }
+
   private async addDay(): Promise<void> {
     if (!this.trip) {
       new Notice("Pick a trip first.");
@@ -143,12 +209,25 @@ export class AddDayModal extends Modal {
       return;
     }
 
+    const byPath = new Map(this.activities().map((a) => [a.file.path, a]));
+
+    // Each activity goes in as a link to its own note, so the itinerary and the
+    // booking stay one record rather than two copies of the same plan.
+    const sectionFor = (slot: DaySlot): string => {
+      const lines: string[] = [];
+      for (const [path, placed] of this.placement) {
+        if (placed !== slot) continue;
+        const activity = byPath.get(path);
+        if (activity) lines.push(`- [[${activity.file.basename}]]`);
+      }
+      const note = this.notes[slot].trim();
+      if (note) lines.push(note);
+      return lines.join("\n");
+    };
+
     const path = `${this.trip.folderPath}/${SUB_NOTE_LABELS.itinerary}.md`;
     let file = this.app.vault.getAbstractFileByPath(path);
-
     if (!(file instanceof TFile)) {
-      // The trip may have been created without an itinerary; make one rather
-      // than dead-ending the user.
       file = await this.app.vault.create(
         path,
         `---\ntype: itinerary\n---\n\n# Itinerary — ${this.trip.title}\n`,
@@ -156,9 +235,9 @@ export class AddDayModal extends Modal {
     }
 
     const result = await insertItineraryDay(this.app, file as TFile, this.date, {
-      morning: this.morning,
-      afternoon: this.afternoon,
-      evening: this.evening,
+      morning: sectionFor("morning"),
+      afternoon: sectionFor("afternoon"),
+      evening: sectionFor("evening"),
     });
 
     if (result === "duplicate") {
@@ -166,12 +245,24 @@ export class AddDayModal extends Modal {
       return;
     }
 
+    // Push the placement back onto the activities themselves.
+    for (const activity of this.activities()) {
+      const placed = this.placement.get(activity.file.path);
+      if (placed) {
+        await assignBookingToDay(this.app, activity.file, this.date, placed);
+      } else if (activity.date === this.date && activity.slot) {
+        // Unticked here, so it is no longer part of this day.
+        await assignBookingToDay(this.app, activity.file, activity.date, null);
+      }
+    }
+
+    const placed = this.placement.size;
     new Notice(
-      result === "filled"
-        ? `Planned ${this.date} for ${this.trip.title}.`
-        : `Added ${this.date} to ${this.trip.title}.`,
+      placed > 0
+        ? `Planned ${this.date} with ${placed} activit${placed === 1 ? "y" : "ies"}.`
+        : `Planned ${this.date}.`,
     );
-    // Stays where you were; open the note yourself if you want to read it.
+    this.plugin.bookings.invalidate();
     this.onDone();
     this.close();
   }

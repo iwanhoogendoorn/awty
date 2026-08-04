@@ -469,7 +469,7 @@ export default class TravelPlannerPlugin extends Plugin {
   }
 
   openAddDayModal(trip?: Trip): void {
-    new AddDayModal(this.app, this.store, trip ?? null, () => {
+    new AddDayModal(this.app, this, trip ?? null, () => {
       this.store.invalidate();
       this.refreshViews();
     }).open();

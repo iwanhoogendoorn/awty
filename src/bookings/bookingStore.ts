@@ -183,6 +183,9 @@ export class BookingStore {
           date,
           endDate: isValidISODate(endDate) ? endDate : date,
           time: str(fm.time),
+          slot: (["morning", "afternoon", "evening"].includes(str(fm.slot))
+            ? str(fm.slot)
+            : "") as Booking["slot"],
           endTime: str(fm.end_time),
           cost: money(fm.cost, fm.currency, fallbackCurrency),
           category: str(fm.category) || (KIND_BY_ID.get(kind)?.category ?? "Misc"),
