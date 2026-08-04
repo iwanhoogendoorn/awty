@@ -437,6 +437,11 @@ function isPlaceholder(line) {
   const t = line.trim();
   return t.length === 0 || /^_.*_$/.test(t) || t.startsWith(">");
 }
+function isSeparatorRow(line) {
+  if (!line.startsWith("|")) return false;
+  const cells = line.slice(1, line.endsWith("|") ? -1 : void 0).split("|");
+  return cells.length > 0 && cells.every((c) => /^:?-{2,}:?$/.test(c.trim()));
+}
 function scan(body) {
   const lines2 = body.split("\n");
   const s = {
@@ -451,7 +456,8 @@ function scan(body) {
   let inFence = false;
   let currentDayHasContent = false;
   let inDay = false;
-  for (const raw of lines2) {
+  for (let i = 0; i < lines2.length; i += 1) {
+    const raw = lines2[i];
     const line = raw.trim();
     if (line.startsWith("```")) {
       if (!inFence && line.toLowerCase().startsWith("```foodspot")) s.hasFoodSpotBlock = true;
@@ -476,11 +482,12 @@ function scan(body) {
       continue;
     }
     if (line.startsWith("|")) {
+      if (isSeparatorRow(line)) continue;
+      if (isSeparatorRow((lines2[i + 1] ?? "").trim())) continue;
       const cells = line.slice(1, line.endsWith("|") ? -1 : void 0).split("|");
-      const isSeparator = cells.every((c) => /^:?-{2,}:?$/.test(c.trim()));
       const isEmpty = cells.every((c) => c.trim().length === 0);
       const isHeader = cells.some((c) => /^\*\*.+\*\*$/.test(c.trim()));
-      if (!isSeparator && !isEmpty && !isHeader) {
+      if (!isEmpty && !isHeader) {
         s.tableRows += 1;
         currentDayHasContent = true;
       }
@@ -492,7 +499,6 @@ function scan(body) {
     currentDayHasContent = true;
   }
   if (inDay && currentDayHasContent) s.daysWithContent += 1;
-  if (s.tableRows > 0) s.tableRows -= 1;
   return s;
 }
 function analyseNote(id, content) {

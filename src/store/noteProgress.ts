@@ -35,6 +35,13 @@ interface Signals {
   hasFoodSpotBlock: boolean;
 }
 
+/** The rule under a header row: `|---|:--:|`. */
+function isSeparatorRow(line: string): boolean {
+  if (!line.startsWith("|")) return false;
+  const cells = line.slice(1, line.endsWith("|") ? -1 : undefined).split("|");
+  return cells.length > 0 && cells.every((c) => /^:?-{2,}:?$/.test(c.trim()));
+}
+
 function scan(body: string): Signals {
   const lines = body.split("\n");
   const s: Signals = {
@@ -51,7 +58,8 @@ function scan(body: string): Signals {
   let currentDayHasContent = false;
   let inDay = false;
 
-  for (const raw of lines) {
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = lines[i];
     const line = raw.trim();
 
     if (line.startsWith("```")) {
@@ -81,11 +89,16 @@ function scan(body: string): Signals {
     }
 
     if (line.startsWith("|")) {
+      // Markdown defines a header as the row above the rule, so headers are
+      // recognised where they are rather than by knocking one off the total at
+      // the end — which quietly counted a second table's header as a booking.
+      if (isSeparatorRow(line)) continue;
+      if (isSeparatorRow((lines[i + 1] ?? "").trim())) continue;
+
       const cells = line.slice(1, line.endsWith("|") ? -1 : undefined).split("|");
-      const isSeparator = cells.every((c) => /^:?-{2,}:?$/.test(c.trim()));
       const isEmpty = cells.every((c) => c.trim().length === 0);
       const isHeader = cells.some((c) => /^\*\*.+\*\*$/.test(c.trim()));
-      if (!isSeparator && !isEmpty && !isHeader) {
+      if (!isEmpty && !isHeader) {
         s.tableRows += 1;
         currentDayHasContent = true;
       }
@@ -100,9 +113,6 @@ function scan(body: string): Signals {
   }
 
   if (inDay && currentDayHasContent) s.daysWithContent += 1;
-
-  // The first table row is the header, which we counted above.
-  if (s.tableRows > 0) s.tableRows -= 1;
 
   return s;
 }

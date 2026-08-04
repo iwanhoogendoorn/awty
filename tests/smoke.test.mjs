@@ -316,6 +316,28 @@ test("empty template tables do not count as content", () => {
   assert.equal(filled.detail, "1 booking");
 });
 
+test("a second table's header is not a booking", () => {
+  // The note ships with an empty template table and gains a generated Bookings
+  // table underneath. Knocking one header off the grand total left the other
+  // one counted, so a single stay reported as two.
+  const note = [
+    "# Accommodation",
+    "",
+    "| Check-in | Check-out | Property |",
+    "|----------|-----------|----------|",
+    "|          |           |          |",
+    "",
+    "## Bookings",
+    "",
+    "| When | Booking | Cost |",
+    "|---|---|---|",
+    "| 2026-08-17 → 2026-08-24 | Rausion Luxury Apartments | €1,456 |",
+  ].join("\n");
+  const p = m.analyseNote("accommodation", note);
+  assert.equal(p.detail, "1 booking");
+  assert.equal(p.state, "complete");
+});
+
 test("a list note with entries is done, not eternally in progress", () => {
   // Amber forever meant the dashboard could never read as finished, however
   // much of the trip was actually booked.
