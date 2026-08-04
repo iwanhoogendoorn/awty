@@ -15,7 +15,7 @@ export * from "./src/util/dates.ts";
 export * from "./src/util/paths.ts";
 export { foodSpotBlock } from "./src/store/templates.ts";
 export { analyseNote } from "./src/store/noteProgress.ts";
-export { emptyDayDates } from "./src/store/itinerary.ts";
+export { emptyDayDates, readDaySections } from "./src/store/itinerary.ts";
 export { routeTitle, layoverMinutes, formatLayover } from "./src/bookings/legs.ts";
 export { parseConfirmation, parseIcs, parseConfirmationText, parseLooseDate } from "./src/flights/parseConfirmation.ts";
 export { splitFlightNumber } from "./src/flights/flightNumber.ts";
@@ -487,6 +487,40 @@ test("a generated day with only sub-headings counts as unplanned", () => {
   const empty = m.emptyDayDates(note);
   assert.equal(empty.has("2026-08-17"), true, "scaffolding is not a plan");
   assert.equal(empty.has("2026-08-18"), false, "a day with content is planned");
+});
+
+test("a day's own prose is read back, but generated links are not", () => {
+  // Re-saving a day replaces it, so anything typed straight into the note has
+  // to survive the round trip; the activity links are rebuilt from bookings.
+  const note = [
+    "# Itinerary",
+    "",
+    "## 2026-08-17",
+    "",
+    "### Morning",
+    "- [[Old town walls walk]]",
+    "Breakfast at the apartment",
+    "",
+    "### Afternoon",
+    "- [[Shopping]]",
+    "",
+    "### Evening",
+    "Drinks on the terrace",
+    "",
+    "## 2026-08-18",
+    "",
+    "### Morning",
+    "Different day, must not leak",
+    "",
+  ].join("\n");
+
+  const day = m.readDaySections(note, "2026-08-17");
+  assert.equal(day.morning, "Breakfast at the apartment");
+  assert.equal(day.afternoon, "", "a slot with only links has no prose");
+  assert.equal(day.evening, "Drinks on the terrace");
+
+  assert.equal(m.readDaySections(note, "2026-08-18").morning, "Different day, must not leak");
+  assert.equal(m.readDaySections(note, "2026-08-19").morning, "", "an absent day is empty");
 });
 
 test("packing counts as done once the list exists", () => {

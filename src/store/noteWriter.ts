@@ -275,6 +275,8 @@ export async function insertItineraryDay(
   file: TFile,
   date: string,
   sections: { morning: string; afternoon: string; evening: string },
+  /** Overwrites a day that already has content, for a deliberate re-save. */
+  replace = false,
 ): Promise<"inserted" | "filled" | "duplicate"> {
   const content = await app.vault.read(file);
   const lines = content.split("\n");
@@ -297,7 +299,7 @@ export async function insertItineraryDay(
   );
 
   if (headingAt !== -1) {
-    if (!emptyDayDates(content).has(date)) return "duplicate";
+    if (!replace && !emptyDayDates(content).has(date)) return "duplicate";
 
     // Replace the empty scaffolding under this heading.
     let end = lines.length;
