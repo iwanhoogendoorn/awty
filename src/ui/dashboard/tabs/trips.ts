@@ -133,14 +133,14 @@ export function renderTrips(
       bar(progress, ready.ratio, ready.ratio >= 1 ? "good" : ready.ratio < 0.34 ? "warn" : "good");
     }
 
-    // A tick or cross per note, so an unfinished trip is obvious from the grid
-    // without opening it.
+    // One dot per note, filled in as it gets done, so an unfinished trip is
+    // obvious from the grid without opening it.
     const marks = card.createDiv({ cls: "tp-card-marks" });
     for (const sub of plugin.store.getSubNotes(trip)) {
       const state = plugin.progress.peek(sub.file)?.state ?? "empty";
       const mark = stateMark(state);
       const el = marks.createDiv({ cls: `tp-mark is-small is-${state}` });
-      setIcon(el, mark.icon);
+      if (mark.icon) setIcon(el, mark.icon);
       el.setAttribute("title", `${sub.label}: ${mark.label}`);
       el.setAttribute("aria-label", `${sub.label}: ${mark.label}`);
     }

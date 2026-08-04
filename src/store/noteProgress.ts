@@ -145,23 +145,32 @@ export function analyseNote(id: SubNoteId | null, content: string): NoteProgress
     };
   }
 
+  // These notes hold a list. Once the list has entries the note has done its
+  // job, so it reports complete — leaving it permanently amber meant the
+  // dashboard could never be finished, however much of the trip was booked.
   if (id === "accommodation" || id === "transport" || id === "budget") {
     const noun = id === "budget" ? "line" : id === "transport" ? "leg" : "booking";
     if (s.tableRows <= 0 && s.proseWords === 0) return EMPTY;
     if (s.tableRows <= 0) return { state: "started", detail: "Notes only", ratio: null };
     return {
-      state: "started",
+      state: "complete",
       detail: `${s.tableRows} ${noun}${s.tableRows === 1 ? "" : "s"}`,
       ratio: null,
     };
   }
 
   if (id === "food") {
-    if (s.hasFoodSpotBlock && s.tableRows <= 0 && s.proseWords === 0) {
-      return { state: "started", detail: "Food Spot embed", ratio: null };
+    // The embed is the whole point of the note: it lists the city's restaurants
+    // from Food Spot, and there is nothing further to fill in by hand.
+    if (s.hasFoodSpotBlock) {
+      return {
+        state: "complete",
+        detail: s.tableRows > 0 ? `Food Spot · ${s.tableRows} booked` : "Food Spot embed",
+        ratio: null,
+      };
     }
     if (s.tableRows > 0) {
-      return { state: "started", detail: `${s.tableRows} booked`, ratio: null };
+      return { state: "complete", detail: `${s.tableRows} booked`, ratio: null };
     }
     return s.proseWords > 0 ? { state: "started", detail: "Notes added", ratio: null } : EMPTY;
   }

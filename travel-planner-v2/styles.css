@@ -1651,14 +1651,35 @@
   height: 8px;
 }
 
+/* Nothing yet: an empty ring. Red discs on every untouched note made a new
+   trip look like a list of failures rather than a list of things to do. */
 .tp-note-cell.is-empty .tp-mark,
 .tp-mark.is-empty {
-  background: var(--color-red);
+  background: transparent;
+  border: 2px solid var(--background-modifier-border);
 }
 
+/* Under way: the same ring, part filled. */
 .tp-note-cell.is-started .tp-mark,
 .tp-mark.is-started {
+  position: relative;
+  background: transparent;
+  border: 2px solid var(--color-orange);
+}
+
+.tp-note-cell.is-started .tp-mark::after,
+.tp-mark.is-started::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
   background: var(--color-orange);
+  clip-path: inset(50% 0 0 0);
+}
+
+.tp-mark.is-small.is-empty,
+.tp-mark.is-small.is-started {
+  border-width: 1.5px;
 }
 
 .tp-note-cell.is-complete .tp-mark,

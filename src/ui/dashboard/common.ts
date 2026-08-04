@@ -126,19 +126,20 @@ export function money(totals: Totals): string {
 /**
  * Tick, half, or cross — whether a note's wizard has been through.
  *
- * A cross is the signal that something still needs doing, which is the whole
- * point of the trip dashboard.
+ * Only "done" gets a symbol. A solid disc with a minus in it reads as a no-entry
+ * sign — an instruction, not a status — and an X on everything unstarted makes a
+ * fresh trip look like a list of failures. Unfinished states are drawn as a
+ * hollow ring instead, filled in as they progress.
  */
 export function stateMark(state: "empty" | "started" | "complete"): {
   icon: string;
   label: string;
 } {
   if (state === "complete") return { icon: "check", label: "Done" };
-  if (state === "started") return { icon: "minus", label: "In progress" };
-  return { icon: "x", label: "Not started" };
+  if (state === "started") return { icon: "", label: "In progress" };
+  return { icon: "", label: "Not started" };
 }
 
-/** Readiness: how much of a trip's planning is actually filled in. */
 export function readiness(plugin: TravelPlannerPlugin, trip: Trip): { done: number; total: number; ratio: number } {
   const subNotes = plugin.store.getSubNotes(trip);
   let done = 0;

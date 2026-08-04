@@ -312,13 +312,24 @@ test("empty template tables do not count as content", () => {
     "accommodation",
     "# Accommodation\n\n| Check-in | Property |\n|----------|----------|\n| 2026-08-17 | Hotel Excelsior |\n",
   );
-  assert.equal(filled.state, "started");
+  assert.equal(filled.state, "complete");
   assert.equal(filled.detail, "1 booking");
 });
 
-test("a bare foodspot embed reads as started, not empty", () => {
+test("a list note with entries is done, not eternally in progress", () => {
+  // Amber forever meant the dashboard could never read as finished, however
+  // much of the trip was actually booked.
+  const rows = m.analyseNote("transport", "# Transport\n\n| Leg | When |\n|---|---|\n| Ferry | Tue |\n");
+  assert.equal(rows.state, "complete");
+  assert.equal(rows.detail, "1 leg");
+
+  const prose = m.analyseNote("budget", "# Budget\n\nRough guess: about a thousand each.\n");
+  assert.equal(prose.state, "started", "words alone are a start, not a list");
+});
+
+test("a foodspot embed is the food note finished, not started", () => {
   const p = m.analyseNote("food", "# Food\n\n```foodspot\nview: cards\ncity: Dubrovnik\n```\n");
-  assert.equal(p.state, "started");
+  assert.equal(p.state, "complete");
   assert.equal(p.detail, "Food Spot embed");
 });
 

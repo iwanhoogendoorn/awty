@@ -523,17 +523,21 @@ function analyseNote(id, content) {
     if (s.tableRows <= 0 && s.proseWords === 0) return EMPTY;
     if (s.tableRows <= 0) return { state: "started", detail: "Notes only", ratio: null };
     return {
-      state: "started",
+      state: "complete",
       detail: `${s.tableRows} ${noun}${s.tableRows === 1 ? "" : "s"}`,
       ratio: null
     };
   }
   if (id === "food") {
-    if (s.hasFoodSpotBlock && s.tableRows <= 0 && s.proseWords === 0) {
-      return { state: "started", detail: "Food Spot embed", ratio: null };
+    if (s.hasFoodSpotBlock) {
+      return {
+        state: "complete",
+        detail: s.tableRows > 0 ? `Food Spot \xB7 ${s.tableRows} booked` : "Food Spot embed",
+        ratio: null
+      };
     }
     if (s.tableRows > 0) {
-      return { state: "started", detail: `${s.tableRows} booked`, ratio: null };
+      return { state: "complete", detail: `${s.tableRows} booked`, ratio: null };
     }
     return s.proseWords > 0 ? { state: "started", detail: "Notes added", ratio: null } : EMPTY;
   }
@@ -2023,8 +2027,8 @@ function renderToolbar(parent, actions) {
 }
 function stateMark(state) {
   if (state === "complete") return { icon: "check", label: "Done" };
-  if (state === "started") return { icon: "minus", label: "In progress" };
-  return { icon: "x", label: "Not started" };
+  if (state === "started") return { icon: "", label: "In progress" };
+  return { icon: "", label: "Not started" };
 }
 function readiness(plugin, trip) {
   const subNotes = plugin.store.getSubNotes(trip);
@@ -3139,7 +3143,7 @@ function renderTripNotes(parent, ctx) {
     const cell = grid.createDiv({ cls: `tp-note-cell is-${state}` });
     const head = cell.createDiv({ cls: "tp-note-head" });
     const markEl = head.createDiv({ cls: "tp-mark" });
-    (0, import_obsidian12.setIcon)(markEl, mark.icon);
+    if (mark.icon) (0, import_obsidian12.setIcon)(markEl, mark.icon);
     markEl.setAttribute("aria-label", mark.label);
     markEl.setAttribute("title", mark.label);
     head.createDiv({ cls: "tp-note-name", text: sub.label });
@@ -3517,7 +3521,7 @@ function renderTrips(parent, ctx, onSelect) {
       const state = plugin.progress.peek(sub.file)?.state ?? "empty";
       const mark = stateMark(state);
       const el = marks.createDiv({ cls: `tp-mark is-small is-${state}` });
-      (0, import_obsidian14.setIcon)(el, mark.icon);
+      if (mark.icon) (0, import_obsidian14.setIcon)(el, mark.icon);
       el.setAttribute("title", `${sub.label}: ${mark.label}`);
       el.setAttribute("aria-label", `${sub.label}: ${mark.label}`);
     }

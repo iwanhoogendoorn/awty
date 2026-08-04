@@ -44,7 +44,7 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
 
     const head = cell.createDiv({ cls: "tp-note-head" });
     const markEl = head.createDiv({ cls: "tp-mark" });
-    setIcon(markEl, mark.icon);
+    if (mark.icon) setIcon(markEl, mark.icon);
     markEl.setAttribute("aria-label", mark.label);
     markEl.setAttribute("title", mark.label);
     head.createDiv({ cls: "tp-note-name", text: sub.label });
