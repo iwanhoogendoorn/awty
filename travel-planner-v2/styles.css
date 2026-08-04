@@ -1577,7 +1577,8 @@
 
 .tp-note-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  /* Wide enough for a primary button, an Edit and an Open on one line. */
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 0.5em;
 }
 
@@ -1586,6 +1587,10 @@
   border-radius: var(--radius-s);
   background: var(--background-secondary);
   cursor: pointer;
+  /* A grid column will not grow past 1fr, so anything wider than the cell
+     spills over the card beside it instead of being contained. */
+  min-width: 0;
+  overflow: hidden;
 }
 
 .tp-note-cell:hover {
@@ -1696,6 +1701,7 @@
 
 .tp-note-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.3em;
   margin-top: 0.5em;
 }
@@ -1703,6 +1709,7 @@
 .tp-note-btn {
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
   gap: 0.25em;
   padding: 0.2em 0.55em;
   border: 1px solid var(--background-modifier-border);
