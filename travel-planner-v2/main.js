@@ -6360,6 +6360,38 @@ var TravelService = class {
     }
     await this.persist();
   }
+  /**
+   * Checks the key against both APIs the plugin needs.
+   *
+   * Geocoding and Distance Matrix are enabled separately on a Google Cloud
+   * project, and having one without the other is the usual reason travel times
+   * fail — so the test says which of the two is missing rather than just
+   * "failed". Costs two requests, and is only run from the button.
+   */
+  async testKey() {
+    const key = this.getSettings().googleApiKey.trim();
+    if (!key) return { ok: false, message: "No key to test." };
+    let origin;
+    try {
+      origin = await geocode("Amsterdam Airport Schiphol", key);
+    } catch (err) {
+      return { ok: false, message: `Geocoding: ${err instanceof Error ? err.message : "failed"}` };
+    }
+    if (!origin) return { ok: false, message: "Geocoding returned nothing." };
+    try {
+      const [leg] = await distanceMatrix(origin, [{ lat: 52.379, lng: 4.9 }], "driving", key);
+      if (!leg) return { ok: false, message: "Distance Matrix returned no route." };
+      return {
+        ok: true,
+        message: `Both APIs answered \u2014 Schiphol to Amsterdam in ${Math.round(leg.durationSeconds / 60)} min.`
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        message: `Distance Matrix: ${err instanceof Error ? err.message : "failed"}`
+      };
+    }
+  }
   /** Wipes cached legs so the next look-up re-fetches. */
   async clearLegs() {
     this.cache.legs = {};
@@ -8982,37 +9014,100 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       subtitle: "Needs Geocoding API and Distance Matrix API enabled on the project.",
       chip: s.googleApiKey.trim() ? { text: "key set", tone: "ok" } : { text: "no key", tone: "warn" }
     });
-    new import_obsidian36.Setting(key.content).setName("Key").addText((t) => {
-      t.inputEl.type = "password";
-      t.setPlaceholder("AIza\u2026");
-      t.setValue(s.googleApiKey);
-      t.onChange(async (v) => {
-        s.googleApiKey = v.trim();
+    const row2 = key.content.createDiv({ cls: "tp-keyrow" });
+    const input = row2.createEl("input", {
+      cls: "tp-key-input",
+      type: "password",
+      attr: { placeholder: "AIza\u2026", spellcheck: "false", autocomplete: "off" }
+    });
+    input.value = s.googleApiKey;
+    let saveTimer = null;
+    const paint = () => key.setChip(s.googleApiKey.trim() ? "key set" : "no key", s.googleApiKey.trim() ? "ok" : "warn");
+    input.addEventListener("input", () => {
+      s.googleApiKey = input.value.trim();
+      paint();
+      if (saveTimer !== null) window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => {
+        saveTimer = null;
+        void this.save();
+      }, 500);
+    });
+    input.addEventListener("blur", () => {
+      if (saveTimer === null) return;
+      window.clearTimeout(saveTimer);
+      saveTimer = null;
+      void this.save();
+    });
+    const eye = row2.createEl("button", {
+      cls: "tp-key-btn",
+      attr: { "aria-label": "Show or hide the key" }
+    });
+    (0, import_obsidian36.setIcon)(eye, "eye");
+    eye.onclick = () => {
+      const hidden = input.type === "password";
+      input.type = hidden ? "text" : "password";
+      (0, import_obsidian36.setIcon)(eye, hidden ? "eye-off" : "eye");
+    };
+    const importBtn = row2.createEl("button", {
+      cls: "tp-key-btn",
+      attr: { "aria-label": "Use the key from Food Spot" }
+    });
+    (0, import_obsidian36.setIcon)(importBtn, "download");
+    importBtn.onclick = async () => {
+      const imported = await this.plugin.travel.importFoodSpotKey();
+      if (!imported) {
+        key.setChip("no key in Food Spot", "warn");
+        return;
+      }
+      s.googleApiKey = imported;
+      input.value = imported;
+      await this.save();
+      key.setChip("imported from Food Spot", "ok");
+    };
+    const testBtn = row2.createEl("button", { text: "Test" });
+    testBtn.onclick = async () => {
+      if (!s.googleApiKey.trim()) {
+        key.setChip("no key to test", "warn");
+        return;
+      }
+      testBtn.disabled = true;
+      key.setChip("testing\u2026", "pending");
+      try {
         await this.save();
-        key.setChip(s.googleApiKey ? "key set" : "no key", s.googleApiKey ? "ok" : "warn");
-      });
-    }).addExtraButton(
-      (btn) => btn.setIcon("download").setTooltip("Use the key from Food Spot").onClick(async () => {
-        const imported = await this.plugin.travel.importFoodSpotKey();
-        if (!imported) {
-          new import_obsidian36.Notice("No Google key found in Food Spot's settings.");
-          return;
-        }
-        s.googleApiKey = imported;
-        await this.save();
-        new import_obsidian36.Notice("Imported the Google key from Food Spot.");
-        this.renderBody();
-      })
-    );
+        const result = await this.plugin.travel.testKey();
+        key.setChip(result.ok ? "test passed" : "test failed", result.ok ? "ok" : "warn");
+        new import_obsidian36.Notice(result.message, result.ok ? 6e3 : 1e4);
+      } finally {
+        testBtn.disabled = false;
+      }
+    };
+    const links = key.content.createDiv({ cls: "tp-key-links" });
+    links.createEl("a", {
+      text: "Get a key",
+      href: "https://console.cloud.google.com/apis/credentials"
+    });
+    links.createEl("a", {
+      text: "Enable Geocoding API",
+      href: "https://console.cloud.google.com/apis/library/geocoding-backend.googleapis.com"
+    });
+    links.createEl("a", {
+      text: "Enable Distance Matrix API",
+      href: "https://console.cloud.google.com/apis/library/distance-matrix-backend.googleapis.com"
+    });
+    const warn = key.content.createDiv({ cls: "tp-key-warning" });
+    (0, import_obsidian36.setIcon)(warn.createSpan({ cls: "tp-key-warning-icon" }), "alert-triangle");
+    warn.createSpan({
+      text: "The key is stored in plain text in this vault's plugin data.json. Anyone, or anything, with access to your vault files can read it."
+    });
     const modes = this.group(body, {
       icon: "car",
       title: "Modes",
       subtitle: "Each mode is a separate billed request per route.",
       chip: { text: `${s.travelModes.length} of 3`, tone: "ok" }
     });
-    const row2 = modes.content.createDiv({ cls: "tp-settings-subnotes" });
+    const modeRow = modes.content.createDiv({ cls: "tp-settings-subnotes" });
     for (const mode of TRAVEL_MODES) {
-      const label = row2.createEl("label", { cls: "tp-subnote" });
+      const label = modeRow.createEl("label", { cls: "tp-subnote" });
       const box = label.createEl("input");
       box.type = "checkbox";
       box.checked = s.travelModes.includes(mode.id);

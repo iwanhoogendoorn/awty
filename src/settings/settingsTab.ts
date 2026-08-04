@@ -609,34 +609,103 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
         : { text: "no key", tone: "warn" },
     });
 
-    new Setting(key.content)
-      .setName("Key")
-      .addText((t) => {
-        t.inputEl.type = "password";
-        t.setPlaceholder("AIza…");
-        t.setValue(s.googleApiKey);
-        t.onChange(async (v) => {
-          s.googleApiKey = v.trim();
-          await this.save();
-          key.setChip(s.googleApiKey ? "key set" : "no key", s.googleApiKey ? "ok" : "warn");
-        });
-      })
-      .addExtraButton((btn) =>
-        btn
-          .setIcon("download")
-          .setTooltip("Use the key from Food Spot")
-          .onClick(async () => {
-            const imported = await this.plugin.travel.importFoodSpotKey();
-            if (!imported) {
-              new Notice("No Google key found in Food Spot's settings.");
-              return;
-            }
-            s.googleApiKey = imported;
-            await this.save();
-            new Notice("Imported the Google key from Food Spot.");
-            this.renderBody();
-          }),
-      );
+    const row = key.content.createDiv({ cls: "tp-keyrow" });
+
+    const input = row.createEl("input", {
+      cls: "tp-key-input",
+      type: "password",
+      attr: { placeholder: "AIza…", spellcheck: "false", autocomplete: "off" },
+    });
+    input.value = s.googleApiKey;
+
+    // Debounced: a 39-character key would otherwise fire dozens of overlapping
+    // read-modify-writes against data.json.
+    let saveTimer: number | null = null;
+    const paint = (): void =>
+      key.setChip(s.googleApiKey.trim() ? "key set" : "no key", s.googleApiKey.trim() ? "ok" : "warn");
+
+    input.addEventListener("input", () => {
+      s.googleApiKey = input.value.trim();
+      paint();
+      if (saveTimer !== null) window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => {
+        saveTimer = null;
+        void this.save();
+      }, 500);
+    });
+    input.addEventListener("blur", () => {
+      if (saveTimer === null) return;
+      window.clearTimeout(saveTimer);
+      saveTimer = null;
+      void this.save();
+    });
+
+    const eye = row.createEl("button", {
+      cls: "tp-key-btn",
+      attr: { "aria-label": "Show or hide the key" },
+    });
+    setIcon(eye, "eye");
+    eye.onclick = () => {
+      const hidden = input.type === "password";
+      input.type = hidden ? "text" : "password";
+      setIcon(eye, hidden ? "eye-off" : "eye");
+    };
+
+    const importBtn = row.createEl("button", {
+      cls: "tp-key-btn",
+      attr: { "aria-label": "Use the key from Food Spot" },
+    });
+    setIcon(importBtn, "download");
+    importBtn.onclick = async () => {
+      const imported = await this.plugin.travel.importFoodSpotKey();
+      if (!imported) {
+        key.setChip("no key in Food Spot", "warn");
+        return;
+      }
+      s.googleApiKey = imported;
+      input.value = imported;
+      await this.save();
+      key.setChip("imported from Food Spot", "ok");
+    };
+
+    const testBtn = row.createEl("button", { text: "Test" });
+    testBtn.onclick = async () => {
+      if (!s.googleApiKey.trim()) {
+        key.setChip("no key to test", "warn");
+        return;
+      }
+      testBtn.disabled = true;
+      key.setChip("testing…", "pending");
+      try {
+        // Save first: the test reads the key from settings, not the field.
+        await this.save();
+        const result = await this.plugin.travel.testKey();
+        key.setChip(result.ok ? "test passed" : "test failed", result.ok ? "ok" : "warn");
+        new Notice(result.message, result.ok ? 6000 : 10000);
+      } finally {
+        testBtn.disabled = false;
+      }
+    };
+
+    const links = key.content.createDiv({ cls: "tp-key-links" });
+    links.createEl("a", {
+      text: "Get a key",
+      href: "https://console.cloud.google.com/apis/credentials",
+    });
+    links.createEl("a", {
+      text: "Enable Geocoding API",
+      href: "https://console.cloud.google.com/apis/library/geocoding-backend.googleapis.com",
+    });
+    links.createEl("a", {
+      text: "Enable Distance Matrix API",
+      href: "https://console.cloud.google.com/apis/library/distance-matrix-backend.googleapis.com",
+    });
+
+    const warn = key.content.createDiv({ cls: "tp-key-warning" });
+    setIcon(warn.createSpan({ cls: "tp-key-warning-icon" }), "alert-triangle");
+    warn.createSpan({
+      text: "The key is stored in plain text in this vault's plugin data.json. Anyone, or anything, with access to your vault files can read it.",
+    });
 
     const modes = this.group(body, {
       icon: "car",
@@ -645,9 +714,9 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
       chip: { text: `${s.travelModes.length} of 3`, tone: "ok" },
     });
 
-    const row = modes.content.createDiv({ cls: "tp-settings-subnotes" });
+    const modeRow = modes.content.createDiv({ cls: "tp-settings-subnotes" });
     for (const mode of TRAVEL_MODES) {
-      const label = row.createEl("label", { cls: "tp-subnote" });
+      const label = modeRow.createEl("label", { cls: "tp-subnote" });
       const box = label.createEl("input");
       box.type = "checkbox";
       box.checked = s.travelModes.includes(mode.id);

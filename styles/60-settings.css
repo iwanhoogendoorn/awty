@@ -136,7 +136,8 @@
   color: var(--text-muted);
   font-size: 11px;
   white-space: nowrap;
-  max-width: 45%;
+  /* Was 45%, which clipped "key set" to "key …" in a narrow panel head. */
+  max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -307,6 +308,78 @@
 }
 
 .tp-matrix-reset svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* --- API key row ----------------------------------------------------------- */
+
+.tp-keyrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+
+.tp-key-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+}
+
+.tp-key-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 5px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.tp-key-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+.tp-key-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tp-key-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.tp-key-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-orange) 10%, transparent);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.tp-key-warning-icon {
+  display: flex;
+  flex: none;
+  color: var(--color-orange);
+  padding-top: 1px;
+}
+
+.tp-key-warning-icon svg {
   width: 13px;
   height: 13px;
 }

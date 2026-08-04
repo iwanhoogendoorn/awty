@@ -287,6 +287,42 @@ export class TravelService {
     await this.persist();
   }
 
+  /**
+   * Checks the key against both APIs the plugin needs.
+   *
+   * Geocoding and Distance Matrix are enabled separately on a Google Cloud
+   * project, and having one without the other is the usual reason travel times
+   * fail — so the test says which of the two is missing rather than just
+   * "failed". Costs two requests, and is only run from the button.
+   */
+  async testKey(): Promise<{ ok: boolean; message: string }> {
+    const key = this.getSettings().googleApiKey.trim();
+    if (!key) return { ok: false, message: "No key to test." };
+
+    let origin: Coord | null;
+    try {
+      origin = await geocode("Amsterdam Airport Schiphol", key);
+    } catch (err) {
+      return { ok: false, message: `Geocoding: ${err instanceof Error ? err.message : "failed"}` };
+    }
+    if (!origin) return { ok: false, message: "Geocoding returned nothing." };
+
+    try {
+      // A short, well-known hop: Schiphol to Amsterdam Centraal.
+      const [leg] = await distanceMatrix(origin, [{ lat: 52.379, lng: 4.9 }], "driving", key);
+      if (!leg) return { ok: false, message: "Distance Matrix returned no route." };
+      return {
+        ok: true,
+        message: `Both APIs answered — Schiphol to Amsterdam in ${Math.round(leg.durationSeconds / 60)} min.`,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        message: `Distance Matrix: ${err instanceof Error ? err.message : "failed"}`,
+      };
+    }
+  }
+
   /** Wipes cached legs so the next look-up re-fetches. */
   async clearLegs(): Promise<void> {
     this.cache.legs = {};
