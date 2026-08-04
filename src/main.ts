@@ -601,6 +601,19 @@ export default class AwtyPlugin extends Plugin {
               : booking.kind === "transport"
                 ? "Transport"
                 : "Activity";
+      // A transfer with a pick-up address is two places, not one.
+      if (booking.kind === "transport" && booking.fromAddress) {
+        add({
+          name: booking.from || `${booking.title} pick-up`,
+          group: "Transport",
+          address: booking.fromAddress,
+          location: "",
+          detail: [formatDateRange(booking.date, booking.endDate), booking.time]
+            .filter(Boolean)
+            .join(" · "),
+        });
+      }
+
       add({
         name: booking.kind === "flight" ? booking.to || booking.title : booking.title,
         group,

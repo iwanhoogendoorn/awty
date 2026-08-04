@@ -226,6 +226,7 @@ export class BookingStore {
           from: str(fm.from),
           to: str(fm.to),
           address: str(fm.address),
+          fromAddress: str(fm.from_address),
           operator: str(fm.operator),
           seat: str(fm.seat),
           notes: str(fm.notes),

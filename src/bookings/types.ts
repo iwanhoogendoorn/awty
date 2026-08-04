@@ -111,6 +111,8 @@ export interface Booking {
   to: string;
   /** Street address, used to place this on a map for travel times. */
   address: string;
+  /** Where a transfer starts, when that is somewhere with an address. */
+  fromAddress: string;
   operator: string;
   seat: string;
   notes: string;

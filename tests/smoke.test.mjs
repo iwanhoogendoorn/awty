@@ -1726,6 +1726,27 @@ test("a trip can visit several countries in order", () => {
   assert.deepEqual(m.tripCities({ country: "", city: "" }), []);
 });
 
+test("a transfer records an address at both ends", () => {
+  const draft = {
+    kind: "transport", status: "booked", title: "Airport transfer",
+    date: "2026-08-17", endDate: "2026-08-17", time: "13:00", endTime: "",
+    amount: 45, currency: "EUR", category: "Transport", reference: "",
+    from: "Dubrovnik Airport (DBV)", to: "Rausion Luxury Apartments",
+    fromAddress: "Čilipi 20213", address: "Kranjčevića 25, Dubrovnik",
+    operator: "Gruda Taxi", seat: "", notes: "", attachments: [], legs: [], returnLegs: [],
+  };
+  const body = m.bookingBody(draft, []);
+  // One address only ever described one end of a journey that has two.
+  assert.match(body, /\| \*\*From address\*\* \| Čilipi 20213 \|/, body);
+  assert.match(body, /\| \*\*To address\*\* \| Kranjčevića 25, Dubrovnik \|/, body);
+  assert.ok(body.indexOf("From address") < body.indexOf("To address"), "in travel order");
+
+  // Anything else keeps the single plain "Address".
+  const stay = m.bookingBody({ ...draft, kind: "stay", fromAddress: "" }, []);
+  assert.match(stay, /\| \*\*Address\*\* \|/);
+  assert.ok(!stay.includes("From address"));
+});
+
 test("a transfer can start at the airport and end at the hotel", () => {
   // From and To were city pickers, so "airport to hotel" could not be said —
   // and no address ever reached the booking, leaving the transfer unplaceable.

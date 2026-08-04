@@ -135,6 +135,7 @@ export async function migrateFoodTables(
         from: "",
         to: "",
         address: "",
+        fromAddress: "",
         operator: row.bookedBy,
         seat: "",
         notes: row.notes,

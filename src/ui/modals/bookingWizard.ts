@@ -29,7 +29,15 @@ import {
 import { COMMON_CURRENCIES, formatMoney, parseAmount } from "../../util/money";
 import { formatDateRange, isValidISODate, todayISO } from "../../util/dates";
 
-type FieldKey = "operator" | "reference" | "from" | "to" | "seat" | "title" | "address";
+type FieldKey =
+  | "operator"
+  | "reference"
+  | "from"
+  | "to"
+  | "seat"
+  | "title"
+  | "address"
+  | "fromAddress";
 
 export type StarKind = "airline" | "airport";
 
@@ -72,8 +80,9 @@ const FIELDS: Record<BookingKind, FieldSpec[]> = {
     { key: "operator", label: "Carrier", placeholder: "FlixBus" },
     { key: "title", label: "Service", placeholder: "Bus 402" },
     { key: "from", label: "From", placeholder: "Dubrovnik Airport (DBV)" },
+    { key: "fromAddress", label: "From address", placeholder: "Where it picks you up" },
     { key: "to", label: "To", placeholder: "Rausion Luxury Apartments" },
-    { key: "address", label: "Address", placeholder: "Where it drops you" },
+    { key: "address", label: "To address", placeholder: "Where it drops you" },
     { key: "seat", label: "Seat", placeholder: "12" },
     { key: "reference", label: "Booking reference", placeholder: "ABC123" },
   ],
@@ -150,6 +159,7 @@ export class BookingWizard extends Modal {
       to: "",
       operator: "",
       address: "",
+      fromAddress: "",
       seat: "",
       notes: "",
       attachments: [],
@@ -282,7 +292,14 @@ export class BookingWizard extends Modal {
       }
       const setting = new Setting(this.bodyEl).setName(spec.label);
       if (spec.key === "address") {
-        setting.setDesc("Used to work out travel times from your accommodation.");
+        setting.setDesc(
+          this.draft.kind === "transport"
+            ? "Where this leaves you — what puts it on the map and in the travel times."
+            : "Used to work out travel times from your accommodation.",
+        );
+      }
+      if (spec.key === "fromAddress") {
+        setting.setDesc("Optional. Useful when the pick-up point is not somewhere already booked.");
       }
       setting.addText((t) => {
         t.setPlaceholder(spec.placeholder);
@@ -687,11 +704,13 @@ export class BookingWizard extends Modal {
         () => this.trip.country,
         (hit) => {
           this.draft[spec.key] = hit.label;
-          // The address describes where the transfer leaves you, so only the
-          // destination brings one.
+          // Each end brings its own address; the destination also brings the
+          // coordinates, since that is where the booking sits on a map.
           if (spec.key === "to") {
             if (hit.address) this.draft.address = hit.address;
             if (hit.location) this.knownLocation = hit.location;
+          } else if (spec.key === "from" && hit.address) {
+            this.draft.fromAddress = hit.address;
           }
           this.renderBody();
         },
@@ -716,6 +735,7 @@ export class BookingWizard extends Modal {
       chip.addEventListener("click", () => {
         this.draft.from = shortcut.from.label;
         this.draft.to = shortcut.to.label;
+        if (shortcut.from.address) this.draft.fromAddress = shortcut.from.address;
         if (shortcut.to.address) this.draft.address = shortcut.to.address;
         if (shortcut.to.location) this.knownLocation = shortcut.to.location;
         this.renderBody();

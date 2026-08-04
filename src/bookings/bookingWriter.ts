@@ -26,6 +26,8 @@ export interface BookingDraft {
   from: string;
   to: string;
   address: string;
+  /** Street address of the departure end. A transfer has two of them. */
+  fromAddress: string;
   operator: string;
   seat: string;
   notes: string;
@@ -150,7 +152,7 @@ function linksFor(app: App, paths: string[], sourcePath: string): string[] {
 /** Frontmatter keys the booking form owns; cleared fields must actually clear. */
 const BOOKING_KEYS = [
   "end_date", "time", "end_time", "cost", "currency", "reference", "from", "to",
-  "address", "operator", "seat", "legs", "return_legs", "attachments", "location",
+  "address", "from_address", "operator", "seat", "legs", "return_legs", "attachments", "location",
 ];
 
 function writeBookingFrontmatter(
@@ -190,6 +192,7 @@ function writeBookingFrontmatter(
   if (draft.from) fm.from = draft.from;
   if (draft.to) fm.to = draft.to;
   if (draft.address) fm.address = draft.address;
+  if (draft.fromAddress) fm.from_address = draft.fromAddress;
   if (draft.operator) fm.operator = draft.operator;
   if (draft.seat) fm.seat = draft.seat;
   // Stored even for a direct flight: without it the outbound arrival has to
@@ -263,6 +266,7 @@ export async function draftFromBooking(
     from: booking.from,
     to: booking.to,
     address: booking.address,
+    fromAddress: booking.fromAddress,
     operator: booking.operator,
     seat: booking.seat,
     notes: booking.notes || notes,
