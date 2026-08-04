@@ -75,8 +75,10 @@ export class BookingWizard extends Modal {
   private nextBtn!: ButtonComponent;
   private amountRaw = "";
   private legsField: LegsField | null = null;
-  /** What the last confirmation yielded, so the box can collapse to a result. */
+  /** What the last confirmation yielded, shown in place of the hint. */
   private readSummary = "";
+  private pasteHandler: ((evt: ClipboardEvent) => void) | null = null;
+  private dropHandler: ((evt: DragEvent) => void) | null = null;
   private returnField: LegsField | null = null;
   private hasReturn = false;
 
@@ -167,6 +169,7 @@ export class BookingWizard extends Modal {
           });
       });
 
+    this.registerConfirmationCapture();
     this.go(0);
   }
 
@@ -247,20 +250,19 @@ export class BookingWizard extends Modal {
 
   /** Direct or connecting; the editor handles both and works out the layovers. */
   /**
-   * Drop or paste the confirmation; the legs fill themselves in.
+   * One quiet line, rather than a panel.
    *
-   * Always on screen rather than behind a button, because it is the fastest
-   * path into a flight and a button you have to find is not a fast path.
-   * Parsing runs on paste and on drop, so there is nothing to press.
+   * The capability matters more than the affordance: Cmd+V anywhere in the
+   * wizard parses a confirmation, and a dropped .ics does the same, so this is
+   * a reminder rather than a place you have to aim at.
    */
-  private renderConfirmationBox(): void {
-    const box = this.bodyEl.createDiv({ cls: "tp-confirm-box" });
+  private renderConfirmationHint(): void {
+    const row = this.bodyEl.createDiv({ cls: "tp-confirm-row" });
 
     if (this.readSummary) {
-      const done = box.createDiv({ cls: "tp-confirm-done" });
-      setIcon(done.createSpan({ cls: "tp-confirm-done-icon" }), "check-circle");
-      done.createSpan({ text: this.readSummary });
-      const again = done.createEl("button", { cls: "tp-confirm-again", text: "Read another" });
+      setIcon(row.createSpan({ cls: "tp-confirm-row-icon is-done" }), "check");
+      row.createSpan({ cls: "tp-confirm-row-done", text: this.readSummary });
+      const again = row.createEl("button", { cls: "tp-confirm-link", text: "read another" });
       again.type = "button";
       again.addEventListener("click", () => {
         this.readSummary = "";
@@ -269,28 +271,10 @@ export class BookingWizard extends Modal {
       return;
     }
 
-    const drop = box.createDiv({ cls: "tp-confirm-drop" });
-    setIcon(drop.createDiv({ cls: "tp-confirm-icon" }), "clipboard-paste");
-    drop.createDiv({
-      cls: "tp-confirm-title",
-      text: "Paste or drop your booking confirmation",
-    });
-    drop.createDiv({
-      cls: "tp-confirm-hint",
-      text: "The email text, or the calendar invite the airline attached (.ics, .eml). Nothing leaves your vault.",
-    });
+    setIcon(row.createSpan({ cls: "tp-confirm-row-icon" }), "clipboard-paste");
+    row.createSpan({ text: "Paste your booking confirmation to fill this in" });
 
-    const area = drop.createEl("textarea", { cls: "tp-confirm-area" });
-    area.rows = 2;
-    area.placeholder = "Paste here…";
-
-    // Parse as soon as the text lands; there is nothing to press.
-    area.addEventListener("paste", () => {
-      window.setTimeout(() => this.readConfirmation(area.value), 0);
-    });
-    area.addEventListener("change", () => this.readConfirmation(area.value));
-
-    const file = box.createEl("input");
+    const file = row.createEl("input");
     file.type = "file";
     file.accept = ".ics,.txt,.eml,text/calendar,message/rfc822,text/plain";
     file.addClass("tp-attach-input");
@@ -302,35 +286,41 @@ export class BookingWizard extends Modal {
       this.readConfirmation(text, chosen.name);
     });
 
-    const choose = drop.createEl("button", { cls: "tp-confirm-choose", text: "or open a file…" });
+    const choose = row.createEl("button", { cls: "tp-confirm-link", text: "or open a file" });
     choose.type = "button";
     choose.addEventListener("click", () => file.click());
+  }
 
-    for (const type of ["dragenter", "dragover"]) {
-      drop.addEventListener(type, (evt) => {
-        evt.preventDefault();
-        evt.stopPropagation();
-        drop.addClass("is-over");
-      });
-    }
-    for (const type of ["dragleave", "drop"]) {
-      drop.addEventListener(type, (evt) => {
-        evt.preventDefault();
-        evt.stopPropagation();
-        drop.removeClass("is-over");
-      });
-    }
+  /**
+   * Paste and drop anywhere in the wizard.
+   *
+   * Registered once for the modal's lifetime. Text that does not look like a
+   * confirmation is left alone, so pasting into a field still behaves normally.
+   */
+  private registerConfirmationCapture(): void {
+    this.pasteHandler = (evt: ClipboardEvent) => {
+      if (this.draft.kind !== "flight") return;
+      // A paste into a form field is someone filling that field in.
+      const target = evt.target as HTMLElement | null;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
 
-    drop.addEventListener("drop", async (evt: DragEvent) => {
+      const text = evt.clipboardData?.getData("text/plain") ?? "";
+      if (!text.trim() || !parseConfirmation(text)) return;
+      evt.preventDefault();
+      this.readConfirmation(text);
+    };
+    document.addEventListener("paste", this.pasteHandler);
+
+    this.dropHandler = (evt: DragEvent) => {
+      if (this.draft.kind !== "flight") return;
       const dropped = evt.dataTransfer?.files?.[0];
-      if (dropped) {
-        this.readConfirmation(await dropped.text(), dropped.name);
-        return;
-      }
-      // Dragging selected text out of a mail client hands over a string.
-      const text = evt.dataTransfer?.getData("text/plain") ?? "";
-      if (text.trim()) this.readConfirmation(text);
-    });
+      if (!dropped || !/\.(ics|eml|txt)$/i.test(dropped.name)) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      void dropped.text().then((text) => this.readConfirmation(text, dropped.name));
+    };
+    this.contentEl.addEventListener("drop", this.dropHandler);
+    this.contentEl.addEventListener("dragover", (evt) => evt.preventDefault());
   }
 
   /** One entry point, whether the text was pasted, dropped or opened. */
@@ -394,7 +384,7 @@ export class BookingWizard extends Modal {
   }
 
   private renderFlightLegs(): void {
-    this.renderConfirmationBox();
+    this.renderConfirmationHint();
     this.bodyEl.createDiv({ cls: "tp-section-label", text: "Outbound" });
     this.legsField = new LegsField({
       app: this.app,
@@ -760,6 +750,9 @@ export class BookingWizard extends Modal {
 
   onClose(): void {
     this.attachments?.destroy();
+    if (this.pasteHandler) document.removeEventListener("paste", this.pasteHandler);
+    this.pasteHandler = null;
+    this.dropHandler = null;
     this.contentEl.empty();
   }
 }

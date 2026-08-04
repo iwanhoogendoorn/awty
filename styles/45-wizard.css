@@ -658,104 +658,44 @@
 
 /* -------------------------------------------------- confirmation intake */
 
-.tp-confirm-box {
-  margin-bottom: 0.9em;
-}
-
-.tp-confirm-drop {
+.tp-confirm-row {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 0.2em;
-  padding: 0.9em;
-  border: 1.5px dashed var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  text-align: center;
+  gap: 0.4em;
+  margin-bottom: 0.7em;
+  font-size: var(--font-ui-smaller);
   color: var(--text-muted);
 }
 
-.tp-confirm-drop:hover,
-.tp-confirm-drop.is-over {
-  border-color: var(--interactive-accent);
-  background: var(--background-modifier-hover);
-}
-
-.tp-confirm-icon {
+.tp-confirm-row-icon {
   display: flex;
-  color: var(--text-accent);
 }
 
-.tp-confirm-icon .svg-icon {
-  width: 1.3em;
-  height: 1.3em;
+.tp-confirm-row-icon .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
 }
 
-.tp-confirm-title {
-  font-weight: var(--font-medium);
-  color: var(--text-normal);
+.tp-confirm-row-icon.is-done {
+  color: var(--color-green);
 }
 
-.tp-confirm-hint {
-  font-size: var(--font-ui-smaller);
-  color: var(--text-faint);
-  max-width: 34em;
+.tp-confirm-row-done {
+  color: var(--color-green);
 }
 
-.tp-confirm-area {
-  width: 100%;
-  margin-top: 0.5em;
-  font-family: var(--font-monospace);
-  font-size: var(--font-ui-smaller);
-  resize: vertical;
-}
-
-.tp-confirm-choose {
-  margin-top: 0.35em;
+.tp-confirm-link {
   padding: 0;
   border: none;
   background: transparent;
   color: var(--text-accent);
-  font-size: var(--font-ui-smaller);
+  font-size: inherit;
   cursor: pointer;
   box-shadow: none;
 }
 
-.tp-confirm-choose:hover {
+.tp-confirm-link:hover {
   text-decoration: underline;
-}
-
-/* Collapsed to a result once something has been read. */
-
-.tp-confirm-done {
-  display: flex;
-  align-items: center;
-  gap: 0.5em;
-  padding: 0.5em 0.8em;
-  border-radius: var(--radius-s);
-  background: color-mix(in srgb, var(--color-green) 12%, transparent);
-  color: var(--color-green);
-  font-size: var(--font-ui-small);
-}
-
-.tp-confirm-done-icon {
-  display: flex;
-}
-
-.tp-confirm-done-icon .svg-icon {
-  width: 1em;
-  height: 1em;
-}
-
-.tp-confirm-again {
-  margin-left: auto;
-  padding: 0.1em 0.6em;
-  border: 1px solid currentColor;
-  border-radius: var(--radius-s);
-  background: transparent;
-  color: inherit;
-  font-size: var(--font-ui-smaller);
-  cursor: pointer;
-  box-shadow: none;
 }
 
 .tp-leg-lookup {
