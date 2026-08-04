@@ -24,8 +24,10 @@ import { parseAmount } from "../util/money";
  * return leg group is always its own flight. Bookings with no legs recorded
  * fall back to the dates on the booking itself.
  */
-function readJourneys(fm: Record<string, unknown>): FlightJourney[] {
+function readJourneys(fm: Record<string, unknown>, currency: string): FlightJourney[] {
   const out: FlightJourney[] = [];
+  const priceOf = (leg: { cost?: number }): Money | null =>
+    typeof leg.cost === "number" && leg.cost > 0 ? { amount: leg.cost, currency } : null;
   const outbound = groupJourneys(readLegs(fm.legs));
   const back = groupJourneys(readLegs(fm.return_legs));
 
@@ -38,6 +40,7 @@ function readJourneys(fm: Record<string, unknown>): FlightJourney[] {
       from: first.from,
       to: last.to,
       label: index === 0 ? "Outbound" : `Flight ${index + 1}`,
+      cost: priceOf(first),
     });
   });
 
@@ -50,6 +53,7 @@ function readJourneys(fm: Record<string, unknown>): FlightJourney[] {
       from: first.from,
       to: last.to,
       label: "Return",
+      cost: priceOf(first),
     });
   }
   return out;
@@ -271,7 +275,7 @@ export class BookingStore {
           operator: str(fm.operator),
           seat: str(fm.seat),
           notes: str(fm.notes),
-          journeys: readJourneys(fm),
+          journeys: readJourneys(fm, money(fm.cost, fm.currency, fallbackCurrency)?.currency ?? fallbackCurrency),
           attachments: list(fm.attachments),
         });
         continue;

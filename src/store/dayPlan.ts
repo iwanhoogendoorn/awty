@@ -135,8 +135,9 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
           detail: [journey.label, [journey.from, journey.to].filter(Boolean).join(" → ")]
             .filter(Boolean)
             .join(" · "),
-          // Only the first costs anything here; the price is for the ticket.
-          cost: index === 0 ? cost : "",
+          // Each flight shows what it cost, when they were priced one by one.
+          // Otherwise the ticket price sits on the first, where it was paid.
+          cost: journey.cost ? formatMoney(journey.cost) : index === 0 ? cost : "",
           band: index === 0 ? BAND.Arrive : last ? BAND.Depart : BAND.During,
         });
       });

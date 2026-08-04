@@ -133,6 +133,8 @@ export interface FlightJourney {
   to: string;
   /** "Outbound", "Return", or "Flight 2" for anything in between. */
   label: string;
+  /** What this flight cost, when the flights were priced one by one. */
+  cost: Money | null;
 }
 
 export interface Expense {
