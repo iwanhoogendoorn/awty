@@ -1888,6 +1888,9 @@ function countAttachmentsNamed(app, settings, trip, baseName) {
     (child) => child instanceof import_obsidian4.TFile && child.basename.toLowerCase().startsWith(prefix)
   ).length;
 }
+function attachmentPaths(app, links, sourcePath) {
+  return links.map((link) => fileFromLink(app, link, sourcePath)?.path ?? null).filter((path) => path !== null);
+}
 function linksFor(app, paths, sourcePath) {
   return paths.map((path) => {
     const file = app.vault.getAbstractFileByPath(path);
@@ -2033,7 +2036,7 @@ async function draftFromBooking(app, booking) {
     operator: booking.operator,
     seat: booking.seat,
     notes: booking.notes || notes,
-    attachments: booking.attachments,
+    attachments: attachmentPaths(app, booking.attachments, booking.file.path),
     legs: readLegs(fm?.legs),
     returnLegs: readLegs(fm?.return_legs)
   };
@@ -10418,7 +10421,7 @@ var TravelPlannerPlugin = class extends import_obsidian38.Plugin {
         currency: existing.amount.currency,
         category: existing.category,
         paidBy: existing.paidBy,
-        attachments: existing.attachments
+        attachments: attachmentPaths(this.app, existing.attachments, existing.file.path)
       } : void 0
     ).open();
   }

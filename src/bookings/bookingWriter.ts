@@ -7,6 +7,7 @@ import { airportFromLabel } from "../ui/components/suggest";
 import { legsToFrontmatter, layoverMinutes, formatLayover, type FlightLeg } from "./legs";
 import { readLegs as legsFromFrontmatter } from "./flightSummary";
 import type { Booking } from "./types";
+import { fileFromLink } from "./bookingStore";
 import { customSections, sectionText } from "./noteSections";
 
 export interface BookingDraft {
@@ -121,6 +122,17 @@ export function countAttachmentsNamed(
   return folder.children.filter(
     (child) => child instanceof TFile && child.basename.toLowerCase().startsWith(prefix),
   ).length;
+}
+
+/**
+ * The reverse of `linksFor`: a saved note stores markdown links, but the form
+ * works in vault paths. Feeding the links back in unchanged resolved to nothing
+ * and quietly dropped every attachment on the first edit.
+ */
+export function attachmentPaths(app: App, links: string[], sourcePath: string): string[] {
+  return links
+    .map((link) => fileFromLink(app, link, sourcePath)?.path ?? null)
+    .filter((path): path is string => path !== null);
 }
 
 function linksFor(app: App, paths: string[], sourcePath: string): string[] {
@@ -310,7 +322,7 @@ export async function draftFromBooking(
     operator: booking.operator,
     seat: booking.seat,
     notes: booking.notes || notes,
-    attachments: booking.attachments,
+    attachments: attachmentPaths(app, booking.attachments, booking.file.path),
     legs: legsFromFrontmatter(fm?.legs),
     returnLegs: legsFromFrontmatter(fm?.return_legs),
   };

@@ -17,6 +17,7 @@ import { ProgressCache } from "./store/noteProgress";
 import { BookingStore, totalsByCategory } from "./bookings/bookingStore";
 import type { Booking, BookingKind, Expense } from "./bookings/types";
 import {
+  attachmentPaths,
   createBooking,
   createExpense,
   draftFromBooking,
@@ -419,7 +420,7 @@ export default class TravelPlannerPlugin extends Plugin {
             currency: existing.amount.currency,
             category: existing.category,
             paidBy: existing.paidBy,
-            attachments: existing.attachments,
+            attachments: attachmentPaths(this.app, existing.attachments, existing.file.path),
           }
         : undefined,
     ).open();
