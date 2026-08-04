@@ -370,6 +370,19 @@ test("visa rules resolve for a Dutch passport", () => {
   assert.equal(home.outcome, "same-country");
 });
 
+test("each outcome reads as a sentence", () => {
+  // One template produced "does not need no visa needed for Croatia".
+  const free = m.checkVisa("Netherlands", "Croatia");
+  assert.equal(/does not need no/.test(free.detail), false, free.detail);
+  assert.match(free.detail, /Netherlands passport allows up to \d+ days|needs no visa/);
+
+  for (const destination of ["United States", "India", "China", "Brazil", "Japan"]) {
+    const check = m.checkVisa("Netherlands", destination);
+    assert.equal(/\bnot need no\b|\bneeds no visa needed\b/.test(check.detail), false, check.detail);
+    assert.ok(check.detail.endsWith("."), `not a sentence: ${check.detail}`);
+  }
+});
+
 test("an unknown combination says so rather than implying it is fine", () => {
   const check = m.checkVisa("Atlantis", "Croatia");
   assert.equal(check.outcome, "unknown");

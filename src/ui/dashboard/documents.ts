@@ -88,6 +88,9 @@ function renderAdvice(parent: HTMLElement, ctx: DashboardContext): void {
   const { trip, plugin } = ctx;
   if (!trip || !plugin.settings.travelAdviceEnabled) return;
 
+  // Missing or a day old: fetched once, quietly, in the background.
+  plugin.ensureAdvice(trip.country, ctx.refresh);
+
   const url = adviceUrlFor(trip.country);
   const advice = plugin.peekAdvice(trip.country);
   const list = parent.createDiv({ cls: "tp-doc-list-rows" });
@@ -119,7 +122,7 @@ function renderAdvice(parent: HTMLElement, ctx: DashboardContext): void {
   body.createDiv({ cls: "tp-doc-item-detail", text: meaning.detail });
   if (isStale(advice)) {
     // Advice more than a day old is not something to plan around.
-    body.createDiv({ cls: "tp-doc-item-warn", text: "Checked over a day ago — check again." });
+    body.createDiv({ cls: "tp-doc-item-warn", text: "Over a day old — refreshing." });
   }
 
   row.createDiv({ cls: `tp-doc-badge is-advice-${advice.colour}`, text: meaning.label });

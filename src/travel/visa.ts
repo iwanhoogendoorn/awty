@@ -44,13 +44,51 @@ export function passportCountries(): string[] {
     .sort((a, b) => a.localeCompare(b));
 }
 
-const OUTCOMES: Record<string, { outcome: VisaOutcome; label: string; action: boolean }> = {
-  F: { outcome: "visa-free", label: "No visa needed", action: false },
-  A: { outcome: "visa-on-arrival", label: "Visa on arrival", action: true },
-  E: { outcome: "e-visa", label: "e-Visa required", action: true },
-  T: { outcome: "eta", label: "Travel authorisation (ETA) required", action: true },
-  R: { outcome: "visa-required", label: "Visa required", action: true },
-  N: { outcome: "no-admission", label: "Entry not permitted", action: true },
+interface OutcomeSpec {
+  outcome: VisaOutcome;
+  label: string;
+  action: boolean;
+  /** Written per outcome; one template produced "does not need no visa needed". */
+  sentence: (passport: string, destination: string) => string;
+}
+
+const OUTCOMES: Record<string, OutcomeSpec> = {
+  F: {
+    outcome: "visa-free",
+    label: "No visa needed",
+    action: false,
+    sentence: (p, d) => `A ${p} passport needs no visa for ${d}.`,
+  },
+  A: {
+    outcome: "visa-on-arrival",
+    label: "Visa on arrival",
+    action: true,
+    sentence: (p, d) => `A ${p} passport gets a visa on arrival in ${d}.`,
+  },
+  E: {
+    outcome: "e-visa",
+    label: "e-Visa required",
+    action: true,
+    sentence: (p, d) => `A ${p} passport needs an e-Visa for ${d}, arranged before you travel.`,
+  },
+  T: {
+    outcome: "eta",
+    label: "Travel authorisation required",
+    action: true,
+    sentence: (p, d) => `A ${p} passport needs travel authorisation for ${d}, arranged before you fly.`,
+  },
+  R: {
+    outcome: "visa-required",
+    label: "Visa required",
+    action: true,
+    sentence: (p, d) => `A ${p} passport needs a visa for ${d}, arranged before you travel.`,
+  },
+  N: {
+    outcome: "no-admission",
+    label: "Entry not permitted",
+    action: true,
+    sentence: (p, d) => `${d} does not admit holders of a ${p} passport.`,
+  },
 };
 
 /**
@@ -120,10 +158,7 @@ export function checkVisa(passportCountry: string, destinationCountry: string): 
       outcome: spec.outcome,
       label: spec.label,
       actionNeeded: spec.action,
-      detail:
-        spec.outcome === "no-admission"
-          ? `${destinationCountry} does not admit holders of a ${passportCountry} passport.`
-          : `A ${passportCountry} passport ${spec.action ? "needs" : "does not need"} ${spec.label.toLowerCase()} for ${destinationCountry}.`,
+      detail: spec.sentence(passportCountry, destinationCountry),
     };
   }
 

@@ -7,6 +7,8 @@ import type { Booking } from "../bookings/types";
 import { parseISO } from "../util/dates";
 
 export interface TravelCache {
+  /** Country -> the last advice fetched for it, with when. */
+  advice?: Record<string, { colour: string; url: string; fetchedAt: number }>;
   /** legKey -> result. */
   legs: Record<string, { d: number; t: number; at: number }>;
   /** Lowercased address -> "lat,lng". */
@@ -14,7 +16,7 @@ export interface TravelCache {
 }
 
 export function emptyTravelCache(): TravelCache {
-  return { legs: {}, geocode: {} };
+  return { legs: {}, geocode: {}, advice: {} };
 }
 
 export interface TripPlaces {

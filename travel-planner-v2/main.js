@@ -2220,12 +2220,42 @@ function iso2ForCountry(name) {
   return ISO2_BY_NAME.get(fold(name.trim())) ?? null;
 }
 var OUTCOMES = {
-  F: { outcome: "visa-free", label: "No visa needed", action: false },
-  A: { outcome: "visa-on-arrival", label: "Visa on arrival", action: true },
-  E: { outcome: "e-visa", label: "e-Visa required", action: true },
-  T: { outcome: "eta", label: "Travel authorisation (ETA) required", action: true },
-  R: { outcome: "visa-required", label: "Visa required", action: true },
-  N: { outcome: "no-admission", label: "Entry not permitted", action: true }
+  F: {
+    outcome: "visa-free",
+    label: "No visa needed",
+    action: false,
+    sentence: (p, d) => `A ${p} passport needs no visa for ${d}.`
+  },
+  A: {
+    outcome: "visa-on-arrival",
+    label: "Visa on arrival",
+    action: true,
+    sentence: (p, d) => `A ${p} passport gets a visa on arrival in ${d}.`
+  },
+  E: {
+    outcome: "e-visa",
+    label: "e-Visa required",
+    action: true,
+    sentence: (p, d) => `A ${p} passport needs an e-Visa for ${d}, arranged before you travel.`
+  },
+  T: {
+    outcome: "eta",
+    label: "Travel authorisation required",
+    action: true,
+    sentence: (p, d) => `A ${p} passport needs travel authorisation for ${d}, arranged before you fly.`
+  },
+  R: {
+    outcome: "visa-required",
+    label: "Visa required",
+    action: true,
+    sentence: (p, d) => `A ${p} passport needs a visa for ${d}, arranged before you travel.`
+  },
+  N: {
+    outcome: "no-admission",
+    label: "Entry not permitted",
+    action: true,
+    sentence: (p, d) => `${d} does not admit holders of a ${p} passport.`
+  }
 };
 function checkVisa(passportCountry, destinationCountry) {
   const passport = iso2ForCountry(passportCountry);
@@ -2280,7 +2310,7 @@ function checkVisa(passportCountry, destinationCountry) {
       outcome: spec.outcome,
       label: spec.label,
       actionNeeded: spec.action,
-      detail: spec.outcome === "no-admission" ? `${destinationCountry} does not admit holders of a ${passportCountry} passport.` : `A ${passportCountry} passport ${spec.action ? "needs" : "does not need"} ${spec.label.toLowerCase()} for ${destinationCountry}.`
+      detail: spec.sentence(passportCountry, destinationCountry)
     };
   }
   return {
@@ -2409,6 +2439,7 @@ function renderVisa(parent, ctx) {
 function renderAdvice(parent, ctx) {
   const { trip, plugin } = ctx;
   if (!trip || !plugin.settings.travelAdviceEnabled) return;
+  plugin.ensureAdvice(trip.country, ctx.refresh);
   const url = adviceUrlFor(trip.country);
   const advice = plugin.peekAdvice(trip.country);
   const list3 = parent.createDiv({ cls: "tp-doc-list-rows" });
@@ -2434,7 +2465,7 @@ function renderAdvice(parent, ctx) {
   body.createDiv({ cls: "tp-doc-item-title", text: `Travel advice: ${meaning.label}` });
   body.createDiv({ cls: "tp-doc-item-detail", text: meaning.detail });
   if (isStale(advice)) {
-    body.createDiv({ cls: "tp-doc-item-warn", text: "Checked over a day ago \u2014 check again." });
+    body.createDiv({ cls: "tp-doc-item-warn", text: "Over a day old \u2014 refreshing." });
   }
   row2.createDiv({ cls: `tp-doc-badge is-advice-${advice.colour}`, text: meaning.label });
   appendLink(row2, advice.url);
@@ -6089,7 +6120,7 @@ function describe(status, message, what) {
 
 // src/travel/travelService.ts
 function emptyTravelCache() {
-  return { legs: {}, geocode: {} };
+  return { legs: {}, geocode: {}, advice: {} };
 }
 var TravelUnavailable = class extends Error {
 };
@@ -8795,14 +8826,8 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
     this.travelPlaces = /* @__PURE__ */ new Map();
     /** Wall-clock time this build was loaded, shown in settings to spot a stale plugin. */
     this.loadedAt = "";
-    /**
-     * Travel advice, held in memory only.
-     *
-     * Deliberately not written to disk: it is safety guidance that can change
-     * overnight, and a stored answer would outlive the situation it described —
-     * and linger after the trip it was fetched for is deleted.
-     */
-    this.adviceCache = /* @__PURE__ */ new Map();
+    /** Countries already attempted this session, so a failure is not retried on every render. */
+    this.adviceTried = /* @__PURE__ */ new Set();
   }
   async onload() {
     this.loadedAt = (/* @__PURE__ */ new Date()).toLocaleTimeString();
@@ -8965,7 +8990,8 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
     this.settings.subNotesByKind = merged;
     this.travelCache = {
       legs: raw?.travelCache?.legs ?? {},
-      geocode: raw?.travelCache?.geocode ?? {}
+      geocode: raw?.travelCache?.geocode ?? {},
+      advice: raw?.travelCache?.advice ?? {}
     };
   }
   async persist() {
@@ -9059,7 +9085,31 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
   }
   /** Cached advice for a country, without touching the network. */
   peekAdvice(country) {
-    return this.adviceCache.get(country) ?? null;
+    const hit = this.travelCache.advice?.[country];
+    if (!hit) return null;
+    return {
+      colour: hit.colour,
+      country,
+      url: hit.url,
+      fetchedAt: hit.fetchedAt
+    };
+  }
+  /**
+   * Refreshes advice that is missing or a day old, once per country per session.
+   *
+   * The last answer is kept across restarts so the panel is not blank every
+   * time Obsidian opens, and re-fetched when it ages out — which is what makes
+   * it current rather than merely remembered. Nothing is fetched when the
+   * feature is off.
+   */
+  ensureAdvice(country, onDone) {
+    if (!country || !this.settings.travelAdviceEnabled) return;
+    if (this.adviceTried.has(country)) return;
+    const cached = this.peekAdvice(country);
+    if (cached && !isStale(cached)) return;
+    if (!adviceUrlFor(country)) return;
+    this.adviceTried.add(country);
+    void this.refreshAdvice(country, onDone, true);
   }
   /**
    * Fetches the Dutch government travel advice for a country.
@@ -9068,21 +9118,31 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
    * nederlandwereldwijd.nl, and safety advice that is a week stale is worse
    * than none.
    */
-  async refreshAdvice(country, onDone) {
+  async refreshAdvice(country, onDone, quiet = false) {
     if (!country) {
       new import_obsidian37.Notice("Set a country on the trip first.");
       return;
     }
-    const notice = new import_obsidian37.Notice("Checking travel advice\u2026", 0);
+    const notice = quiet ? null : new import_obsidian37.Notice("Checking travel advice\u2026", 0);
     try {
       const advice = await fetchAdvice(country);
-      this.adviceCache.set(country, advice);
-      notice.hide();
-      new import_obsidian37.Notice(`${country}: code ${ADVICE_MEANING[advice.colour].label.toLowerCase()}.`);
+      if (!this.travelCache.advice) this.travelCache.advice = {};
+      this.travelCache.advice[country] = {
+        colour: advice.colour,
+        url: advice.url,
+        fetchedAt: advice.fetchedAt
+      };
+      await this.persist();
+      notice?.hide();
+      if (!quiet) new import_obsidian37.Notice(`${country}: code ${ADVICE_MEANING[advice.colour].label.toLowerCase()}.`);
       onDone?.();
       this.refreshViews();
     } catch (err) {
-      notice.hide();
+      notice?.hide();
+      if (quiet) {
+        console.error("[travel-planner] advice refresh failed", err);
+        return;
+      }
       const message = err instanceof AdviceUnavailable ? err.message : err instanceof Error ? err.message : "Could not fetch travel advice.";
       new import_obsidian37.Notice(`Travel Planner: ${message}`, 8e3);
       console.error("[travel-planner]", err);
@@ -9208,7 +9268,7 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
       try {
         const count = await deleteTrip(this.app, trip);
         this.travelPlaces.delete(trip.folderPath);
-        if (trip.country) this.adviceCache.delete(trip.country);
+        if (trip.country && this.travelCache.advice) delete this.travelCache.advice[trip.country];
         await this.travel.forgetTrip(trip);
         new import_obsidian37.Notice(`Deleted \u201C${trip.title}\u201D (${count} file${count === 1 ? "" : "s"}).`);
         this.bookings.invalidate();

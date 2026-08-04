@@ -39,7 +39,14 @@ import {
   type TripPlaces,
 } from "./travel/travelService";
 import { travelTable } from "./ui/dashboard/gettingAround";
-import { ADVICE_MEANING, AdviceUnavailable, fetchAdvice, type TravelAdvice } from "./travel/advice";
+import {
+  ADVICE_MEANING,
+  AdviceUnavailable,
+  adviceUrlFor,
+  fetchAdvice,
+  isStale,
+  type TravelAdvice,
+} from "./travel/advice";
 import { replaceSection } from "./store/sectionWriter";
 import { exportTrip } from "./export/pdfExport";
 import { createTrip, deleteTrip, notifyError, updateTrip } from "./store/noteWriter";
@@ -69,14 +76,8 @@ export default class TravelPlannerPlugin extends Plugin {
   travelPlaces = new Map<string, TripPlaces>();
   /** Wall-clock time this build was loaded, shown in settings to spot a stale plugin. */
   loadedAt = "";
-  /**
-   * Travel advice, held in memory only.
-   *
-   * Deliberately not written to disk: it is safety guidance that can change
-   * overnight, and a stored answer would outlive the situation it described —
-   * and linger after the trip it was fetched for is deleted.
-   */
-  private adviceCache = new Map<string, TravelAdvice>();
+  /** Countries already attempted this session, so a failure is not retried on every render. */
+  private adviceTried = new Set<string>();
 
   async onload(): Promise<void> {
     this.loadedAt = new Date().toLocaleTimeString();
@@ -271,6 +272,7 @@ export default class TravelPlannerPlugin extends Plugin {
     this.travelCache = {
       legs: raw?.travelCache?.legs ?? {},
       geocode: raw?.travelCache?.geocode ?? {},
+      advice: raw?.travelCache?.advice ?? {},
     };
   }
 
@@ -379,7 +381,34 @@ export default class TravelPlannerPlugin extends Plugin {
 
   /** Cached advice for a country, without touching the network. */
   peekAdvice(country: string): TravelAdvice | null {
-    return this.adviceCache.get(country) ?? null;
+    const hit = this.travelCache.advice?.[country];
+    if (!hit) return null;
+    return {
+      colour: hit.colour as TravelAdvice["colour"],
+      country,
+      url: hit.url,
+      fetchedAt: hit.fetchedAt,
+    };
+  }
+
+  /**
+   * Refreshes advice that is missing or a day old, once per country per session.
+   *
+   * The last answer is kept across restarts so the panel is not blank every
+   * time Obsidian opens, and re-fetched when it ages out — which is what makes
+   * it current rather than merely remembered. Nothing is fetched when the
+   * feature is off.
+   */
+  ensureAdvice(country: string, onDone?: () => void): void {
+    if (!country || !this.settings.travelAdviceEnabled) return;
+    if (this.adviceTried.has(country)) return;
+
+    const cached = this.peekAdvice(country);
+    if (cached && !isStale(cached)) return;
+    if (!adviceUrlFor(country)) return;
+
+    this.adviceTried.add(country);
+    void this.refreshAdvice(country, onDone, true);
   }
 
   /**
@@ -389,21 +418,32 @@ export default class TravelPlannerPlugin extends Plugin {
    * nederlandwereldwijd.nl, and safety advice that is a week stale is worse
    * than none.
    */
-  async refreshAdvice(country: string, onDone?: () => void): Promise<void> {
+  async refreshAdvice(country: string, onDone?: () => void, quiet = false): Promise<void> {
     if (!country) {
       new Notice("Set a country on the trip first.");
       return;
     }
-    const notice = new Notice("Checking travel advice…", 0);
+    const notice = quiet ? null : new Notice("Checking travel advice…", 0);
     try {
       const advice = await fetchAdvice(country);
-      this.adviceCache.set(country, advice);
-      notice.hide();
-      new Notice(`${country}: code ${ADVICE_MEANING[advice.colour].label.toLowerCase()}.`);
+      if (!this.travelCache.advice) this.travelCache.advice = {};
+      this.travelCache.advice[country] = {
+        colour: advice.colour,
+        url: advice.url,
+        fetchedAt: advice.fetchedAt,
+      };
+      await this.persist();
+      notice?.hide();
+      // An automatic refresh should not announce itself.
+      if (!quiet) new Notice(`${country}: code ${ADVICE_MEANING[advice.colour].label.toLowerCase()}.`);
       onDone?.();
       this.refreshViews();
     } catch (err) {
-      notice.hide();
+      notice?.hide();
+      if (quiet) {
+        console.error("[travel-planner] advice refresh failed", err);
+        return;
+      }
       const message =
         err instanceof AdviceUnavailable
           ? err.message
@@ -559,7 +599,7 @@ export default class TravelPlannerPlugin extends Plugin {
         // Nothing about the trip should survive it: places, cached routes and
         // the advice fetched for its country all go too.
         this.travelPlaces.delete(trip.folderPath);
-        if (trip.country) this.adviceCache.delete(trip.country);
+        if (trip.country && this.travelCache.advice) delete this.travelCache.advice[trip.country];
         await this.travel.forgetTrip(trip);
         new Notice(`Deleted “${trip.title}” (${count} file${count === 1 ? "" : "s"}).`);
         this.bookings.invalidate();
