@@ -164,3 +164,64 @@ export function renderPackingPlan(plan: PackingPlan): string {
   }
   return out.join("\n");
 }
+
+/**
+ * Whatever someone wrote in a packing note that is not a tick box.
+ *
+ * Saving the list rebuilds the body from the tick boxes alone, so a paragraph
+ * of instructions, a quote or a link typed into the note simply vanished. This
+ * gathers it back, grouped by the heading it was written under, so the rebuild
+ * can put it where it was.
+ */
+export interface PackingExtras {
+  /** Lines above the first heading. */
+  preamble: string[];
+  /** Heading title -> the non-task lines written under it. */
+  bySection: Map<string, string[]>;
+}
+
+/** The generated callout, which is rewritten and must not accumulate. */
+const GENERATED_CALLOUT = /^>\s*(\d+ days? —|Quantities )/;
+
+export function readPackingExtras(content: string): PackingExtras {
+  const extras: PackingExtras = { preamble: [], bySection: new Map() };
+  let section: string | null = null;
+  let fenced = false;
+
+  for (const raw of content.split("\n")) {
+    const line = raw.trim();
+
+    if (/^(```|~~~)/.test(line)) {
+      fenced = !fenced;
+      push(raw);
+      continue;
+    }
+    if (!fenced) {
+      if (/^#\s/.test(line)) continue;
+      const heading = /^##\s+(.+)$/.exec(line);
+      if (heading) {
+        section = heading[1].trim();
+        if (!extras.bySection.has(section)) extras.bySection.set(section, []);
+        continue;
+      }
+      if (/^[-*]\s+\[( |x|X)\]\s+/.test(line)) continue;
+      if (GENERATED_CALLOUT.test(line)) continue;
+    }
+    push(raw);
+  }
+
+  function push(raw: string): void {
+    const bucket = section === null ? extras.preamble : extras.bySection.get(section)!;
+    bucket.push(raw);
+  }
+
+  // Trailing blank lines are formatting, not content.
+  trim(extras.preamble);
+  for (const lines of extras.bySection.values()) trim(lines);
+  return extras;
+}
+
+function trim(lines: string[]): void {
+  while (lines.length && lines[0].trim() === "") lines.shift();
+  while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
+}

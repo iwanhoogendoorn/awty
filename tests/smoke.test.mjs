@@ -29,7 +29,7 @@ export { CREATABLE_SUB_NOTES, SUB_NOTE_LABELS, KINDS } from "./src/types.ts";
 export { parseAdviceColour, adviceUrlFor, isStale, ADVICE_TTL_MS } from "./src/travel/adviceData.ts";
 export { AIRPORTS } from "./src/data/airports.ts";
 export { AIRLINES, airlineLabel } from "./src/data/airlines.ts";
-export { buildPackingPlan, effectiveDays, renderPackingPlan } from "./src/store/packing.ts";
+export { buildPackingPlan, effectiveDays, renderPackingPlan, readPackingExtras } from "./src/store/packing.ts";
 export { parseAmount, formatMoney, sumMoney, formatTotals } from "./src/util/money.ts";
 export {
   parseLocation,
@@ -567,13 +567,40 @@ test("a day's own prose is read back, but generated links are not", () => {
     "",
   ].join("\n");
 
-  const day = m.readDaySections(note, "2026-08-17");
+  // Only links naming a real activity are the plugin's to rebuild.
+  const generated = new Set(["Old town walls walk", "Shopping"]);
+  const day = m.readDaySections(note, "2026-08-17", generated);
   assert.equal(day.morning, "Breakfast at the apartment");
-  assert.equal(day.afternoon, "", "a slot with only links has no prose");
+  assert.equal(day.afternoon, "", "a slot with only generated links has no prose");
   assert.equal(day.evening, "Drinks on the terrace");
 
-  assert.equal(m.readDaySections(note, "2026-08-18").morning, "Different day, must not leak");
-  assert.equal(m.readDaySections(note, "2026-08-19").morning, "", "an absent day is empty");
+  assert.equal(
+    m.readDaySections(note, "2026-08-18", generated).morning,
+    "Different day, must not leak",
+  );
+  assert.equal(m.readDaySections(note, "2026-08-19", generated).morning, "", "an absent day is empty");
+});
+
+test("re-planning a day keeps its shape and its hand-written links", () => {
+  // Every line was trimmed, every blank line dropped, and every standalone
+  // "- [[link]]" deleted as though the plugin had written it.
+  const note = [
+    "## 2026-08-17",
+    "",
+    "### Morning",
+    "Two things to sort:",
+    "",
+    "  - ferry tickets",
+    "  - cash for the cable car",
+    "",
+    "- [[Personal note]]",
+    "- [[Old town walls walk]]",
+    "",
+  ].join("\n");
+  const day = m.readDaySections(note, "2026-08-17", new Set(["Old town walls walk"]));
+  assert.match(day.morning, /^Two things to sort:\n\n {2}- ferry tickets/, day.morning);
+  assert.match(day.morning, /- \[\[Personal note\]\]/, "a hand-written link is not generated");
+  assert.ok(!day.morning.includes("Old town walls walk"), "the activity link is rebuilt");
 });
 
 test("packing counts as done once the list exists", () => {
@@ -1272,6 +1299,82 @@ const BOOKING_NOTE = [
   "",
   "- [[confirmation.pdf]]",
 ].join("\n");
+
+test("saving the packing list does not delete the prose around it", () => {
+  // Save rebuilt the body from tick boxes alone, so anything else was lost.
+  const note = [
+    "# Packing List — Dubrovnik",
+    "",
+    "> Quantities calculated for 8 days.",
+    "",
+    "Everything goes in the blue case.",
+    "",
+    "## Documents",
+    "",
+    "- [x] Passport / ID",
+    "",
+    "Zaara keeps the EHIC cards.",
+    "",
+    "## Clothing",
+    "",
+    "- [ ] T-shirts ×5",
+  ].join("\n");
+  const extras = m.readPackingExtras(note);
+  assert.deepEqual(extras.preamble, ["Everything goes in the blue case."]);
+  assert.deepEqual(extras.bySection.get("Documents"), ["Zaara keeps the EHIC cards."]);
+  assert.deepEqual(extras.bySection.get("Clothing"), []);
+  // The generated callout is rewritten every save and must not pile up.
+  assert.ok(!extras.preamble.join(" ").includes("Quantities calculated"));
+});
+
+test("prose typed above the first heading survives an edit", () => {
+  // The generated preamble is a title and one table; anything else up there was
+  // typed by a person. Keeping only text under an unowned "##" threw it away.
+  const note = [
+    "# Rausion Luxury Apartments",
+    "",
+    "| | |",
+    "|---|---|",
+    "| **Status** | booked |",
+    "",
+    "Call the hotel the day before — they hold the key at the bar.",
+    "",
+    "## Notes",
+    "",
+    "Ask for the top-floor flat.",
+  ].join("\n");
+  const kept = m.customSections(note);
+  assert.match(kept, /Call the hotel the day before/);
+  assert.ok(!kept.includes("**Status**"), "the generated table is regenerated, not kept");
+  assert.ok(!kept.includes("Rausion Luxury Apartments"), "nor the generated title");
+  assert.ok(!kept.includes("Ask for the top-floor flat"), "Notes is regenerated");
+});
+
+test("a heading inside a code fence is not a section boundary", () => {
+  const note = [
+    "# Stay",
+    "",
+    "## Door instructions",
+    "",
+    "```md",
+    "## Attachments",
+    "example",
+    "```",
+    "",
+    "Then turn left.",
+  ].join("\n");
+  const kept = m.customSections(note);
+  assert.match(kept, /## Attachments/, "the fenced heading is content, not a boundary");
+  assert.match(kept, /example/);
+  assert.match(kept, /Then turn left\./);
+  // And the same when reading a section back into the form.
+  const notes = m.sectionText(
+    "## Notes\n\n```md\n## Attachments\n```\n\nkeep me\n\n## Door code\n\n4821",
+    "Notes",
+  );
+  assert.match(notes, /keep me/);
+  assert.ok(!notes.includes("4821"), "a real later heading still ends the section");
+});
 
 test("editing a booking keeps what you wrote by hand", () => {
   // The form regenerates the sections it owns. Anything else was typed by a

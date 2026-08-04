@@ -48,6 +48,13 @@ export function emptyDayDates(content: string): Set<string> {
 export function readDaySections(
   content: string,
   date: string,
+  /**
+   * Note names the plugin itself wrote as `- [[link]]` lines under this day.
+   * Only those are dropped: shape alone cannot tell a generated activity link
+   * from `- [[Personal note]]` typed by hand, and dropping both deleted the
+   * hand-written one on every re-plan.
+   */
+  generatedLinks: ReadonlySet<string> = new Set(),
 ): { morning: string; afternoon: string; evening: string } {
   const out = { morning: "", afternoon: "", evening: "" };
   const lines = content.split("\n");
@@ -74,10 +81,15 @@ export function readDaySections(
       slot = slotHeading[1].toLowerCase() as keyof typeof out;
       continue;
     }
-    if (!slot || line.length === 0) continue;
+    if (!slot) continue;
+
     // Generated activity links are rebuilt from the bookings, not carried.
-    if (/^-\s*\[\[.*\]\]\s*$/.test(line)) continue;
-    collected[slot].push(line);
+    const link = /^-\s*\[\[([^\]|]+)(?:\|[^\]]*)?\]\]\s*$/.exec(line);
+    if (link && generatedLinks.has(link[1].trim())) continue;
+
+    // Blank lines and indentation are the shape of what someone wrote. They
+    // used to be stripped, which collapsed paragraphs and lists into one block.
+    collected[slot].push(raw);
   }
 
   for (const key of Object.keys(out) as (keyof typeof out)[]) {

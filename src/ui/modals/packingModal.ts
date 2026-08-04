@@ -2,7 +2,7 @@ import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { Trip } from "../../types";
 import { kindDef } from "../../types";
-import { buildPackingPlan } from "../../store/packing";
+import { readPackingExtras, buildPackingPlan } from "../../store/packing";
 import { ensureSubNote, subNoteFile } from "../../store/sectionWriter";
 import { daysBetween } from "../../util/dates";
 
@@ -279,22 +279,36 @@ export class PackingModal extends Modal {
       const file = await ensureSubNote(this.app, this.trip, "packing");
       const included = this.rows.filter((r) => r.include);
 
+      // The body is rebuilt from the tick boxes, so anything else written in
+      // the note has to be carried over or it is destroyed on save.
+      const content = await this.app.vault.read(file);
+      const extras = readPackingExtras(content);
+
       const out: string[] = [`# Packing List — ${this.trip.title}`, ""];
       if (this.packFor.size > 1) {
         out.push(`> Quantities for ${[...this.packFor].join(", ")}.`, "");
       }
+      if (extras.preamble.length) out.push(...extras.preamble, "");
 
-      for (const section of [...new Set(included.map((r) => r.section))]) {
+      const sections = [...new Set(included.map((r) => r.section))];
+      for (const section of sections) {
         out.push(`## ${section}`);
         for (const row of included.filter((r) => r.section === section)) {
           const qty = this.quantityFor(row);
           out.push(`- [${row.packed ? "x" : " "}] ${row.label}${qty !== null ? ` ×${qty}` : ""}`);
         }
+        const written = extras.bySection.get(section);
+        if (written?.length) out.push("", ...written);
         out.push("");
       }
 
+      // A heading whose items were all excluded still keeps its prose.
+      for (const [section, written] of extras.bySection) {
+        if (sections.includes(section) || written.length === 0) continue;
+        out.push(`## ${section}`, "", ...written, "");
+      }
+
       // Frontmatter is preserved; only the body below it is rewritten.
-      const content = await this.app.vault.read(file);
       const fmEnd = content.startsWith("---") ? content.indexOf("\n---", 3) : -1;
       const head = fmEnd === -1 ? "" : `${content.slice(0, fmEnd + 4)}\n\n`;
       await this.app.vault.modify(file, head + out.join("\n"));
