@@ -49,7 +49,7 @@ export { customSections, customParts, weaveKept, sectionText } from "./src/booki
 export { bookingBody, expenseBody } from "./src/bookings/noteBody.ts";
 export { budgetPlanTable, budgetLinesTable } from "./src/bookings/budgetTables.ts";
 export { readLegacyFoodTable } from "./src/bookings/legacyFood.ts";
-export { tripKml, directionsLink, placeLink, MAX_WAYPOINTS } from "./src/export/mapsExport.ts";
+export { tripKml, tripMapNote, directionsLink, placeLink, MAX_WAYPOINTS, MY_MAPS_URL } from "./src/export/mapsExport.ts";
 export { looksLikeMoreJourneys } from "./src/bookings/legs.ts";
 export { zoneForAirport, utcToLocal, localiseLegs } from "./src/flights/localTime.ts";
 export { linkTarget } from "./src/bookings/linkTarget.ts";
@@ -1597,6 +1597,12 @@ test("a trip's places export as a map file", () => {
   assert.equal((capped.match(/%7C/g) ?? []).length, m.MAX_WAYPOINTS - 1);
 
   assert.match(m.placeLink(places[1]), /query=42\.6501%2C18\.0876/);
+
+  // The phone note: one tap opens the place, ready to Save into a Google list.
+  const note = m.tripMapNote("Dubrovnik", places, m.MY_MAPS_URL);
+  assert.match(note, /## Airport\n\n- \[Dubrovnik \(DBV\)\]\(https:\/\/www\.google\.com\/maps\/search/);
+  assert.match(note, /\[Rausion\]\([^)]+\) — Kranjčevića 25 · 17 – 24 Aug · €1,456/);
+  assert.ok(!note.includes("No idea"), "unplaceable places are left out of both");
 });
 
 test("a table booked before this change is not thrown away", () => {

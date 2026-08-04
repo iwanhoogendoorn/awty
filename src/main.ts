@@ -44,7 +44,7 @@ import {
 import { travelTable } from "./ui/dashboard/gettingAround";
 import { groupByOrigin, itineraryPairs } from "./travel/routePlan";
 import { ensureFoodSpot } from "./food/foodSpot";
-import { MY_MAPS_URL, tripKml, type MapPlace } from "./export/mapsExport";
+import { MY_MAPS_URL, tripKml, tripMapNote, type MapPlace } from "./export/mapsExport";
 import { datesInRange, formatDateRange } from "./util/dates";
 import { formatMoney } from "./util/money";
 import { joinPath, sanitizeName } from "./util/paths";
@@ -628,11 +628,24 @@ export default class AwtyPlugin extends Plugin {
     if (existing instanceof TFile) await this.app.vault.modify(existing, kml);
     else await this.app.vault.create(path, kml);
 
+    // The companion note is the one that helps on a phone: tap a place, tap
+    // Save. Google's lists are built by hand and no link creates one, so the
+    // most that can be done is remove the searching.
+    const notePath = joinPath(trip.folderPath, `${sanitizeName(trip.title)} places.md`);
+    const note = tripMapNote(trip.title, places, MY_MAPS_URL);
+    const existingNote = this.app.vault.getAbstractFileByPath(notePath);
+    if (existingNote instanceof TFile) await this.app.vault.modify(existingNote, note);
+    else await this.app.vault.create(notePath, note);
+
     await navigator.clipboard.writeText(MY_MAPS_URL).catch(() => undefined);
     new Notice(
-      `${places.length} places written to "${name}". Google has no link that makes a saved ` +
-        `list, so: open My Maps (link copied), Create a new map, Import, and choose that file.`,
+      `${places.length} places. Import "${name}" into Google My Maps (link copied) for the whole ` +
+        `trip on one map, or open the new "places" note on your phone and tap each one to save it ` +
+        `to a Google list.`,
       15000,
+    );
+    await this.openInWorkspace(
+      this.app.vault.getAbstractFileByPath(notePath) as TFile,
     );
   }
 

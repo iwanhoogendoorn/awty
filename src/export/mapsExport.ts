@@ -104,6 +104,43 @@ export function tripKml(title: string, places: MapPlace[]): string {
   ].join("\n");
 }
 
+/**
+ * A note of tap-to-open links, one per place.
+ *
+ * Google's saved lists are built by hand — search a place, open its card, tap
+ * Save — and no link or API creates one. What can be removed is the searching:
+ * open this note on the phone, tap a place, tap Save. That turns typing each
+ * name into two taps, and the list it builds is the shareable kind.
+ */
+export function tripMapNote(title: string, places: MapPlace[], mapsUrl: string): string {
+  // The same filter the KML applies, so the note and the map agree on what a
+  // place is: a name is not somewhere you can go.
+  const usable = places.filter((p) => p.location.trim() || p.address.trim());
+  const groups = [...new Set(usable.map((p) => p.group))];
+  const out = [
+    `# ${title} — places`,
+    "",
+    "Tap a place to open it in Google Maps, then **Save** it to a list. Google",
+    "builds lists by hand — nothing can create one for you — but this is the",
+    "list to work through, and it takes two taps each.",
+    "",
+    `For the whole trip on one map instead, import \`${title} map.kml\` into`,
+    `[Google My Maps](${mapsUrl}) — it then appears under Saved → Maps in the`,
+    "Google Maps app, and can be shared like any list.",
+    "",
+  ];
+
+  for (const group of groups) {
+    out.push(`## ${group}`, "");
+    for (const place of usable.filter((p) => p.group === group)) {
+      const detail = [place.address, place.detail].filter(Boolean).join(" · ");
+      out.push(`- [${place.name}](${placeLink(place)})${detail ? ` — ${detail}` : ""}`);
+    }
+    out.push("");
+  }
+  return out.join("\n");
+}
+
 /** Where My Maps' import lives, for the notice that explains the two clicks. */
 export const MY_MAPS_URL = "https://www.google.com/maps/d/";
 
