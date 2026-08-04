@@ -2,7 +2,7 @@ import { App, Notice, PluginSettingTab, Setting, setIcon } from "obsidian";
 import { TRAVEL_MODES } from "../travel/types";
 import type TravelPlannerPlugin from "../main";
 import type { SubNoteId, TripKind } from "../types";
-import { FOODSPOT_PLUGIN_ID, KINDS, SUB_NOTE_LABELS, kindDef } from "../types";
+import { CREATABLE_SUB_NOTES, FOODSPOT_PLUGIN_ID, KINDS, SUB_NOTE_LABELS, kindDef } from "../types";
 import { AirportSuggest, CitySuggest, CountrySuggest } from "../ui/components/suggest";
 
 export class TravelPlannerSettingTab extends PluginSettingTab {
@@ -399,7 +399,7 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
       .setDesc("Which sub-notes get created. These are the defaults; you can still tick and untick per trip.")
       .setHeading();
 
-    const ids = Object.keys(SUB_NOTE_LABELS) as SubNoteId[];
+    const ids = CREATABLE_SUB_NOTES;
 
     for (const def of KINDS) {
       const setting = new Setting(containerEl).setName(def.label);

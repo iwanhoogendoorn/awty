@@ -2,6 +2,7 @@ import { App, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import {
   DEFAULT_SETTINGS,
   FOODSPOT_PLUGIN_ID,
+  CREATABLE_SUB_NOTES,
   KINDS,
   TRAVEL_DASHBOARD_TYPE,
   TRAVEL_VIEW_TYPE,
@@ -254,10 +255,18 @@ export default class TravelPlannerPlugin extends Plugin {
     const saved = raw?.settings ?? raw ?? {};
     this.settings = { ...DEFAULT_SETTINGS, ...saved };
     // A kind added in a later version would otherwise have no entry at all.
-    this.settings.subNotesByKind = {
+    const merged = {
       ...DEFAULT_SETTINGS.subNotesByKind,
       ...(saved.subNotesByKind ?? {}),
     } as Record<TripKind, SubNoteId[]>;
+
+    // Settings saved before Event Details was folded into activities still ask
+    // for it, and saved settings win over defaults — so a new concert would
+    // keep getting a note nothing generates any more.
+    for (const kind of Object.keys(merged) as TripKind[]) {
+      merged[kind] = merged[kind].filter((id) => CREATABLE_SUB_NOTES.includes(id));
+    }
+    this.settings.subNotesByKind = merged;
 
     this.travelCache = {
       legs: raw?.travelCache?.legs ?? {},

@@ -104,6 +104,22 @@ export function isTripKind(value: unknown): value is TripKind {
   return typeof value === "string" && KIND_BY_ID.has(value as TripKind);
 }
 
+/**
+ * Sub-notes a new trip can create.
+ *
+ * `event-details` is absent: a concert is a trip with one headline activity,
+ * so the note is no longer generated. Its label stays in SUB_NOTE_LABELS so
+ * notes made by older versions still read.
+ */
+export const CREATABLE_SUB_NOTES: SubNoteId[] = [
+  "itinerary",
+  "packing",
+  "accommodation",
+  "transport",
+  "budget",
+  "food",
+];
+
 export const SUB_NOTE_LABELS: Record<SubNoteId, string> = {
   itinerary: "Itinerary",
   packing: "Packing List",

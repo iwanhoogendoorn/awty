@@ -1,7 +1,7 @@
 import { App, ButtonComponent, Modal, Notice, Setting, setIcon } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { SubNoteId, TravelPlannerSettings, Trip, TripDraft, TripKind } from "../../types";
-import { KINDS, SUB_NOTE_LABELS, kindDef } from "../../types";
+import { CREATABLE_SUB_NOTES, KINDS, SUB_NOTE_LABELS, kindDef } from "../../types";
 import { DateRangeField } from "../components/dateRange";
 import { AirportSuggest, CitySuggest, CountrySuggest, countryForCity } from "../components/suggest";
 import { isValidISODate, monthName, todayISO, yearOf } from "../../util/dates";
@@ -378,7 +378,7 @@ export class TripModal extends Modal {
   private renderSubNoteCheckboxes(): void {
     if (!this.subNoteSection) return;
     this.subNoteSection.empty();
-    const ids = Object.keys(SUB_NOTE_LABELS) as SubNoteId[];
+    const ids = CREATABLE_SUB_NOTES;
     for (const id of ids) {
       const label = this.subNoteSection.createEl("label", { cls: "tp-subnote" });
       const box = label.createEl("input");

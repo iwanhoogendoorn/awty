@@ -24,6 +24,7 @@ export { decodeQuotedPrintable, extractIcsFromEmail } from "./src/flights/parseC
 export { fold, rankMatches, flattenByRank, replaceLastToken } from "./src/util/search.ts";
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
 export { allCategories, COST_CATEGORIES } from "./src/bookings/types.ts";
+export { CREATABLE_SUB_NOTES, SUB_NOTE_LABELS, KINDS } from "./src/types.ts";
 export { parseAdviceColour, adviceUrlFor, isStale, ADVICE_TTL_MS } from "./src/travel/adviceData.ts";
 export { AIRPORTS } from "./src/data/airports.ts";
 export { AIRLINES, airlineLabel } from "./src/data/airlines.ts";
@@ -753,6 +754,24 @@ test("packing renders as checkboxes with quantities", () => {
   assert.match(md, /- \[ \] Underwear ×8/);
   assert.match(md, /- \[ \] Passport \/ ID$/m, "unquantified items carry no ×");
   assert.match(md, /Quantities calculated for 7 days/);
+});
+
+test("event-details is readable but never generated", () => {
+  // Folded into activities: a concert is a trip with one headline activity.
+  assert.equal(m.CREATABLE_SUB_NOTES.includes("event-details"), false);
+  // The label survives so notes made by older versions still render.
+  assert.ok(m.SUB_NOTE_LABELS["event-details"]);
+
+  for (const kind of m.KINDS) {
+    assert.equal(
+      kind.subNotes.includes("event-details"),
+      false,
+      `${kind.id} still defaults to event-details`,
+    );
+    for (const id of kind.subNotes) {
+      assert.ok(m.CREATABLE_SUB_NOTES.includes(id), `${kind.id} wants uncreatable ${id}`);
+    }
+  }
 });
 
 // ----------------------------------------------------------- categories

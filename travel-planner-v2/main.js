@@ -92,6 +92,14 @@ function kindDef(id) {
 function isTripKind(value) {
   return typeof value === "string" && KIND_BY_ID.has(value);
 }
+var CREATABLE_SUB_NOTES = [
+  "itinerary",
+  "packing",
+  "accommodation",
+  "transport",
+  "budget",
+  "food"
+];
 var SUB_NOTE_LABELS = {
   itinerary: "Itinerary",
   packing: "Packing List",
@@ -8078,7 +8086,7 @@ var TripModal = class _TripModal extends import_obsidian33.Modal {
   renderSubNoteCheckboxes() {
     if (!this.subNoteSection) return;
     this.subNoteSection.empty();
-    const ids = Object.keys(SUB_NOTE_LABELS);
+    const ids = CREATABLE_SUB_NOTES;
     for (const id of ids) {
       const label = this.subNoteSection.createEl("label", { cls: "tp-subnote" });
       const box = label.createEl("input");
@@ -8748,7 +8756,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
   }
   displayTemplates(containerEl) {
     new import_obsidian36.Setting(containerEl).setName("Notes per trip kind").setDesc("Which sub-notes get created. These are the defaults; you can still tick and untick per trip.").setHeading();
-    const ids = Object.keys(SUB_NOTE_LABELS);
+    const ids = CREATABLE_SUB_NOTES;
     for (const def of KINDS) {
       const setting = new import_obsidian36.Setting(containerEl).setName(def.label);
       const row2 = setting.controlEl.createDiv({ cls: "tp-settings-subnotes" });
@@ -8947,10 +8955,14 @@ var TravelPlannerPlugin = class extends import_obsidian37.Plugin {
     const raw = await this.loadData();
     const saved = raw?.settings ?? raw ?? {};
     this.settings = { ...DEFAULT_SETTINGS, ...saved };
-    this.settings.subNotesByKind = {
+    const merged = {
       ...DEFAULT_SETTINGS.subNotesByKind,
       ...saved.subNotesByKind ?? {}
     };
+    for (const kind of Object.keys(merged)) {
+      merged[kind] = merged[kind].filter((id) => CREATABLE_SUB_NOTES.includes(id));
+    }
+    this.settings.subNotesByKind = merged;
     this.travelCache = {
       legs: raw?.travelCache?.legs ?? {},
       geocode: raw?.travelCache?.geocode ?? {}
