@@ -21,6 +21,7 @@ interface NoteItem {
   label: string;
   icon: string;
   open: () => void;
+  remove?: () => void;
 }
 
 /**
@@ -56,6 +57,7 @@ function itemsFor(id: SubNoteId | null, ctx: DashboardContext): NoteItem[] {
         label: [booking.date, booking.title].filter(Boolean).join(" · "),
         icon: BOOKING_KINDS.find((k) => k.id === booking.kind)?.icon ?? "ticket",
         open: () => void plugin.openBookingWizard(trip, booking.kind, booking),
+        remove: () => plugin.deleteItem(trip, booking.file, booking.title),
       }));
 
   if (id === "accommodation") return bookingsOfKind(["stay"]);
@@ -151,6 +153,7 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
       edit.createSpan({ text: "Edit" });
       edit.addEventListener("click", (evt) => {
         evt.stopPropagation();
+        // Opening an entry is the common case; its form carries the Delete.
         const menu = new Menu();
         for (const item of existing) {
           menu.addItem((i) =>

@@ -35,6 +35,8 @@ export interface BookingDraft {
   legs: FlightLeg[];
   /** The way home, on the same ticket. Empty for a one-way. */
   returnLegs: FlightLeg[];
+  /** "lat,lng" already known, so travel times skip a billed geocode. */
+  location?: string;
 }
 
 export interface ExpenseDraft {
@@ -182,6 +184,8 @@ function writeBookingFrontmatter(
   // times can skip the billed geocoding call entirely.
   const airport = airportFromLabel(draft.to) ?? airportFromLabel(draft.from);
   if (draft.kind === "flight" && airport) fm.location = `${airport.a},${airport.o}`;
+  // A restaurant picked from Food Spot arrives with coordinates already.
+  else if (draft.location) fm.location = draft.location;
   if (draft.reference) fm.reference = draft.reference;
   if (draft.from) fm.from = draft.from;
   if (draft.to) fm.to = draft.to;

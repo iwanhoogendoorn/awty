@@ -3,6 +3,7 @@ import { COUNTRIES } from "../../data/countries";
 import { AIRLINES, airlineLabel } from "../../data/airlines";
 import { AIRPORTS, type AirportRecord } from "../../data/airports";
 import { CITIES } from "../../data/cities";
+import { foodSpots, type FoodSpotEntry } from "../../food/foodSpot";
 import { flattenGroups, fold, rankMatches as rank } from "../../util/search";
 
 export class CountrySuggest extends AbstractInputSuggest<string> {
@@ -268,4 +269,39 @@ export function countryForCity(city: string): string | null {
     if (cities.some((c) => fold(c) === needle)) return country;
   }
   return null;
+}
+
+/**
+ * Restaurants Food Spot already knows, so a booked table joins that record
+ * rather than starting a second one under the same name.
+ */
+export class FoodSpotSuggest extends AbstractInputSuggest<FoodSpotEntry> {
+  constructor(
+    app: App,
+    input: HTMLInputElement,
+    private getCity: () => string,
+    private onPick: (entry: FoodSpotEntry) => void,
+  ) {
+    super(app, input);
+  }
+
+  protected getSuggestions(query: string): FoodSpotEntry[] {
+    const city = this.getCity();
+    const all = foodSpots(this.app, city || undefined);
+    const needle = fold(query.trim());
+    const matches = needle ? all.filter((e) => fold(e.name).includes(needle)) : all;
+    return matches.slice(0, 30);
+  }
+
+  renderSuggestion(entry: FoodSpotEntry, el: HTMLElement): void {
+    el.setText(entry.name);
+    const detail = [entry.address || entry.city].filter(Boolean).join(" · ");
+    if (detail) el.createSpan({ cls: "awty-suggest-hint", text: detail });
+  }
+
+  selectSuggestion(entry: FoodSpotEntry): void {
+    this.setValue(entry.name);
+    this.onPick(entry);
+    this.close();
+  }
 }

@@ -1,6 +1,6 @@
 import { Menu, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { editItem, emptyState, renderToolbar, sectionTitle, noTripState } from "../common";
+import { editItem, emptyState, itemMenu, renderToolbar, sectionTitle, noTripState } from "../common";
 import type { Booking, BookingKind } from "../../../bookings/types";
 import { BOOKING_KINDS, BOOKING_STATUSES } from "../../../bookings/types";
 import { formatMoney } from "../../../util/money";
@@ -96,26 +96,6 @@ function renderRow(parent: HTMLElement, booking: Booking, ctx: DashboardContext)
   });
   row.addEventListener("contextmenu", (evt) => {
     evt.preventDefault();
-    const menu = new Menu();
-    menu.addItem((i) =>
-      i
-        .setTitle("Edit…")
-        .setIcon("pencil")
-        .onClick(() => ctx.plugin.openBookingWizard(ctx.trip!, booking.kind, booking)),
-    );
-    menu.addItem((i) =>
-      i.setTitle("Open note").setIcon("file-text").onClick(() => ctx.openFile(booking.file)),
-    );
-    menu.addSeparator();
-    menu.addItem((i) =>
-      i
-        .setTitle("Delete booking")
-        .setIcon("trash-2")
-        .onClick(async () => {
-          await ctx.app.fileManager.trashFile(booking.file);
-          ctx.refresh();
-        }),
-    );
-    menu.showAtMouseEvent(evt);
+    itemMenu(evt, ctx, booking.file, booking.title);
   });
 }

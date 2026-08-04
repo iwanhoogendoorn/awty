@@ -1,6 +1,6 @@
 import { TFile, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { editItem, emptyState, sectionTitle, noTripState } from "../common";
+import { editItem, emptyState, itemMenu, sectionTitle, noTripState } from "../common";
 import type { Booking } from "../../../bookings/types";
 import type { DayEvent } from "../../../store/dayPlan";
 import { BAND, dayEvents, ongoingOn } from "../../../store/dayPlan";
@@ -105,6 +105,10 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
       if (event.cost) item.createDiv({ cls: "awty-day-item-cost", text: event.cost });
       item.addEventListener("click", () => {
         if (!editItem(ctx, event.file)) ctx.openFile(event.file);
+      });
+      item.addEventListener("contextmenu", (evt) => {
+        evt.preventDefault();
+        itemMenu(evt, ctx, event.file, event.title);
       });
 
       // Drawn between the two items it joins, not stacked below the day: a

@@ -1,4 +1,4 @@
-import { App, TFile, setIcon } from "obsidian";
+import { App, Menu, TFile, setIcon } from "obsidian";
 import type AwtyPlugin from "../../main";
 import type { Trip } from "../../types";
 import type { Totals } from "../../util/money";
@@ -163,6 +163,36 @@ export function editItem(ctx: DashboardContext, file: TFile): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * The right-click menu shared by every list of things on a trip.
+ *
+ * Removing anything used to live only in the Bookings tab, which is nowhere
+ * near where most of them are looked at.
+ */
+export function itemMenu(evt: MouseEvent, ctx: DashboardContext, file: TFile, label: string): void {
+  const { trip, plugin } = ctx;
+  const menu = new Menu();
+  menu.addItem((i) =>
+    i
+      .setTitle("Edit…")
+      .setIcon("pencil")
+      .onClick(() => {
+        if (!editItem(ctx, file)) ctx.openFile(file);
+      }),
+  );
+  menu.addItem((i) => i.setTitle("Open note").setIcon("file-text").onClick(() => ctx.openFile(file)));
+  if (trip) {
+    menu.addSeparator();
+    menu.addItem((i) =>
+      i
+        .setTitle("Delete…")
+        .setIcon("trash-2")
+        .onClick(() => plugin.deleteItem(trip, file, label)),
+    );
+  }
+  menu.showAtMouseEvent(evt);
 }
 
 /** Readiness: how much of a trip's planning is actually filled in. */

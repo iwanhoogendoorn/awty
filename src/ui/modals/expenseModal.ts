@@ -26,6 +26,8 @@ export class ExpenseModal extends Modal {
     private onSubmit: (draft: ExpenseDraft, files: File[]) => Promise<void>,
     /** Present when an existing expense is being changed rather than logged. */
     private initial?: Partial<ExpenseDraft>,
+    /** Offered only when editing: removes the expense entirely. */
+    private onDelete?: () => void,
   ) {
     super(app);
     const today = todayISO();
@@ -106,7 +108,19 @@ export class ExpenseModal extends Modal {
       startIndex: countAttachmentsNamed(this.app, this.settings, this.trip, this.trip.title),
     });
 
-    new Setting(contentEl)
+    const nav = new Setting(contentEl);
+    if (this.editing && this.onDelete) {
+      nav.addButton((btn) =>
+        btn
+          .setButtonText("Delete")
+          .setWarning()
+          .onClick(() => {
+            this.close();
+            this.onDelete?.();
+          }),
+      );
+    }
+    nav
       .addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close()))
       .addButton((btn) => {
         this.saveBtn = btn;

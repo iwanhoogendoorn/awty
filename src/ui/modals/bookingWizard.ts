@@ -5,7 +5,7 @@ import { BOOKING_KINDS, BOOKING_STATUSES, allCategories } from "../../bookings/t
 import { countAttachmentsNamed, type BookingDraft } from "../../bookings/bookingWriter";
 import type { AwtySettings, Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
-import { AirlineSuggest, AirportSuggest, CitySuggest } from "../components/suggest";
+import { AirlineSuggest, AirportSuggest, CitySuggest, FoodSpotSuggest } from "../components/suggest";
 import { LegsField } from "../components/legsField";
 import { airportFromLabel } from "../components/suggest";
 import { parseConfirmation, type ParsedConfirmation } from "../../flights/parseConfirmation";
@@ -97,6 +97,8 @@ export class BookingWizard extends Modal {
   private pasteHandler: ((evt: ClipboardEvent) => void) | null = null;
   private dropHandler: ((evt: DragEvent) => void) | null = null;
   private returnField: LegsField | null = null;
+  /** "lat,lng" from a picked Food Spot entry, so nothing is geocoded twice. */
+  private knownLocation = "";
   private hasReturn = false;
 
   /** Flights hold their dates on each leg, so they skip the separate When step. */
@@ -117,6 +119,8 @@ export class BookingWizard extends Modal {
     private onSubmit: (draft: BookingDraft, files: File[]) => Promise<void>,
     /** Present when an existing booking is being changed rather than created. */
     private initial?: Partial<BookingDraft>,
+    /** Offered only when editing: removes the booking entirely. */
+    private onDelete?: () => void,
   ) {
     super(app);
     const start = isValidISODate(trip.startDate) ? trip.startDate : todayISO();
@@ -183,8 +187,20 @@ export class BookingWizard extends Modal {
       startIndex: countAttachmentsNamed(this.app, this.settings, this.trip, this.trip.title),
     });
 
-    new Setting(contentEl)
-      .setClass("awty-wizard-nav")
+    const nav = new Setting(contentEl).setClass("awty-wizard-nav");
+    // Deleting belongs where you are already looking at the thing.
+    if (this.editing && this.onDelete) {
+      nav.addButton((btn) =>
+        btn
+          .setButtonText("Delete")
+          .setWarning()
+          .onClick(() => {
+            this.close();
+            this.onDelete?.();
+          }),
+      );
+    }
+    nav
       .addButton((btn) => {
         this.backBtn = btn;
         btn.setButtonText("Back").onClick(() => this.go(this.step - 1));
@@ -246,6 +262,10 @@ export class BookingWizard extends Modal {
       // free-form fields stay as text boxes.
       if ((spec.key === "from" || spec.key === "to") && this.draft.kind === "transport") {
         this.renderCityField(spec);
+        continue;
+      }
+      if (spec.key === "title" && this.draft.kind === "restaurant") {
+        this.renderRestaurantField(spec);
         continue;
       }
       const setting = new Setting(this.bodyEl).setName(spec.label);
@@ -594,6 +614,35 @@ export class BookingWizard extends Modal {
   }
 
   /** Stations and stops are best described by their city. */
+  /**
+   * The restaurant name, offering what Food Spot already knows.
+   *
+   * Picking one brings its address and its coordinates, so the distance from
+   * the hotel needs no billed geocoding — and the booking joins that record
+   * rather than starting a second one under the same name.
+   */
+  private renderRestaurantField(spec: FieldSpec): void {
+    const setting = new Setting(this.bodyEl)
+      .setName(spec.label)
+      .setDesc("Starts typing against your Food Spot places in this city.");
+    setting.addText((t) => {
+      t.setPlaceholder(spec.placeholder);
+      t.setValue(this.draft.title);
+      t.onChange((v) => (this.draft.title = v.trim()));
+      new FoodSpotSuggest(
+        this.app,
+        t.inputEl,
+        () => this.trip.city,
+        (entry) => {
+          this.draft.title = entry.name;
+          if (entry.address) this.draft.address = entry.address;
+          this.knownLocation = entry.location;
+          this.renderBody();
+        },
+      );
+    });
+  }
+
   private renderCityField(spec: FieldSpec): void {
     new Setting(this.bodyEl).setName(spec.label).addText((t) => {
       t.setPlaceholder(spec.placeholder);
@@ -795,7 +844,10 @@ export class BookingWizard extends Modal {
     this.submitting = true;
     this.nextBtn.setDisabled(true).setButtonText("Saving…");
     try {
-      await this.onSubmit({ ...this.draft, title: this.effectiveTitle() }, this.attachments.getFiles());
+      await this.onSubmit(
+        { ...this.draft, title: this.effectiveTitle(), location: this.knownLocation || undefined },
+        this.attachments.getFiles(),
+      );
       this.close();
     } catch (err) {
       new Notice(err instanceof Error ? err.message : "Could not save the booking.");

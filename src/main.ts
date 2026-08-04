@@ -43,6 +43,7 @@ import {
 } from "./travel/travelService";
 import { travelTable } from "./ui/dashboard/gettingAround";
 import { groupByOrigin, itineraryPairs } from "./travel/routePlan";
+import { ensureFoodSpot } from "./food/foodSpot";
 import { datesInRange } from "./util/dates";
 import {
   ADVICE_MEANING,
@@ -58,6 +59,7 @@ import { createTrip, deleteTrip, notifyError, updateTrip } from "./store/noteWri
 import { AwtySidebarView } from "./ui/view";
 import { TripModal } from "./ui/modals/tripModal";
 import { ConfirmDeleteModal } from "./ui/modals/confirmDelete";
+import { ConfirmModal } from "./ui/modals/confirmModal";
 import { AddDayModal } from "./ui/modals/addDayModal";
 import { AwtySettingTab } from "./settings/settingsTab";
 
@@ -489,7 +491,33 @@ export default class AwtyPlugin extends Plugin {
         new Notice(existing ? `Updated “${draft.title}”.` : `Added “${draft.title}”.`);
       },
       existing ? await draftFromBooking(this.app, existing) : undefined,
+      existing ? () => this.deleteItem(trip, existing.file, existing.title) : undefined,
     ).open();
+  }
+
+  /**
+   * Removes a booking or an expense, after asking.
+   *
+   * Only a right-click in the Bookings tab offered this, which is nowhere near
+   * where most things are looked at — so in practice there was no way to
+   * remove anything without going to the file itself.
+   */
+  deleteItem(trip: Trip, file: TFile, label: string): void {
+    new ConfirmModal(this.app, {
+      title: "Delete this?",
+      name: label,
+      detail: file.path,
+      onConfirm: async () => {
+        await this.app.fileManager.trashFile(file);
+        this.travelPlaces.delete(trip.folderPath);
+        this.bookings.invalidate();
+        this.store.invalidate();
+        this.progress.clear();
+        await this.syncTripNotes(trip);
+        this.refreshViews();
+        new Notice(`Deleted “${label}”.`);
+      },
+    }).open();
   }
 
   openExpenseModal(trip: Trip, existing?: Expense): void {
@@ -522,6 +550,7 @@ export default class AwtyPlugin extends Plugin {
             attachments: attachmentPaths(this.app, existing.attachments, existing.file.path),
           }
         : undefined,
+      existing ? () => this.deleteItem(trip, existing.file, existing.description) : undefined,
     ).open();
   }
 
