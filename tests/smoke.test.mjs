@@ -1554,14 +1554,54 @@ test("setting a budget makes the Budget note say so", () => {
   assert.match(table, /\| Transport \| €900 \| €827 \| €73 \|/, table);
   assert.match(table, /\*\*Total\*\* \| \*\*€1,300\*\* \| \*\*€889\.50\*\* \| \*\*€410\.50\*\*/, table);
 
-  // And that table is what the progress reader counts, so the card follows.
-  const note = `# Budget\n\n## Planned\n\n${table}\n`;
-  const p = m.analyseNote("budget", note);
-  assert.equal(p.state, "complete");
-  assert.equal(p.detail, "2 lines", "the bold Total row is a header, not a line");
+  // Transport and food are covered, but there is nowhere to sleep yet.
+  const p = m.analyseNote("budget", `# Budget\n\n## Planned\n\n${table}\n`);
+  assert.equal(p.state, "started");
+  assert.equal(p.detail, "no accommodation yet");
+  assert.equal(p.ratio, 2 / 3);
 
   // Nothing set and nothing costed stays honestly empty.
   assert.equal(m.analyseNote("budget", `# Budget\n\n## Planned\n\n${m.budgetPlanTable(new Map(), [], "EUR")}\n`).state, "empty");
+});
+
+test("a budget is done once travel, a bed and food are all costed", () => {
+  // One priced flight used to finish it, so a trip with nowhere to sleep read
+  // as fully budgeted.
+  const line = (category, amount, basename) => ({
+    source: "booking", file: { basename }, date: "2026-08-17",
+    description: basename, category, money: { amount, currency: "EUR" }, counted: true,
+  });
+  const note = (targets, lines) =>
+    `# Budget\n\n## Planned\n\n${m.budgetPlanTable(targets, lines, "EUR")}\n`;
+
+  const flightOnly = m.analyseNote("budget", note(new Map(), [line("Transport", 827, "Flight")]));
+  assert.equal(flightOnly.state, "started");
+  assert.equal(flightOnly.detail, "no accommodation, no food yet");
+  assert.equal(flightOnly.ratio, 1 / 3);
+
+  const all = m.analyseNote(
+    "budget",
+    note(new Map(), [
+      line("Transport", 827, "Flight"),
+      line("Accommodation", 1456, "Rausion"),
+      line("Food & drink", 300, "Meals"),
+    ]),
+  );
+  assert.equal(all.state, "complete");
+  assert.equal(all.detail, "3 lines");
+  assert.equal(all.ratio, 1);
+
+  // A target with nothing spent counts: budgeting is the point of the note.
+  const targetsOnly = m.analyseNote(
+    "budget",
+    note(new Map([["Transport", 900], ["Accommodation", 1500], ["Food & drink", 400]]), []),
+  );
+  assert.equal(targetsOnly.state, "complete");
+
+  // Extra categories do not substitute for a missing essential.
+  const shopping = m.analyseNote("budget", note(new Map([["Shopping", 200]]), []));
+  assert.equal(shopping.state, "started");
+  assert.equal(shopping.detail, "no transport, no accommodation, no food yet");
 });
 
 test("an untouched Budget note is not a finished Budget note", () => {
@@ -1578,10 +1618,11 @@ test("an untouched Budget note is not a finished Budget note", () => {
   ].join("\n");
   assert.equal(m.analyseNote("budget", template).state, "empty");
 
+  // One category filled is a start, not a budget: see the essentials test.
   const filled = template.replace("| Transport | | | |", "| Transport | 400 | 380 | |");
   const p = m.analyseNote("budget", filled);
-  assert.equal(p.state, "complete");
-  assert.equal(p.detail, "1 line");
+  assert.equal(p.state, "started");
+  assert.equal(p.detail, "no accommodation, no food yet");
 });
 
 // --------------------------------------------------------------- editing

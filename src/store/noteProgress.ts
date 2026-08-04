@@ -13,6 +13,46 @@ export interface NoteProgress {
 
 const EMPTY: NoteProgress = { state: "empty", detail: "Not started", ratio: null };
 
+/**
+ * What a budget has to cover before it counts as done.
+ *
+ * Getting there, sleeping there and eating there: the three every trip spends
+ * on. Activities and shopping vary too much between a city break and a week on
+ * a beach to be required of anyone.
+ */
+export const BUDGET_ESSENTIALS = ["Transport", "Accommodation", "Food & drink"] as const;
+
+function shortName(category: string): string {
+  return category === "Food & drink" ? "food" : category.toLowerCase();
+}
+
+/**
+ * Which essentials have a figure against them in the note's own tables.
+ *
+ * A row counts once any cell after the category holds something — a target, a
+ * spend, either. Reading the table means the answer matches what is on screen
+ * rather than a second calculation that could disagree with it.
+ */
+function coveredCategories(body: string): Set<string> {
+  const covered = new Set<string>();
+  const wanted = new Map(BUDGET_ESSENTIALS.map((c) => [c.toLowerCase(), c]));
+
+  for (const raw of body.split("\n")) {
+    const line = raw.trim();
+    if (!line.startsWith("|")) continue;
+    const cells = line
+      .slice(1, line.endsWith("|") ? -1 : undefined)
+      .split("|")
+      .map((c) => c.replace(/\*\*/g, "").trim());
+    if (cells.length < 2) continue;
+
+    const category = wanted.get(cells[0].toLowerCase());
+    if (!category) continue;
+    if (cells.slice(1).some((c) => /\d/.test(c))) covered.add(category);
+  }
+  return covered;
+}
+
 function stripFrontmatter(content: string): string {
   if (!content.startsWith("---")) return content;
   const end = content.indexOf("\n---", 3);
@@ -164,8 +204,32 @@ export function analyseNote(id: SubNoteId | null, content: string): NoteProgress
   // These notes hold a list. Once the list has entries the note has done its
   // job, so it reports complete — leaving it permanently amber meant the
   // dashboard could never be finished, however much of the trip was booked.
-  if (id === "accommodation" || id === "transport" || id === "budget") {
-    const noun = id === "budget" ? "line" : id === "transport" ? "leg" : "booking";
+  // A budget is done when the three things every trip costs money on are
+  // accounted for. Any one filled row used to finish it, so a trip with a
+  // flight priced and nowhere to sleep read as fully budgeted.
+  if (id === "budget") {
+    if (s.tableRows <= 0 && s.proseWords === 0) return EMPTY;
+    const covered = coveredCategories(body);
+    // Budgeting something inessential — shopping, say — is still a start.
+    if (covered.size === 0 && s.tableRows <= 0) {
+      return s.proseWords > 0
+        ? { state: "started", detail: "Notes only", ratio: null }
+        : EMPTY;
+    }
+    const ratio = covered.size / BUDGET_ESSENTIALS.length;
+    const missing = BUDGET_ESSENTIALS.filter((c) => !covered.has(c));
+    return {
+      state: ratio >= 1 ? "complete" : "started",
+      detail:
+        missing.length === 0
+          ? `${s.tableRows} line${s.tableRows === 1 ? "" : "s"}`
+          : `no ${missing.map(shortName).join(", no ")} yet`,
+      ratio,
+    };
+  }
+
+  if (id === "accommodation" || id === "transport") {
+    const noun = id === "transport" ? "leg" : "booking";
     if (s.tableRows <= 0 && s.proseWords === 0) return EMPTY;
     if (s.tableRows <= 0) return { state: "started", detail: "Notes only", ratio: null };
     return {
