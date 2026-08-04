@@ -1,7 +1,7 @@
 import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { CostCategory } from "../../bookings/types";
-import { COST_CATEGORIES } from "../../bookings/types";
+import { allCategories } from "../../bookings/types";
 import { countAttachmentsNamed, type ExpenseDraft } from "../../bookings/bookingWriter";
 import type { TravelPlannerSettings, Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
@@ -75,7 +75,9 @@ export class ExpenseModal extends Modal {
     date.addEventListener("change", () => (this.draft.date = date.value));
 
     new Setting(contentEl).setName("Category").addDropdown((dd) => {
-      for (const c of COST_CATEGORIES) dd.addOption(c, c);
+      for (const c of allCategories(this.settings.customCategories, [this.draft.category])) {
+        dd.addOption(c, c);
+      }
       dd.setValue(this.draft.category);
       dd.onChange((v) => (this.draft.category = v as CostCategory));
     });

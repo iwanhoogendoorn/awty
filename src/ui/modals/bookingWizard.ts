@@ -1,7 +1,7 @@
 import { App, ButtonComponent, Modal, Notice, Setting, setIcon } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { BookingKind, BookingStatus, CostCategory } from "../../bookings/types";
-import { BOOKING_KINDS, BOOKING_STATUSES, COST_CATEGORIES } from "../../bookings/types";
+import { BOOKING_KINDS, BOOKING_STATUSES, allCategories } from "../../bookings/types";
 import { countAttachmentsNamed, type BookingDraft } from "../../bookings/bookingWriter";
 import type { TravelPlannerSettings, Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
@@ -496,8 +496,9 @@ export class BookingWizard extends Modal {
       .setName("Category")
       .setDesc("Which budget line this counts against.")
       .addDropdown((dd) => {
-        const options = new Set<string>([...COST_CATEGORIES, this.draft.category]);
-        for (const c of options) dd.addOption(c, c);
+        for (const c of allCategories(this.settings.customCategories, [this.draft.category])) {
+          dd.addOption(c, c);
+        }
         dd.setValue(this.draft.category);
         dd.onChange((v) => (this.draft.category = v as CostCategory));
       });

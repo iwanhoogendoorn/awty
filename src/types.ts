@@ -192,6 +192,8 @@ export interface TravelPlannerSettings {
   passportCountries: string[];
   /** Check Dutch government travel advice for the destination. */
   travelAdviceEnabled: boolean;
+  /** Cost categories you added yourself, alongside the built-in ones. */
+  customCategories: string[];
   /** Where you normally travel from, used to pre-fill the origin of a new trip. */
   homeCity: string;
   homeAirport: string;
@@ -228,6 +230,7 @@ export const DEFAULT_SETTINGS: TravelPlannerSettings = {
   starredAirports: [],
   passportCountries: ["Netherlands"],
   travelAdviceEnabled: true,
+  customCategories: [],
   homeCity: "",
   homeAirport: "",
   household: [],

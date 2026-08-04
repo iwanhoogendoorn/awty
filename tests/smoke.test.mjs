@@ -19,6 +19,7 @@ export { emptyDayDates } from "./src/store/itinerary.ts";
 export { routeTitle, layoverMinutes, formatLayover } from "./src/bookings/legs.ts";
 export { fold, rankMatches, flattenByRank } from "./src/util/search.ts";
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
+export { allCategories, COST_CATEGORIES } from "./src/bookings/types.ts";
 export { parseAdviceColour, adviceUrlFor, isStale, ADVICE_TTL_MS } from "./src/travel/adviceData.ts";
 export { AIRPORTS } from "./src/data/airports.ts";
 export { AIRLINES, airlineLabel } from "./src/data/airlines.ts";
@@ -552,6 +553,25 @@ test("packing renders as checkboxes with quantities", () => {
   assert.match(md, /- \[ \] Underwear ×8/);
   assert.match(md, /- \[ \] Passport \/ ID$/m, "unquantified items carry no ×");
   assert.match(md, /Quantities calculated for 7 days/);
+});
+
+// ----------------------------------------------------------- categories
+
+test("custom categories join the built-in ones without duplicating them", () => {
+  const base = m.allCategories([], []);
+  assert.deepEqual(base, [...m.COST_CATEGORIES]);
+
+  const withCustom = m.allCategories(["Car hire", "Diving"], []);
+  assert.deepEqual(withCustom.slice(0, base.length), base, "built-ins keep their order");
+  assert.deepEqual(withCustom.slice(base.length), ["Car hire", "Diving"], "extras sort");
+
+  // A category already recorded on a trip is offered even if never configured.
+  assert.ok(m.allCategories([], ["Souvenirs"]).includes("Souvenirs"));
+  // Re-adding a built-in must not double it up.
+  assert.equal(m.allCategories(["Transport"], ["Transport"]).filter((c) => c === "Transport").length, 1);
+  assert.equal(m.allCategories(["Diving"], ["Diving"]).filter((c) => c === "Diving").length, 1);
+  // Blank names are not categories.
+  assert.deepEqual(m.allCategories(["", "  "], []), base);
 });
 
 // ---------------------------------------------------------------- money

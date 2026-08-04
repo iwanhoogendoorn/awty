@@ -127,6 +127,7 @@ var DEFAULT_SETTINGS = {
   starredAirports: [],
   passportCountries: ["Netherlands"],
   travelAdviceEnabled: true,
+  customCategories: [],
   homeCity: "",
   homeAirport: "",
   household: []
@@ -578,6 +579,17 @@ var COST_CATEGORIES = [
   "Shopping",
   "Misc"
 ];
+function allCategories(custom, used = []) {
+  const seen = new Set(COST_CATEGORIES);
+  const extra = [];
+  for (const name of [...custom, ...used]) {
+    const clean = name.trim();
+    if (!clean || seen.has(clean)) continue;
+    seen.add(clean);
+    extra.push(clean);
+  }
+  return [...COST_CATEGORIES, ...extra.sort((a, b) => a.localeCompare(b))];
+}
 
 // src/util/money.ts
 var SYMBOLS = {
@@ -2969,7 +2981,10 @@ function renderCosts(parent, ctx) {
     { label: "From expenses", value: formatTotals(fromExpenses, "\u2014"), icon: "receipt" }
   ]);
   const byCategory = totalsByCategory(lines2);
-  const categories = /* @__PURE__ */ new Set([...COST_CATEGORIES, ...byCategory.keys(), ...budget.keys()]);
+  const categories = allCategories(plugin.settings.customCategories, [
+    ...byCategory.keys(),
+    ...budget.keys()
+  ]);
   sectionTitle(parent, "By category");
   const catWrap = parent.createDiv({ cls: "tp-budget-list" });
   let anyCategory = false;
@@ -3954,8 +3969,9 @@ var BookingWizard = class extends import_obsidian19.Modal {
       });
     });
     new import_obsidian19.Setting(this.bodyEl).setName("Category").setDesc("Which budget line this counts against.").addDropdown((dd) => {
-      const options = /* @__PURE__ */ new Set([...COST_CATEGORIES, this.draft.category]);
-      for (const c of options) dd.addOption(c, c);
+      for (const c of allCategories(this.settings.customCategories, [this.draft.category])) {
+        dd.addOption(c, c);
+      }
       dd.setValue(this.draft.category);
       dd.onChange((v) => this.draft.category = v);
     });
@@ -4107,7 +4123,9 @@ var ExpenseModal = class extends import_obsidian20.Modal {
     date.value = this.draft.date;
     date.addEventListener("change", () => this.draft.date = date.value);
     new import_obsidian20.Setting(contentEl).setName("Category").addDropdown((dd) => {
-      for (const c of COST_CATEGORIES) dd.addOption(c, c);
+      for (const c of allCategories(this.settings.customCategories, [this.draft.category])) {
+        dd.addOption(c, c);
+      }
       dd.setValue(this.draft.category);
       dd.onChange((v) => this.draft.category = v);
     });
@@ -4160,11 +4178,13 @@ var ExpenseModal = class extends import_obsidian20.Modal {
 // src/ui/modals/budgetModal.ts
 var import_obsidian21 = require("obsidian");
 var BudgetModal = class extends import_obsidian21.Modal {
-  constructor(app, trip, existing, currency, actuals, onSave) {
+  constructor(app, trip, existing, currency, actuals, custom, onAddCategory, onSave) {
     super(app);
     this.trip = trip;
     this.currency = currency;
     this.actuals = actuals;
+    this.custom = custom;
+    this.onAddCategory = onAddCategory;
     this.onSave = onSave;
     this.values = /* @__PURE__ */ new Map();
     this.values = new Map(existing);
@@ -4185,8 +4205,7 @@ var BudgetModal = class extends import_obsidian21.Modal {
         this.renderTotal();
       });
     });
-    const categories = /* @__PURE__ */ new Set([
-      ...COST_CATEGORIES,
+    const categories = allCategories(this.custom, [
       ...this.values.keys(),
       ...this.actuals.keys()
     ]);
@@ -4196,6 +4215,16 @@ var BudgetModal = class extends import_obsidian21.Modal {
       if (actual > 0) {
         setting.setDesc(
           `${formatMoney({ amount: actual, currency: this.currency })} already booked`
+        );
+      }
+      if (!COST_CATEGORIES.includes(category)) {
+        setting.addExtraButton(
+          (btn) => btn.setIcon("x").setTooltip(`Remove ${category}`).onClick(async () => {
+            this.values.delete(category);
+            this.custom = this.custom.filter((c) => c !== category);
+            await this.onAddCategory("");
+            this.onOpen();
+          })
         );
       }
       setting.addText((t) => {
@@ -4223,6 +4252,41 @@ var BudgetModal = class extends import_obsidian21.Modal {
         this.onOpen();
       });
     }
+    let newCategory = "";
+    let newAmount = "";
+    const addSetting = new import_obsidian21.Setting(contentEl).setName("Add a category");
+    addSetting.addText((t) => {
+      t.setPlaceholder("Car hire");
+      t.onChange((v) => newCategory = v.trim());
+      t.inputEl.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter") {
+          evt.preventDefault();
+          void addCategory();
+        }
+      });
+    });
+    addSetting.addText((t) => {
+      t.setPlaceholder("0");
+      t.inputEl.inputMode = "decimal";
+      t.inputEl.style.width = "6em";
+      t.onChange((v) => newAmount = v);
+    });
+    const addCategory = async () => {
+      const name = newCategory.trim();
+      if (!name) return;
+      if (allCategories(this.custom).some((c) => c.toLowerCase() === name.toLowerCase())) {
+        new import_obsidian21.Notice(`"${name}" already exists.`);
+        return;
+      }
+      const amount = parseAmount(newAmount);
+      if (amount !== null && amount > 0) this.values.set(name, amount);
+      this.custom = [...this.custom, name];
+      await this.onAddCategory(name);
+      newCategory = "";
+      newAmount = "";
+      this.onOpen();
+    };
+    addSetting.addButton((b) => b.setButtonText("Add").onClick(() => void addCategory()));
     this.totalEl = contentEl.createDiv({ cls: "tp-budget-total" });
     this.renderTotal();
     new import_obsidian21.Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton(
@@ -7471,6 +7535,12 @@ var TravelPlannerPlugin = class extends import_obsidian35.Plugin {
           byCurrency.get(this.bookings.getCurrency(trip)) ?? 0
         ])
       ),
+      this.settings.customCategories,
+      async (name) => {
+        const next = name ? [.../* @__PURE__ */ new Set([...this.settings.customCategories, name])] : this.settings.customCategories;
+        this.settings.customCategories = next;
+        await this.saveSettings();
+      },
       async (budget, currency) => {
         await saveBudget(this.app, trip, budget, currency);
         this.bookings.invalidate();

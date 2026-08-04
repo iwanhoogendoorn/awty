@@ -417,6 +417,15 @@ export default class TravelPlannerPlugin extends Plugin {
           byCurrency.get(this.bookings.getCurrency(trip)) ?? 0,
         ]),
       ),
+      this.settings.customCategories,
+      async (name) => {
+        // An empty name means a removal; the modal has already updated its copy.
+        const next = name
+          ? [...new Set([...this.settings.customCategories, name])]
+          : this.settings.customCategories;
+        this.settings.customCategories = next;
+        await this.saveSettings();
+      },
       async (budget, currency) => {
         await saveBudget(this.app, trip, budget, currency);
         this.bookings.invalidate();

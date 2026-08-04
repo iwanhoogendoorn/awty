@@ -57,6 +57,23 @@ export const COST_CATEGORIES = [
 
 export type CostCategory = (typeof COST_CATEGORIES)[number] | string;
 
+/**
+ * Every category that should appear in a picker: the built-in set, whatever you
+ * have added yourself, and anything already recorded on this trip — so a
+ * category can never be budgeted for without being spendable against.
+ */
+export function allCategories(custom: readonly string[], used: Iterable<string> = []): string[] {
+  const seen = new Set<string>(COST_CATEGORIES);
+  const extra: string[] = [];
+  for (const name of [...custom, ...used]) {
+    const clean = name.trim();
+    if (!clean || seen.has(clean)) continue;
+    seen.add(clean);
+    extra.push(clean);
+  }
+  return [...COST_CATEGORIES, ...extra.sort((a, b) => a.localeCompare(b))];
+}
+
 export interface Money {
   amount: number;
   currency: string;

@@ -1,7 +1,7 @@
 import { App, Modal, Notice, Setting } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { CostCategory } from "../../bookings/types";
-import { COST_CATEGORIES } from "../../bookings/types";
+import { COST_CATEGORIES, allCategories } from "../../bookings/types";
 import type { Trip } from "../../types";
 import { COMMON_CURRENCIES, formatMoney, parseAmount } from "../../util/money";
 
@@ -17,6 +17,9 @@ export class BudgetModal extends Modal {
     private currency: string,
     /** What the bookings and expenses already commit to, per category. */
     private actuals: Map<CostCategory, number>,
+    /** Categories beyond the built-in set, and how to persist a new one. */
+    private custom: string[],
+    private onAddCategory: (name: string) => Promise<void>,
     private onSave: (budget: Map<CostCategory, number>, currency: string) => Promise<void>,
   ) {
     super(app);
@@ -44,8 +47,7 @@ export class BudgetModal extends Modal {
         });
       });
 
-    const categories = new Set<string>([
-      ...COST_CATEGORIES,
+    const categories = allCategories(this.custom, [
       ...this.values.keys(),
       ...this.actuals.keys(),
     ]);
@@ -57,6 +59,21 @@ export class BudgetModal extends Modal {
           `${formatMoney({ amount: actual, currency: this.currency })} already booked`,
         );
       }
+      // Built-in categories are permanent; your own can be taken away again.
+      if (!COST_CATEGORIES.includes(category as (typeof COST_CATEGORIES)[number])) {
+        setting.addExtraButton((btn) =>
+          btn
+            .setIcon("x")
+            .setTooltip(`Remove ${category}`)
+            .onClick(async () => {
+              this.values.delete(category);
+              this.custom = this.custom.filter((c) => c !== category);
+              await this.onAddCategory("");
+              this.onOpen();
+            }),
+        );
+      }
+
       setting.addText((t) => {
         const current = this.values.get(category);
         t.setPlaceholder(actual > 0 ? String(Math.ceil(actual)) : "0");
@@ -85,6 +102,46 @@ export class BudgetModal extends Modal {
         this.onOpen();
       });
     }
+
+    // Nothing generated covers every trip; a wedding has categories a city
+    // break does not.
+    let newCategory = "";
+    let newAmount = "";
+    const addSetting = new Setting(contentEl).setName("Add a category");
+    addSetting.addText((t) => {
+      t.setPlaceholder("Car hire");
+      t.onChange((v) => (newCategory = v.trim()));
+      t.inputEl.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter") {
+          evt.preventDefault();
+          void addCategory();
+        }
+      });
+    });
+    addSetting.addText((t) => {
+      t.setPlaceholder("0");
+      t.inputEl.inputMode = "decimal";
+      t.inputEl.style.width = "6em";
+      t.onChange((v) => (newAmount = v));
+    });
+
+    const addCategory = async (): Promise<void> => {
+      const name = newCategory.trim();
+      if (!name) return;
+      if (allCategories(this.custom).some((c) => c.toLowerCase() === name.toLowerCase())) {
+        new Notice(`"${name}" already exists.`);
+        return;
+      }
+      const amount = parseAmount(newAmount);
+      if (amount !== null && amount > 0) this.values.set(name, amount);
+      this.custom = [...this.custom, name];
+      await this.onAddCategory(name);
+      newCategory = "";
+      newAmount = "";
+      this.onOpen();
+    };
+
+    addSetting.addButton((b) => b.setButtonText("Add").onClick(() => void addCategory()));
 
     this.totalEl = contentEl.createDiv({ cls: "tp-budget-total" });
     this.renderTotal();
