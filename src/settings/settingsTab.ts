@@ -355,7 +355,7 @@ export class AwtySettingTab extends PluginSettingTab {
             await this.save();
             home.setChip(value, "ok");
           },
-          () => ({ country: s.defaultCountry, city: s.homeCity }),
+          () => ({ country: s.defaultCountry, cities: [s.homeCity] }),
         );
       });
 

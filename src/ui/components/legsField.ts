@@ -19,7 +19,7 @@ export interface LegsFieldOptions {
     toggle: (kind: StarKind, v: string) => Promise<void>;
   };
   /** Airports here are offered before the rest of the world. */
-  nearby: () => { country: string; city: string };
+  nearby: () => { country: string; cities: string[] };
   onChange: () => void;
 }
 
@@ -83,8 +83,9 @@ export class LegsField {
   private add(separate: boolean): void {
     const previous = this.legs[this.legs.length - 1];
     const next = emptyLeg(previous.arrDate || previous.date);
-    // A connection starts where the last leg landed; a separate flight often
-    // does too, so it is a fair default either way.
+    // Both start where the last one landed. Nothing is guessed for the
+    // destination: a leg pre-filled to the airport it departs from is not a
+    // flight, and copying the previous leg's destination made exactly that.
     next.from = previous.to;
     next.separate = separate;
     this.legs.push(next);
@@ -204,6 +205,8 @@ export class LegsField {
             this.opts.onChange();
           },
           this.opts.nearby,
+          // The other end of this leg: a flight does not land where it left.
+          () => (key === "to" ? leg.from : leg.to),
         );
       });
 

@@ -20,6 +20,7 @@ import { parseConfirmation, type ParsedConfirmation } from "../../flights/parseC
 import { localiseLegs } from "../../flights/localTime";
 import {
   emptyLeg,
+  groupJourneys,
   looksLikeMoreJourneys,
   routeTitle,
   splitJourney,
@@ -479,7 +480,7 @@ export class BookingWizard extends Modal {
       legs: this.draft.legs,
       defaultDate: this.draft.date,
       stars: this.stars,
-      nearby: () => ({ country: this.trip.country, city: this.trip.city }),
+      nearby: () => ({ country: this.trip.country, cities: tripCities(this.trip) }),
       onChange: () => this.syncFromLegs(),
     });
 
@@ -515,7 +516,7 @@ export class BookingWizard extends Modal {
         legs: this.draft.returnLegs,
         defaultDate: this.trip.endDate || this.draft.date,
         stars: this.stars,
-        nearby: () => ({ country: this.trip.country, city: this.trip.city }),
+        nearby: () => ({ country: this.trip.country, cities: tripCities(this.trip) }),
         onChange: () => this.syncFromLegs(),
         });
     } else {
@@ -725,10 +726,15 @@ export class BookingWizard extends Modal {
       chip.type = "button";
       chip.setText(hop.label);
       chip.addEventListener("click", () => {
-        const leg = this.draft.legs[0] ?? emptyLeg(this.draft.date);
-        leg.from = hop.from;
-        leg.to = hop.to;
-        this.draft.legs = [leg, ...this.draft.legs.slice(1)];
+        // Fill the flight being worked on — the last one — not always the
+        // first. Adding a second flight and then picking a hop wrote the hop
+        // over flight one and left flight two blank.
+        const legs = this.draft.legs;
+        if (legs.length === 0) legs.push(emptyLeg(this.draft.date));
+        const groups = groupJourneys(legs);
+        const target = groups[groups.length - 1][0];
+        target.from = hop.from;
+        target.to = hop.to;
         this.renderBody();
       });
     }

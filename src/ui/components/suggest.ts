@@ -202,7 +202,9 @@ export class AirportSuggest extends AbstractInputSuggest<AirportRecord> {
     private isStarred: (value: string) => boolean,
     private onPick: (value: string, airport: AirportRecord) => void,
     /** Where the trip is, so local airports come first instead of Aalborg. */
-    private nearby?: () => { country: string; city: string },
+    private nearby?: () => { country: string; cities: string[] },
+    /** The other end of this leg: a flight does not land where it took off. */
+    private exclude?: () => string,
   ) {
     super(app, input);
   }
@@ -211,14 +213,24 @@ export class AirportSuggest extends AbstractInputSuggest<AirportRecord> {
   private locality(a: AirportRecord): number {
     const near = this.nearby?.();
     if (!near) return 2;
-    if (near.city && fold(a.c) === fold(near.city)) return 0;
+    // Any city on the route, not just the first: the second flight of a
+    // multi-stop trip goes somewhere the first one did not.
+    if (near.cities.some((city) => city && fold(a.c) === fold(city))) return 0;
     if (near.country && fold(a.y) === fold(near.country)) return 1;
     return 2;
   }
 
+  /** Airports this leg cannot use, because it is already leaving from there. */
+  private excluded(): string {
+    const value = this.exclude?.() ?? "";
+    return (/\(([A-Z]{3})\)/.exec(value)?.[1] ?? value.trim()).toUpperCase();
+  }
+
   protected getSuggestions(query: string): AirportRecord[] {
     const q = fold(query.trim());
+    const skip = this.excluded();
     const starredFirst = (list: AirportRecord[]) => {
+      list = skip ? list.filter((a) => a.i !== skip) : list;
       const starred = list.filter((a) => this.isStarred(airportLabel(a)));
       const rest = list.filter((a) => !this.isStarred(airportLabel(a)));
       return [...starred, ...rest];

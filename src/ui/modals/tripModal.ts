@@ -251,7 +251,7 @@ export class TripModal extends Modal {
           () => false,
           (value) => (this.draft.originAirport = value),
           // Where you are leaving from, not where you are going.
-          () => ({ country: this.settings.defaultCountry, city: this.draft.originCity }),
+          () => ({ country: this.settings.defaultCountry, cities: [this.draft.originCity] }),
         );
       });
 
