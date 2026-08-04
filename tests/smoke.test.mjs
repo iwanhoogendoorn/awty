@@ -49,6 +49,7 @@ export { customSections, customParts, weaveKept, sectionText } from "./src/booki
 export { bookingBody, expenseBody } from "./src/bookings/noteBody.ts";
 export { budgetPlanTable, budgetLinesTable } from "./src/bookings/budgetTables.ts";
 export { readLegacyFoodTable } from "./src/bookings/legacyFood.ts";
+export { tripKml, directionsLink, placeLink, MAX_WAYPOINTS } from "./src/export/mapsExport.ts";
 export { looksLikeMoreJourneys } from "./src/bookings/legs.ts";
 export { zoneForAirport, utcToLocal, localiseLegs } from "./src/flights/localTime.ts";
 export { linkTarget } from "./src/bookings/linkTarget.ts";
@@ -1563,6 +1564,39 @@ test("setting a budget makes the Budget note say so", () => {
 
   // Nothing set and nothing costed stays honestly empty.
   assert.equal(m.analyseNote("budget", `# Budget\n\n## Planned\n\n${m.budgetPlanTable(new Map(), [], "EUR")}\n`).state, "empty");
+});
+
+test("a trip's places export as a map file", () => {
+  const places = [
+    { name: "Dubrovnik (DBV)", group: "Airport", address: "", location: "42.5614,18.2682", detail: "17 Aug" },
+    { name: "Rausion", group: "Stay", address: "Kranjčevića 25", location: "42.6501,18.0876", detail: "17 – 24 Aug · €1,456" },
+    { name: "Nautika & co", group: "Restaurant", address: "Brsalje ul. 3", location: "", detail: "" },
+    { name: "No idea", group: "Activity", address: "", location: "", detail: "dropped" },
+  ];
+  const kml = m.tripKml("Dubrovnik <2026>", places);
+
+  assert.match(kml, /<name>Dubrovnik &lt;2026&gt;<\/name>/, "the title is escaped");
+  assert.match(kml, /<name>Nautika &amp; co<\/name>/);
+  assert.match(kml, /<coordinates>18.2682,42.5614,0<\/coordinates>/, "KML is lng,lat");
+  // No coordinates but an address: My Maps resolves it on import.
+  assert.match(kml, /<address>Brsalje ul. 3<\/address>/);
+  assert.ok(!kml.includes("No idea"), "nothing to place is left out");
+  assert.match(kml, /<Folder>\s*<name>Airport<\/name>/, "grouped by kind");
+
+  // A link that genuinely works, unlike a saved list.
+  const dir = m.directionsLink(places.slice(0, 2));
+  assert.match(dir, /^https:\/\/www\.google\.com\/maps\/dir\/\?api=1/);
+  assert.match(dir, /origin=42\.5614%2C18\.2682/);
+  assert.equal(m.directionsLink(places.slice(0, 1)), null, "one place is not a route");
+
+  // Google refuses more than nine stops, so they are dropped, not sent.
+  const many = Array.from({ length: 20 }, (_, i) => ({
+    name: `p${i}`, group: "Activity", address: "", location: `50.${i},4.${i}`, detail: "",
+  }));
+  const capped = m.directionsLink(many);
+  assert.equal((capped.match(/%7C/g) ?? []).length, m.MAX_WAYPOINTS - 1);
+
+  assert.match(m.placeLink(places[1]), /query=42\.6501%2C18\.0876/);
 });
 
 test("a table booked before this change is not thrown away", () => {

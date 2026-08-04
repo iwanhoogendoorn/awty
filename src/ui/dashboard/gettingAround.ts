@@ -51,6 +51,14 @@ export function renderGettingAround(parent: HTMLElement, ctx: DashboardContext):
     btn.addEventListener("click", () => new RouteModal(ctx.app, plugin, trip).open());
   }
 
+  // Every place on the trip as a file My Maps can import. No link can make a
+  // saved list, so a file is the only route to the whole trip on one map.
+  const mapBtn = head.createEl("button", { cls: "awty-dash-action" });
+  setIcon(mapBtn.createSpan(), "map");
+  mapBtn.createSpan({ text: "Map" });
+  mapBtn.setAttribute("title", "Write the trip's places as KML for Google My Maps");
+  mapBtn.addEventListener("click", () => void plugin.exportMap(trip));
+
   if (!plugin.settings.travelTimesEnabled) {
     renderNotice(
       parent,

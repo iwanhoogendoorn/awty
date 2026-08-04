@@ -44,7 +44,10 @@ import {
 import { travelTable } from "./ui/dashboard/gettingAround";
 import { groupByOrigin, itineraryPairs } from "./travel/routePlan";
 import { ensureFoodSpot } from "./food/foodSpot";
-import { datesInRange } from "./util/dates";
+import { MY_MAPS_URL, tripKml, type MapPlace } from "./export/mapsExport";
+import { datesInRange, formatDateRange } from "./util/dates";
+import { formatMoney } from "./util/money";
+import { joinPath, sanitizeName } from "./util/paths";
 import {
   ADVICE_MEANING,
   AdviceUnavailable,
@@ -552,6 +555,85 @@ export default class AwtyPlugin extends Plugin {
         : undefined,
       existing ? () => this.deleteItem(trip, existing.file, existing.description) : undefined,
     ).open();
+  }
+
+  /**
+   * Writes the trip's places as a KML file, for Google My Maps.
+   *
+   * Coordinates come from what is already on the bookings, so this costs no
+   * geocoding: anything without them travels as an address for My Maps to
+   * resolve on import.
+   */
+  async exportMap(trip: Trip): Promise<void> {
+    const places: MapPlace[] = [];
+    const seen = new Set<string>();
+
+    const add = (place: MapPlace): void => {
+      const key = `${place.group}|${place.name.toLowerCase()}`;
+      if (!place.name || seen.has(key)) return;
+      if (!place.location && !place.address) return;
+      seen.add(key);
+      places.push(place);
+    };
+
+    for (const booking of this.bookings.getBookings(trip)) {
+      if (booking.status === "cancelled") continue;
+      const fm = this.app.metadataCache.getFileCache(booking.file)?.frontmatter;
+      const group =
+        booking.kind === "stay"
+          ? "Stay"
+          : booking.kind === "flight"
+            ? "Airport"
+            : booking.kind === "restaurant"
+              ? "Restaurant"
+              : booking.kind === "transport"
+                ? "Transport"
+                : "Activity";
+      add({
+        name: booking.kind === "flight" ? booking.to || booking.title : booking.title,
+        group,
+        address: booking.address || (booking.kind === "flight" ? `${booking.to} airport` : ""),
+        location: String(fm?.location ?? ""),
+        detail: [
+          formatDateRange(booking.date, booking.endDate),
+          booking.time,
+          booking.cost ? formatMoney(booking.cost) : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      });
+    }
+
+    // Places you have not booked but want to try are worth having on the map.
+    for (const spot of this.travel.restaurantsFor(trip)) {
+      const fm = spot.file ? this.app.metadataCache.getFileCache(spot.file)?.frontmatter : undefined;
+      add({
+        name: spot.label,
+        group: "Restaurant",
+        address: String(fm?.address ?? ""),
+        location: `${spot.coord.lat},${spot.coord.lng}`,
+        detail: String(fm?.cuisines ?? ""),
+      });
+    }
+
+    if (places.length === 0) {
+      new Notice("Nothing to map yet — add a booking with an address.");
+      return;
+    }
+
+    const name = `${sanitizeName(trip.title)} map.kml`;
+    const path = joinPath(trip.folderPath, name);
+    const kml = tripKml(trip.title, places);
+    const existing = this.app.vault.getAbstractFileByPath(path);
+    if (existing instanceof TFile) await this.app.vault.modify(existing, kml);
+    else await this.app.vault.create(path, kml);
+
+    await navigator.clipboard.writeText(MY_MAPS_URL).catch(() => undefined);
+    new Notice(
+      `${places.length} places written to "${name}". Google has no link that makes a saved ` +
+        `list, so: open My Maps (link copied), Create a new map, Import, and choose that file.`,
+      15000,
+    );
   }
 
   /** Cached advice for a country, without touching the network. */

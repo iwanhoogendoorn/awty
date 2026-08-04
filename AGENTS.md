@@ -14,3 +14,19 @@ Layered on top of `~/AGENTS.md` — stricter only, never relaxes the global rule
 - Then commit, and set the card:
   `orca worktree set --worktree active --workspace-status in-review --json`
 - Commit message style: imperative mood, one line, no trailing period.
+
+## Versioning
+
+The plugin states its version in `awty/manifest.json`, `package.json` and
+`versions.json`. They are moved together by one command and nothing else:
+
+```
+npm run bump -- patch     # or minor, major, or an exact 1.2.3
+```
+
+Bump it as part of any change that ships — a fix, a feature, a dataset
+regeneration. `npm run build` refuses to run while the files disagree, because
+a version that contradicts itself makes "which build is this?" unanswerable.
+
+patch for a fix, minor for a new capability, major for a change that breaks
+existing notes or settings.
