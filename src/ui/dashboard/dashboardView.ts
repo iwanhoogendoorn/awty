@@ -82,7 +82,7 @@ export class TravelDashboardView extends ItemView {
         this.render();
       },
       openFile: (file: TFile, newTab = false) => {
-        void this.app.workspace.getLeaf(newTab).openFile(file);
+        void this.plugin.openInWorkspace(file, newTab);
       },
     };
   }

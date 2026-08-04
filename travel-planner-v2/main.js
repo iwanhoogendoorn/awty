@@ -4499,7 +4499,7 @@ var TravelDashboardView = class extends import_obsidian20.ItemView {
         this.render();
       },
       openFile: (file, newTab = false) => {
-        void this.app.workspace.getLeaf(newTab).openFile(file);
+        void this.plugin.openInWorkspace(file, newTab);
       }
     };
   }
@@ -10341,11 +10341,51 @@ var TravelPlannerPlugin = class extends import_obsidian38.Plugin {
     }
     await workspace.revealLeaf(leaf);
   }
+  /**
+   * A new tab at the end of the tab bar.
+   *
+   * A new tab is created beside whichever one is active, so opening the
+   * dashboard from the middle of a row of notes wedged it into the middle. The
+   * last root leaf is made active first, so the new tab lands after it.
+   */
+  newTabAtEnd() {
+    const { workspace } = this.app;
+    let last = null;
+    workspace.iterateRootLeaves((leaf) => {
+      last = leaf;
+    });
+    if (last) workspace.setActiveLeaf(last, { focus: false });
+    return workspace.getLeaf("tab");
+  }
+  /**
+   * Opens a note without taking over the dashboard's own tab.
+   *
+   * `getLeaf(false)` hands back whichever leaf is active, which from the
+   * dashboard is the dashboard — so clicking Open replaced the thing you were
+   * working in and there was no way back but to reopen it.
+   */
+  async openInWorkspace(file, newTab = false) {
+    const { workspace } = this.app;
+    if (newTab) {
+      await this.newTabAtEnd().openFile(file);
+      return;
+    }
+    const active = workspace.getMostRecentLeaf();
+    if (active && active.view.getViewType() !== TRAVEL_DASHBOARD_TYPE) {
+      await active.openFile(file);
+      return;
+    }
+    const others = [];
+    workspace.iterateRootLeaves((leaf) => {
+      if (leaf.view.getViewType() !== TRAVEL_DASHBOARD_TYPE) others.push(leaf);
+    });
+    await (others[others.length - 1] ?? this.newTabAtEnd()).openFile(file);
+  }
   async activateDashboard(trip) {
     const { workspace } = this.app;
     let leaf = workspace.getLeavesOfType(TRAVEL_DASHBOARD_TYPE)[0] ?? null;
     if (!leaf) {
-      leaf = workspace.getLeaf(true);
+      leaf = this.newTabAtEnd();
       await leaf.setViewState({ type: TRAVEL_DASHBOARD_TYPE, active: true });
     }
     await workspace.revealLeaf(leaf);

@@ -314,11 +314,55 @@ export default class TravelPlannerPlugin extends Plugin {
     await workspace.revealLeaf(leaf);
   }
 
+  /**
+   * A new tab at the end of the tab bar.
+   *
+   * A new tab is created beside whichever one is active, so opening the
+   * dashboard from the middle of a row of notes wedged it into the middle. The
+   * last root leaf is made active first, so the new tab lands after it.
+   */
+  private newTabAtEnd(): WorkspaceLeaf {
+    const { workspace } = this.app;
+    let last: WorkspaceLeaf | null = null;
+    workspace.iterateRootLeaves((leaf) => {
+      last = leaf;
+    });
+    if (last) workspace.setActiveLeaf(last, { focus: false });
+    return workspace.getLeaf("tab");
+  }
+
+  /**
+   * Opens a note without taking over the dashboard's own tab.
+   *
+   * `getLeaf(false)` hands back whichever leaf is active, which from the
+   * dashboard is the dashboard — so clicking Open replaced the thing you were
+   * working in and there was no way back but to reopen it.
+   */
+  async openInWorkspace(file: TFile, newTab = false): Promise<void> {
+    const { workspace } = this.app;
+    if (newTab) {
+      await this.newTabAtEnd().openFile(file);
+      return;
+    }
+
+    const active = workspace.getMostRecentLeaf();
+    if (active && active.view.getViewType() !== TRAVEL_DASHBOARD_TYPE) {
+      await active.openFile(file);
+      return;
+    }
+
+    const others: WorkspaceLeaf[] = [];
+    workspace.iterateRootLeaves((leaf) => {
+      if (leaf.view.getViewType() !== TRAVEL_DASHBOARD_TYPE) others.push(leaf);
+    });
+    await (others[others.length - 1] ?? this.newTabAtEnd()).openFile(file);
+  }
+
   async activateDashboard(trip?: Trip): Promise<void> {
     const { workspace } = this.app;
     let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(TRAVEL_DASHBOARD_TYPE)[0] ?? null;
     if (!leaf) {
-      leaf = workspace.getLeaf(true);
+      leaf = this.newTabAtEnd();
       await leaf.setViewState({ type: TRAVEL_DASHBOARD_TYPE, active: true });
     }
     await workspace.revealLeaf(leaf);
