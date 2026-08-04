@@ -5540,6 +5540,7 @@ var PackingModal = class extends import_obsidian24.Modal {
     const people = this.trip.travellers;
     if (people.length <= 1) return;
     const setting = new import_obsidian24.Setting(parent).setName("Packing for").setDesc("Clothing counts scale with who you tick. Toiletries and gear stay as one each.");
+    setting.settingEl.addClass("tp-setting-stack");
     const row2 = setting.controlEl.createDiv({ cls: "tp-settings-subnotes" });
     for (const person of people) {
       const label = row2.createEl("label", { cls: "tp-subnote" });
@@ -8957,7 +8958,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
       subtitle: "Seeds the travellers on a new trip, and sizes the packing list.",
       chip: s.household.length > 0 ? { text: `${s.household.length} people`, tone: "ok" } : { text: "just you", tone: "pending" }
     });
-    new import_obsidian36.Setting(people.content).setName("Household").setDesc("Comma-separated. A new trip starts with these names.").addText(
+    new import_obsidian36.Setting(people.content).then((setting) => setting.settingEl.addClass("tp-setting-stack")).setName("Household").setDesc("Comma-separated. A new trip starts with these names.").addText(
       (t) => t.setPlaceholder("Iwan, Gaurav").setValue(s.household.join(", ")).onChange(async (v) => {
         s.household = v.split(",").map((n) => n.trim()).filter(Boolean);
         await this.save();
@@ -8982,7 +8983,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
     ]) {
       if (list3.length === 0) continue;
       starred.content.createDiv({ cls: "tp-sgroup-label", text: label });
-      const row2 = starred.content.createDiv({ cls: "tp-chip-row" });
+      const row2 = starred.content.createDiv({ cls: "tp-pill-row" });
       for (const value of list3) {
         const pill = row2.createSpan({ cls: "tp-pill" });
         pill.createSpan({ text: value });
@@ -9071,7 +9072,7 @@ var TravelPlannerSettingTab = class extends import_obsidian36.PluginSettingTab {
     if (s.passportCountries.length === 0) {
       this.note(passports.content, "No passports set \u2014 no visa check will run.");
     }
-    const list3 = passports.content.createDiv({ cls: "tp-chip-row" });
+    const list3 = passports.content.createDiv({ cls: "tp-pill-row" });
     for (const [index, passport] of s.passportCountries.entries()) {
       const pill = list3.createSpan({ cls: "tp-pill" });
       (0, import_obsidian36.setIcon)(pill.createSpan({ cls: "tp-pill-icon" }), "book-user");

@@ -151,6 +151,7 @@ export class PackingModal extends Modal {
     const setting = new Setting(parent)
       .setName("Packing for")
       .setDesc("Clothing counts scale with who you tick. Toiletries and gear stay as one each.");
+    setting.settingEl.addClass("tp-setting-stack");
 
     const row = setting.controlEl.createDiv({ cls: "tp-settings-subnotes" });
     for (const person of people) {

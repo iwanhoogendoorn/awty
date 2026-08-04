@@ -174,7 +174,7 @@
 
 /* --- removable pills ------------------------------------------------------ */
 
-.tp-chip-row {
+.tp-pill-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;

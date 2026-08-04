@@ -350,6 +350,7 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
     });
 
     new Setting(people.content)
+      .then((setting) => setting.settingEl.addClass("tp-setting-stack"))
       .setName("Household")
       .setDesc("Comma-separated. A new trip starts with these names.")
       .addText((t) =>
@@ -386,7 +387,7 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
     ] as const) {
       if (list.length === 0) continue;
       starred.content.createDiv({ cls: "tp-sgroup-label", text: label });
-      const row = starred.content.createDiv({ cls: "tp-chip-row" });
+      const row = starred.content.createDiv({ cls: "tp-pill-row" });
       for (const value of list) {
         const pill = row.createSpan({ cls: "tp-pill" });
         pill.createSpan({ text: value });
@@ -503,7 +504,7 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
       this.note(passports.content, "No passports set — no visa check will run.");
     }
 
-    const list = passports.content.createDiv({ cls: "tp-chip-row" });
+    const list = passports.content.createDiv({ cls: "tp-pill-row" });
     for (const [index, passport] of s.passportCountries.entries()) {
       const pill = list.createSpan({ cls: "tp-pill" });
       setIcon(pill.createSpan({ cls: "tp-pill-icon" }), "book-user");

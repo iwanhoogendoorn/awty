@@ -163,7 +163,23 @@
   margin: 0;
 }
 
+/* Checkbox groups read left to right like the text above them; right-aligning
+   them made the last item hang alone on a second line. */
 .tp-settings-subnotes {
-  justify-content: flex-end;
-  max-width: 26em;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+/* A Setting whose control is a group, not a single field: name and description
+   on top, the group full-width beneath, rather than squeezed into the narrow
+   right-hand column. */
+.setting-item.tp-setting-stack {
+  display: block;
+}
+
+.setting-item.tp-setting-stack .setting-item-control {
+  justify-content: flex-start;
+  width: 100%;
+  margin-top: 8px;
+  padding-left: 0;
 }
