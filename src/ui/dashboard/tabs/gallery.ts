@@ -2,10 +2,30 @@ import { TFile, TFolder, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
 import { emptyState, sectionTitle, noTripState } from "../common";
 import { fileFromLink } from "../../../bookings/bookingStore";
+import { BOOKING_KINDS } from "../../../bookings/types";
+import { formatMoney } from "../../../util/money";
+import { formatDateRange } from "../../../util/dates";
 
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
 
-/** Everything attached to a trip: tickets, confirmations, receipts, photos. */
+/** Attachments belonging to one booking, expense, or the folder itself. */
+interface Group {
+  key: string;
+  title: string;
+  detail: string;
+  icon: string;
+  /** The note these belong to, so the group heading can open it. */
+  source: TFile | null;
+  files: TFile[];
+}
+
+/**
+ * Every attachment on a trip, grouped by what it belongs to.
+ *
+ * A flat grid of thumbnails with a truncated caption made it impossible to tell
+ * a boarding pass from a hotel confirmation, which is the only question this
+ * tab exists to answer.
+ */
 export function renderGallery(parent: HTMLElement, ctx: DashboardContext): void {
   const { trip, plugin, app } = ctx;
   if (!trip) {
@@ -14,74 +34,119 @@ export function renderGallery(parent: HTMLElement, ctx: DashboardContext): void 
   }
 
   const seen = new Set<string>();
-  const files: { file: TFile; source: string }[] = [];
+  const groups: Group[] = [];
 
-  const collect = (links: string[], sourcePath: string, source: string) => {
+  const resolve = (links: string[], sourcePath: string): TFile[] => {
+    const out: TFile[] = [];
     for (const link of links) {
       const file = fileFromLink(app, link, sourcePath);
       if (!file || seen.has(file.path)) continue;
       seen.add(file.path);
-      files.push({ file, source });
+      out.push(file);
     }
+    return out;
   };
 
   for (const booking of plugin.bookings.getBookings(trip)) {
-    collect(booking.attachments, booking.file.path, booking.title);
-  }
-  for (const expense of plugin.bookings.getExpenses(trip)) {
-    collect(expense.attachments, expense.file.path, expense.description);
+    const files = resolve(booking.attachments, booking.file.path);
+    if (files.length === 0) continue;
+    const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
+    groups.push({
+      key: booking.file.path,
+      title: booking.title,
+      detail: [def?.label, formatDateRange(booking.date, booking.endDate), booking.reference]
+        .filter(Boolean)
+        .join(" · "),
+      icon: def?.icon ?? "ticket",
+      source: booking.file,
+      files,
+    });
   }
 
-  // Anything dropped straight into the attachments folder counts too.
+  for (const expense of plugin.bookings.getExpenses(trip)) {
+    const files = resolve(expense.attachments, expense.file.path);
+    if (files.length === 0) continue;
+    groups.push({
+      key: expense.file.path,
+      title: expense.description,
+      detail: [expense.date, formatMoney(expense.amount), expense.category]
+        .filter(Boolean)
+        .join(" · "),
+      icon: "receipt",
+      source: expense.file,
+      files,
+    });
+  }
+
+  // Anything dropped straight into the folder belongs to the trip itself.
   const attachFolder = app.vault.getAbstractFileByPath(
     `${trip.folderPath}/${plugin.settings.attachmentsFolder}`,
   );
   if (attachFolder instanceof TFolder) {
-    for (const child of attachFolder.children) {
-      if (child instanceof TFile && child.extension !== "md" && !seen.has(child.path)) {
-        seen.add(child.path);
-        files.push({ file: child, source: "Trip folder" });
-      }
+    const loose = attachFolder.children.filter(
+      (child): child is TFile =>
+        child instanceof TFile && child.extension !== "md" && !seen.has(child.path),
+    );
+    if (loose.length > 0) {
+      groups.push({
+        key: "__folder",
+        title: "Not linked to a booking",
+        detail: "Dropped into the trip's attachments folder",
+        icon: "folder",
+        source: null,
+        files: loose,
+      });
     }
   }
 
-  if (files.length === 0) {
+  if (groups.length === 0) {
     emptyState(
       parent,
       "image",
       "No attachments yet",
-      "Boarding passes, hotel confirmations, tickets and receipts you attach to a booking show up here.",
+      "Boarding passes, hotel confirmations, tickets and receipts you attach to a booking show up here, grouped by what they belong to.",
     );
     return;
   }
 
-  const images = files.filter((f) => IMAGE_RE.test(f.file.name));
-  const documents = files.filter((f) => !IMAGE_RE.test(f.file.name));
+  const total = groups.reduce((n, g) => n + g.files.length, 0);
+  sectionTitle(parent, `${total} attachment${total === 1 ? "" : "s"}`);
 
-  if (images.length > 0) {
-    sectionTitle(parent, `Images (${images.length})`);
-    const grid = parent.createDiv({ cls: "tp-gallery" });
-    for (const { file, source } of images) {
-      const cell = grid.createDiv({ cls: "tp-gallery-cell" });
-      const img = cell.createEl("img", { cls: "tp-gallery-img" });
-      img.src = app.vault.getResourcePath(file);
-      img.alt = file.name;
-      img.loading = "lazy";
-      cell.createDiv({ cls: "tp-gallery-caption", text: source });
-      cell.addEventListener("click", () => ctx.openFile(file));
+  for (const group of groups) {
+    const box = parent.createDiv({ cls: "tp-gallery-group" });
+
+    const head = box.createDiv({ cls: "tp-gallery-head" });
+    setIcon(head.createDiv({ cls: "tp-gallery-head-icon" }), group.icon);
+    const headText = head.createDiv({ cls: "tp-gallery-head-text" });
+    headText.createDiv({ cls: "tp-gallery-head-title", text: group.title });
+    if (group.detail) headText.createDiv({ cls: "tp-gallery-head-detail", text: group.detail });
+    head.createDiv({
+      cls: "tp-gallery-head-count",
+      text: `${group.files.length} file${group.files.length === 1 ? "" : "s"}`,
+    });
+    if (group.source) {
+      head.addClass("is-clickable");
+      head.addEventListener("click", () => ctx.openFile(group.source!));
     }
-  }
 
-  if (documents.length > 0) {
-    sectionTitle(parent, `Documents (${documents.length})`);
-    const list = parent.createDiv({ cls: "tp-doc-list" });
-    for (const { file, source } of documents) {
-      const row = list.createDiv({ cls: "tp-doc-row" });
-      setIcon(row.createDiv({ cls: "tp-doc-icon" }), "file-text");
-      const text = row.createDiv({ cls: "tp-doc-text" });
-      text.createDiv({ cls: "tp-doc-name", text: file.name });
-      text.createDiv({ cls: "tp-doc-source", text: source });
-      row.addEventListener("click", () => ctx.openFile(file));
+    const grid = box.createDiv({ cls: "tp-gallery" });
+    for (const file of group.files) {
+      const cell = grid.createDiv({ cls: "tp-gallery-cell" });
+
+      if (IMAGE_RE.test(file.name)) {
+        const img = cell.createEl("img", { cls: "tp-gallery-img" });
+        img.src = app.vault.getResourcePath(file);
+        img.alt = file.name;
+        img.loading = "lazy";
+      } else {
+        const doc = cell.createDiv({ cls: "tp-gallery-doc" });
+        setIcon(doc, file.extension === "pdf" ? "file-text" : "file");
+        doc.createSpan({ cls: "tp-gallery-doc-ext", text: file.extension.toUpperCase() });
+      }
+
+      cell.createDiv({ cls: "tp-gallery-caption", text: file.name });
+      cell.setAttribute("title", `${file.name} — ${group.title}`);
+      cell.addEventListener("click", () => ctx.openFile(file));
     }
   }
 }

@@ -25,6 +25,13 @@ function list(value: unknown): string[] {
   return single ? [single] : [];
 }
 
+/** First leg of a return journey, if the booking records one. */
+function firstReturnLeg(value: unknown): { date: string; time: string } {
+  if (!Array.isArray(value) || value.length === 0) return { date: "", time: "" };
+  const leg = value[0] as Record<string, unknown>;
+  return { date: str(leg?.date), time: str(leg?.departs) };
+}
+
 function money(rawAmount: unknown, rawCurrency: unknown, fallback: string): Money | null {
   if (rawAmount === undefined || rawAmount === null || rawAmount === "") return null;
   const amount = typeof rawAmount === "number" ? rawAmount : parseAmount(str(rawAmount));
@@ -195,6 +202,7 @@ export class BookingStore {
       if (type === "booking") {
         const kind = asKind(fm.booking_kind);
         const date = str(fm.date);
+        const back = firstReturnLeg(fm.return_legs);
         const endDate = str(fm.end_date);
         entryFor(tripFolder).bookings.push({
           file,
@@ -209,6 +217,8 @@ export class BookingStore {
             ? str(fm.slot)
             : "") as Booking["slot"],
           endTime: str(fm.end_time),
+          returnDate: isValidISODate(back.date) ? back.date : "",
+          returnTime: back.time,
           cost: money(fm.cost, fm.currency, fallbackCurrency),
           category: str(fm.category) || (KIND_BY_ID.get(kind)?.category ?? "Misc"),
           reference: str(fm.reference),

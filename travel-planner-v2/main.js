@@ -672,6 +672,11 @@ function list2(value) {
   const single = str2(value);
   return single ? [single] : [];
 }
+function firstReturnLeg(value) {
+  if (!Array.isArray(value) || value.length === 0) return { date: "", time: "" };
+  const leg = value[0];
+  return { date: str2(leg?.date), time: str2(leg?.departs) };
+}
 function money(rawAmount, rawCurrency, fallback) {
   if (rawAmount === void 0 || rawAmount === null || rawAmount === "") return null;
   const amount = typeof rawAmount === "number" ? rawAmount : parseAmount(str2(rawAmount));
@@ -804,6 +809,7 @@ var BookingStore = class {
       if (type === "booking") {
         const kind = asKind(fm.booking_kind);
         const date = str2(fm.date);
+        const back = firstReturnLeg(fm.return_legs);
         const endDate = str2(fm.end_date);
         entryFor(tripFolder).bookings.push({
           file,
@@ -816,6 +822,8 @@ var BookingStore = class {
           time: str2(fm.time),
           slot: ["morning", "afternoon", "evening"].includes(str2(fm.slot)) ? str2(fm.slot) : "",
           endTime: str2(fm.end_time),
+          returnDate: isValidISODate(back.date) ? back.date : "",
+          returnTime: back.time,
           cost: money(fm.cost, fm.currency, fallbackCurrency),
           category: str2(fm.category) || (KIND_BY_ID2.get(kind)?.category ?? "Misc"),
           reference: str2(fm.reference),
@@ -2805,6 +2813,77 @@ function renderTrips(parent, ctx, onSelect) {
 // src/ui/dashboard/tabs/itinerary.ts
 var import_obsidian12 = require("obsidian");
 var WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+function eventsFor(booking, date) {
+  const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
+  const icon = def?.icon ?? "ticket";
+  const cost = booking.cost ? formatMoney(booking.cost) : "";
+  const out = [];
+  if (booking.kind === "stay") {
+    if (date === booking.date) {
+      out.push({
+        time: booking.time,
+        title: booking.title,
+        detail: "Check in",
+        icon,
+        cost,
+        file: booking.file
+      });
+    }
+    if (booking.endDate && date === booking.endDate && booking.endDate !== booking.date) {
+      out.push({
+        time: booking.endTime,
+        title: booking.title,
+        detail: "Check out",
+        icon,
+        // The price belongs to the stay, and it is already shown at check-in.
+        cost: "",
+        file: booking.file
+      });
+    }
+    return out;
+  }
+  if (booking.kind === "flight") {
+    if (date === booking.date) {
+      out.push({
+        time: booking.time,
+        title: booking.title,
+        detail: [booking.from, booking.to].filter(Boolean).join(" \u2192 ") || "Outbound",
+        icon,
+        cost,
+        file: booking.file
+      });
+    }
+    if (booking.returnDate && date === booking.returnDate) {
+      out.push({
+        time: booking.returnTime,
+        title: booking.title,
+        detail: `Return \xB7 ${[booking.to, booking.from].filter(Boolean).join(" \u2192 ")}`,
+        icon,
+        cost: "",
+        file: booking.file
+      });
+    }
+    return out;
+  }
+  if (date !== booking.date) return out;
+  out.push({
+    time: booking.time,
+    title: booking.title,
+    detail: booking.slot ? booking.slot : booking.to ?? "",
+    icon,
+    cost,
+    file: booking.file
+  });
+  return out;
+}
+function ongoingFor(booking, date) {
+  if (booking.kind !== "stay") return null;
+  if (!booking.endDate || booking.endDate === booking.date) return null;
+  if (date <= booking.date || date >= booking.endDate) return null;
+  const nights = datesInRange(booking.date, booking.endDate).length - 1;
+  const night = datesInRange(booking.date, date).length - 1;
+  return { title: booking.title, night, nights, file: booking.file };
+}
 function renderItinerary(parent, ctx) {
   const { trip, plugin } = ctx;
   if (!trip) {
@@ -2819,24 +2898,27 @@ function renderItinerary(parent, ctx) {
   const bookings = plugin.bookings.getBookings(trip).filter((b) => b.status !== "cancelled");
   const today = todayISO();
   const itineraryNote = plugin.store.getSubNotes(trip).find((s) => s.id === "itinerary");
-  sectionTitle(
-    parent,
-    "Day by day",
-    itineraryNote ? { label: "Open itinerary", icon: "file-text", onClick: () => ctx.openFile(itineraryNote.file) } : void 0
-  );
+  sectionTitle(parent, "Day by day", {
+    label: "Plan a day",
+    icon: "calendar-plus",
+    onClick: () => plugin.openAddDayModal(trip)
+  });
+  if (itineraryNote) {
+    const open = parent.createDiv({ cls: "tp-dash-hint tp-timeline-open" });
+    const link = open.createEl("a", { text: "Open the itinerary note" });
+    link.addEventListener("click", () => ctx.openFile(itineraryNote.file));
+  }
   const timeline = parent.createDiv({ cls: "tp-timeline" });
   for (const [index, date] of days.entries()) {
     const parsed = parseISO(date);
-    const dayBookings = bookings.filter((b) => date >= b.date && date <= (b.endDate || b.date));
+    const events = bookings.flatMap((b) => eventsFor(b, date)).sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+    const ongoing = bookings.map((b) => ongoingFor(b, date)).filter((o) => o !== null);
     const row2 = timeline.createDiv({
       cls: `tp-day${date === today ? " is-today" : ""}${date < today ? " is-past" : ""}`
     });
     const marker = row2.createDiv({ cls: "tp-day-marker" });
     marker.createDiv({ cls: "tp-day-num", text: parsed ? String(parsed.getUTCDate()) : "?" });
-    marker.createDiv({
-      cls: "tp-day-dow",
-      text: parsed ? WEEKDAYS[parsed.getUTCDay()] : ""
-    });
+    marker.createDiv({ cls: "tp-day-dow", text: parsed ? WEEKDAYS[parsed.getUTCDay()] : "" });
     const body = row2.createDiv({ cls: "tp-day-body" });
     const head = body.createDiv({ cls: "tp-day-head" });
     head.createSpan({ cls: "tp-day-label", text: `Day ${index + 1}` });
@@ -2845,40 +2927,41 @@ function renderItinerary(parent, ctx) {
       text: parsed ? `${parsed.getUTCDate()} ${monthName(date)}` : date
     });
     if (date === today) head.createSpan({ cls: "tp-day-today", text: "Today" });
-    if (dayBookings.length === 0) {
-      body.createDiv({ cls: "tp-day-empty", text: "Nothing planned" });
+    for (const stay of ongoing) {
+      const rail = body.createDiv({ cls: "tp-day-ongoing" });
+      (0, import_obsidian12.setIcon)(rail.createSpan({ cls: "tp-day-ongoing-icon" }), "bed");
+      rail.createSpan({ text: `${stay.title} \xB7 night ${stay.night} of ${stay.nights}` });
+      rail.addEventListener("click", () => ctx.openFile(stay.file));
+    }
+    if (events.length === 0) {
+      if (ongoing.length === 0) body.createDiv({ cls: "tp-day-empty", text: "Nothing planned" });
       continue;
     }
     const list3 = body.createDiv({ cls: "tp-day-items" });
-    for (const booking of dayBookings) {
-      const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
+    for (const event of events) {
       const item = list3.createDiv({ cls: "tp-day-item" });
-      (0, import_obsidian12.setIcon)(item.createDiv({ cls: "tp-day-item-icon" }), def?.icon ?? "ticket");
+      item.createDiv({ cls: "tp-day-item-time", text: event.time || "\u2014" });
+      (0, import_obsidian12.setIcon)(item.createDiv({ cls: "tp-day-item-icon" }), event.icon);
       const text = item.createDiv({ cls: "tp-day-item-text" });
-      const multiDay = booking.endDate && booking.endDate !== booking.date;
-      const suffix = multiDay ? date === booking.date ? " \xB7 check-in" : date === booking.endDate ? " \xB7 check-out" : "" : "";
-      text.createDiv({ cls: "tp-day-item-title", text: booking.title + suffix });
-      const meta = [booking.time, booking.from && booking.to ? `${booking.from} \u2192 ${booking.to}` : ""].filter(Boolean).join(" \xB7 ");
-      if (meta) text.createDiv({ cls: "tp-day-item-meta", text: meta });
-      if (booking.cost && date === booking.date) {
-        item.createDiv({ cls: "tp-day-item-cost", text: formatMoney(booking.cost) });
-      }
-      item.addEventListener("click", () => ctx.openFile(booking.file));
+      text.createDiv({ cls: "tp-day-item-title", text: event.title });
+      if (event.detail) text.createDiv({ cls: "tp-day-item-meta", text: event.detail });
+      if (event.cost) item.createDiv({ cls: "tp-day-item-cost", text: event.cost });
+      item.addEventListener("click", () => ctx.openFile(event.file));
     }
-    renderLegs(body, dayBookings, ctx);
+    renderLegs(body, events, ctx);
   }
 }
-function renderLegs(body, dayBookings, ctx) {
+function renderLegs(body, events, ctx) {
   const { trip, plugin } = ctx;
-  if (!trip || dayBookings.length < 2) return;
+  if (!trip || events.length < 2) return;
   const places = plugin.travelPlaces.get(trip.folderPath);
   if (!places) return;
   const all = [...places.hotels, ...places.airports, ...places.activities];
   const byPath = new Map(all.filter((p) => p.file).map((p) => [p.file.path, p]));
   const modes = plugin.settings.travelModes;
-  for (let i = 0; i < dayBookings.length - 1; i += 1) {
-    const from = byPath.get(dayBookings[i].file.path);
-    const to = byPath.get(dayBookings[i + 1].file.path);
+  for (let i = 0; i < events.length - 1; i += 1) {
+    const from = byPath.get(events[i].file.path);
+    const to = byPath.get(events[i + 1].file.path);
     if (!from || !to || from.id === to.id) continue;
     const legs = plugin.travel.peekLegs(from, [to], modes).get(to.id);
     if (!legs || legs.length === 0) continue;
@@ -3091,66 +3174,102 @@ function renderGallery(parent, ctx) {
     return;
   }
   const seen = /* @__PURE__ */ new Set();
-  const files = [];
-  const collect = (links, sourcePath, source) => {
+  const groups = [];
+  const resolve = (links, sourcePath) => {
+    const out = [];
     for (const link of links) {
       const file = fileFromLink(app, link, sourcePath);
       if (!file || seen.has(file.path)) continue;
       seen.add(file.path);
-      files.push({ file, source });
+      out.push(file);
     }
+    return out;
   };
   for (const booking of plugin.bookings.getBookings(trip)) {
-    collect(booking.attachments, booking.file.path, booking.title);
+    const files = resolve(booking.attachments, booking.file.path);
+    if (files.length === 0) continue;
+    const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
+    groups.push({
+      key: booking.file.path,
+      title: booking.title,
+      detail: [def?.label, formatDateRange(booking.date, booking.endDate), booking.reference].filter(Boolean).join(" \xB7 "),
+      icon: def?.icon ?? "ticket",
+      source: booking.file,
+      files
+    });
   }
   for (const expense of plugin.bookings.getExpenses(trip)) {
-    collect(expense.attachments, expense.file.path, expense.description);
+    const files = resolve(expense.attachments, expense.file.path);
+    if (files.length === 0) continue;
+    groups.push({
+      key: expense.file.path,
+      title: expense.description,
+      detail: [expense.date, formatMoney(expense.amount), expense.category].filter(Boolean).join(" \xB7 "),
+      icon: "receipt",
+      source: expense.file,
+      files
+    });
   }
   const attachFolder = app.vault.getAbstractFileByPath(
     `${trip.folderPath}/${plugin.settings.attachmentsFolder}`
   );
   if (attachFolder instanceof import_obsidian15.TFolder) {
-    for (const child of attachFolder.children) {
-      if (child instanceof import_obsidian15.TFile && child.extension !== "md" && !seen.has(child.path)) {
-        seen.add(child.path);
-        files.push({ file: child, source: "Trip folder" });
-      }
+    const loose = attachFolder.children.filter(
+      (child) => child instanceof import_obsidian15.TFile && child.extension !== "md" && !seen.has(child.path)
+    );
+    if (loose.length > 0) {
+      groups.push({
+        key: "__folder",
+        title: "Not linked to a booking",
+        detail: "Dropped into the trip's attachments folder",
+        icon: "folder",
+        source: null,
+        files: loose
+      });
     }
   }
-  if (files.length === 0) {
+  if (groups.length === 0) {
     emptyState(
       parent,
       "image",
       "No attachments yet",
-      "Boarding passes, hotel confirmations, tickets and receipts you attach to a booking show up here."
+      "Boarding passes, hotel confirmations, tickets and receipts you attach to a booking show up here, grouped by what they belong to."
     );
     return;
   }
-  const images = files.filter((f) => IMAGE_RE.test(f.file.name));
-  const documents = files.filter((f) => !IMAGE_RE.test(f.file.name));
-  if (images.length > 0) {
-    sectionTitle(parent, `Images (${images.length})`);
-    const grid = parent.createDiv({ cls: "tp-gallery" });
-    for (const { file, source } of images) {
-      const cell = grid.createDiv({ cls: "tp-gallery-cell" });
-      const img = cell.createEl("img", { cls: "tp-gallery-img" });
-      img.src = app.vault.getResourcePath(file);
-      img.alt = file.name;
-      img.loading = "lazy";
-      cell.createDiv({ cls: "tp-gallery-caption", text: source });
-      cell.addEventListener("click", () => ctx.openFile(file));
+  const total = groups.reduce((n, g) => n + g.files.length, 0);
+  sectionTitle(parent, `${total} attachment${total === 1 ? "" : "s"}`);
+  for (const group of groups) {
+    const box = parent.createDiv({ cls: "tp-gallery-group" });
+    const head = box.createDiv({ cls: "tp-gallery-head" });
+    (0, import_obsidian15.setIcon)(head.createDiv({ cls: "tp-gallery-head-icon" }), group.icon);
+    const headText = head.createDiv({ cls: "tp-gallery-head-text" });
+    headText.createDiv({ cls: "tp-gallery-head-title", text: group.title });
+    if (group.detail) headText.createDiv({ cls: "tp-gallery-head-detail", text: group.detail });
+    head.createDiv({
+      cls: "tp-gallery-head-count",
+      text: `${group.files.length} file${group.files.length === 1 ? "" : "s"}`
+    });
+    if (group.source) {
+      head.addClass("is-clickable");
+      head.addEventListener("click", () => ctx.openFile(group.source));
     }
-  }
-  if (documents.length > 0) {
-    sectionTitle(parent, `Documents (${documents.length})`);
-    const list3 = parent.createDiv({ cls: "tp-doc-list" });
-    for (const { file, source } of documents) {
-      const row2 = list3.createDiv({ cls: "tp-doc-row" });
-      (0, import_obsidian15.setIcon)(row2.createDiv({ cls: "tp-doc-icon" }), "file-text");
-      const text = row2.createDiv({ cls: "tp-doc-text" });
-      text.createDiv({ cls: "tp-doc-name", text: file.name });
-      text.createDiv({ cls: "tp-doc-source", text: source });
-      row2.addEventListener("click", () => ctx.openFile(file));
+    const grid = box.createDiv({ cls: "tp-gallery" });
+    for (const file of group.files) {
+      const cell = grid.createDiv({ cls: "tp-gallery-cell" });
+      if (IMAGE_RE.test(file.name)) {
+        const img = cell.createEl("img", { cls: "tp-gallery-img" });
+        img.src = app.vault.getResourcePath(file);
+        img.alt = file.name;
+        img.loading = "lazy";
+      } else {
+        const doc = cell.createDiv({ cls: "tp-gallery-doc" });
+        (0, import_obsidian15.setIcon)(doc, file.extension === "pdf" ? "file-text" : "file");
+        doc.createSpan({ cls: "tp-gallery-doc-ext", text: file.extension.toUpperCase() });
+      }
+      cell.createDiv({ cls: "tp-gallery-caption", text: file.name });
+      cell.setAttribute("title", `${file.name} \u2014 ${group.title}`);
+      cell.addEventListener("click", () => ctx.openFile(file));
     }
   }
 }

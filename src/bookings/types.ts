@@ -93,6 +93,9 @@ export interface Booking {
   endTime: string;
   /** Which part of the day the itinerary put this in, if any. */
   slot: DaySlot | "";
+  /** Departure date of the return journey, for a return ticket. */
+  returnDate: string;
+  returnTime: string;
   cost: Money | null;
   category: CostCategory;
   reference: string;
