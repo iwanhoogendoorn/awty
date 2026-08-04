@@ -750,7 +750,9 @@ export class AwtySettingTab extends PluginSettingTab {
           .setButtonText("Clear")
           .setWarning()
           .onClick(async () => {
-            await this.plugin.travel.clearLegs();
+            // The description counts routes and addresses; clearing only the
+            // routes left every geocoded address behind.
+            await this.plugin.travel.clearAll();
             this.plugin.travelPlaces.clear();
             new Notice("Travel time cache cleared.");
             this.renderBody();

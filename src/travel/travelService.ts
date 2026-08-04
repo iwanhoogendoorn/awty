@@ -9,10 +9,20 @@ import { parseISO } from "../util/dates";
 export interface TravelCache {
   /** Country -> the last advice fetched for it, with when. */
   advice?: Record<string, { colour: string; url: string; fetchedAt: number }>;
-  /** legKey -> result. */
-  legs: Record<string, { d: number; t: number; at: number }>;
+  /**
+   * legKey -> result. `d: -1` records that Google found no route, so the same
+   * dead pair is not paid for again on every look-up. `on` is the departure
+   * date the answer was asked for, which matters for transit.
+   */
+  legs: Record<string, { d: number; t: number; at: number; on?: string }>;
   /** Lowercased address -> "lat,lng". */
   geocode: Record<string, string>;
+}
+
+/** The departure date a lookup was asked about, as YYYY-MM-DD. */
+function isoOf(when?: Date): string | undefined {
+  if (!when) return undefined;
+  return `${when.getUTCFullYear()}-${String(when.getUTCMonth() + 1).padStart(2, "0")}-${String(when.getUTCDate()).padStart(2, "0")}`;
 }
 
 export function emptyTravelCache(): TravelCache {
@@ -189,10 +199,26 @@ export class TravelService {
 
   // ----------------------------------------------------------------- legs
 
-  private readCache(from: Coord, to: Coord, mode: TravelMode): TravelLeg | null {
+  /**
+   * A cached answer, or null when there is none.
+   *
+   * Returns `known: true, leg: null` for a pair Google has already said it
+   * cannot route: that is an answer, and re-asking for it costs money every
+   * time the screen is drawn.
+   */
+  private readCache(
+    from: Coord,
+    to: Coord,
+    mode: TravelMode,
+    on?: string,
+  ): { known: boolean; leg: TravelLeg | null } {
     const hit = this.cache.legs[legKey(from, to, mode)];
-    if (!hit) return null;
-    return { mode, distanceMeters: hit.d, durationSeconds: hit.t };
+    if (!hit) return { known: false, leg: null };
+    // Transit depends on the day it is asked about — a Sunday timetable is not
+    // a Tuesday one — so an answer for another date is not an answer for this.
+    if (on && mode === "transit" && hit.on && hit.on !== on) return { known: false, leg: hit.d < 0 ? null : { mode, distanceMeters: hit.d, durationSeconds: hit.t } };
+    if (hit.d < 0) return { known: true, leg: null };
+    return { known: true, leg: { mode, distanceMeters: hit.d, durationSeconds: hit.t } };
   }
 
   /** Cached results for a fan-out, with no network access at all. */
@@ -205,7 +231,9 @@ export class TravelService {
     for (const destination of destinations) {
       const legs: TravelLeg[] = [];
       for (const mode of modes) {
-        const leg = this.readCache(origin.coord, destination.coord, mode);
+        // No date here on purpose: the display shows the last known answer
+        // rather than blanking because the trip moved. Only fetching cares.
+        const { leg } = this.readCache(origin.coord, destination.coord, mode);
         if (leg) legs.push(leg);
       }
       if (legs.length) out.set(destination.id, legs);
@@ -214,9 +242,10 @@ export class TravelService {
   }
 
   /** True when something in this fan-out would need a paid request. */
-  needsFetch(origin: Place, destinations: Place[], modes: TravelMode[]): boolean {
+  needsFetch(origin: Place, destinations: Place[], modes: TravelMode[], when?: Date): boolean {
+    const on = isoOf(when);
     return destinations.some((d) =>
-      modes.some((mode) => this.readCache(origin.coord, d.coord, mode) === null),
+      modes.some((mode) => !this.readCache(origin.coord, d.coord, mode, on).known),
     );
   }
 
@@ -231,12 +260,13 @@ export class TravelService {
     when?: Date,
   ): Promise<Map<string, TravelLeg[]>> {
     const key = this.requireKey();
+    const on = isoOf(when);
     let dirty = false;
 
     for (const mode of modes) {
       const missing = destinations.filter(
         (d) =>
-          this.readCache(origin.coord, d.coord, mode) === null &&
+          !this.readCache(origin.coord, d.coord, mode, on).known &&
           coordKey(d.coord) !== coordKey(origin.coord),
       );
 
@@ -250,12 +280,11 @@ export class TravelService {
           when,
         );
         for (const [index, leg] of results.entries()) {
-          if (!leg) continue;
-          this.cache.legs[legKey(origin.coord, batch[index].coord, mode)] = {
-            d: leg.distanceMeters,
-            t: leg.durationSeconds,
-            at: Date.now(),
-          };
+          // A missing element is Google saying there is no route. Recording it
+          // stops the next look-up paying to be told the same thing.
+          this.cache.legs[legKey(origin.coord, batch[index].coord, mode)] = leg
+            ? { d: leg.distanceMeters, t: leg.durationSeconds, at: Date.now(), on }
+            : { d: -1, t: -1, at: Date.now(), on };
           dirty = true;
         }
       }
@@ -334,9 +363,16 @@ export class TravelService {
     }
   }
 
-  /** Wipes cached legs so the next look-up re-fetches. */
+  /** Wipes every cached leg, for the settings button that says so. */
   async clearLegs(): Promise<void> {
     this.cache.legs = {};
+    await this.persist();
+  }
+
+  /** Wipes cached addresses too — "clear the cache" counted both. */
+  async clearAll(): Promise<void> {
+    this.cache.legs = {};
+    this.cache.geocode = {};
     await this.persist();
   }
 

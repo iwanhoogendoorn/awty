@@ -454,6 +454,11 @@ export default class AwtyPlugin extends Plugin {
         }
         this.bookings.invalidate();
         this.store.invalidate();
+        // An address, a venue or a date just changed, so the places resolved
+        // for this trip are no longer what the notes say. Leaving them marked
+        // current let the wizard claim distances were worked out and let
+        // "write travel times" write the old ones into the notes.
+        this.travelPlaces.delete(trip.folderPath);
         await syncBookingNotes(this.app, trip, this.bookings.getBookings(trip));
         new Notice(existing ? `Updated “${draft.title}”.` : `Added “${draft.title}”.`);
       },
@@ -666,6 +671,8 @@ export default class AwtyPlugin extends Plugin {
       await updateTrip(this.app, this.settings, trip, draft);
       new Notice(`Updated “${draft.title}”.`);
       this.store.invalidate();
+      // The city or the dates may have moved; the resolved places have not.
+      this.travelPlaces.delete(trip.folderPath);
     }).open();
   }
 
@@ -773,7 +780,10 @@ export default class AwtyPlugin extends Plugin {
 
     const notice = new Notice("Working out travel times…", 0);
     try {
-      if (force) await this.travel.clearLegs();
+      // Scoped to this trip. clearLegs() empties the cache for every trip, so
+      // refreshing one destroyed routes for all the others — and did it before
+      // knowing whether this refresh would even succeed.
+      if (force) await this.travel.forgetTrip(trip);
 
       const places = await this.travel.placesFor(trip, this.bookings.getBookings(trip));
       this.travelPlaces.set(trip.folderPath, places);
@@ -835,13 +845,15 @@ export default class AwtyPlugin extends Plugin {
    * the Food note — so they are readable offline and on mobile.
    */
   async writeTravelTimes(trip: Trip): Promise<void> {
-    const places = this.travelPlaces.get(trip.folderPath);
-    if (!places) {
-      await this.computeTravelTimes(trip);
-    }
+    // Writing what is already known must not go to the network. This used to
+    // fall through to computeTravelTimes, so a command labelled "write into
+    // the notes" could geocode and bill the user's own Google account.
     const resolved = this.travelPlaces.get(trip.folderPath);
     const origin = resolved?.hotels[0];
-    if (!resolved || !origin) return;
+    if (!resolved || !origin) {
+      new Notice("Nothing calculated for this trip yet — press Calculate on Getting around first.");
+      return;
+    }
 
     const modes = this.settings.travelModes;
     let written = 0;
