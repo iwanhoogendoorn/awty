@@ -1,4 +1,4 @@
-import { Notice, setIcon } from "obsidian";
+import { Menu, Notice, setIcon } from "obsidian";
 import type { DashboardContext } from "./common";
 import { formatDayLabel } from "../../util/dates";
 import { editItem, sectionTitle } from "./common";
@@ -51,13 +51,27 @@ export function renderGettingAround(parent: HTMLElement, ctx: DashboardContext):
     btn.addEventListener("click", () => new RouteModal(ctx.app, plugin, trip).open());
   }
 
-  // Every place on the trip as a file My Maps can import. No link can make a
-  // saved list, so a file is the only route to the whole trip on one map.
+  // Three ways to leave with the places, so the button offers them rather than
+  // picking one: the phone wants links, My Maps wants a file.
   const mapBtn = head.createEl("button", { cls: "awty-dash-action" });
   setIcon(mapBtn.createSpan(), "map");
   mapBtn.createSpan({ text: "Map" });
-  mapBtn.setAttribute("title", "Write the trip's places as KML for Google My Maps");
-  mapBtn.addEventListener("click", () => void plugin.exportMap(trip));
+  mapBtn.addEventListener("click", (evt) => {
+    const menu = new Menu();
+    menu.addItem((i) =>
+      i
+        .setTitle("Copy links for my phone")
+        .setIcon("smartphone")
+        .onClick(() => void plugin.exportMap(trip)),
+    );
+    menu.addItem((i) =>
+      i
+        .setTitle("Save KML file…")
+        .setIcon("hard-drive-download")
+        .onClick(() => void plugin.saveMapFile(trip)),
+    );
+    menu.showAtMouseEvent(evt);
+  });
 
   if (!plugin.settings.travelTimesEnabled) {
     renderNotice(

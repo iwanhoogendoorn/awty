@@ -434,6 +434,28 @@ export function canExportPdf(): boolean {
   return electron() !== null;
 }
 
+/**
+ * Saves text to a file the user picks, using the desktop save dialogue.
+ *
+ * Shares the Electron bridge the PDF export already proved, rather than
+ * standing up a second one. Returns the path written, or null when the user
+ * cancelled or this is not the desktop app.
+ */
+export async function saveTextFile(
+  defaultName: string,
+  contents: string,
+  filters: { name: string; extensions: string[] }[],
+): Promise<string | null> {
+  const bits = electron();
+  if (!bits) return null;
+
+  const result = await bits.showSaveDialog({ defaultPath: defaultName, filters });
+  if (result.canceled || !result.filePath) return null;
+
+  bits.writeFile(result.filePath, new TextEncoder().encode(contents));
+  return result.filePath;
+}
+
 /** Electron's <webview> tag, with the printToPDF extension this relies on. */
 interface PrintableWebview extends HTMLElement {
   src: string;

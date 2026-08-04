@@ -64,7 +64,7 @@ import {
   type TravelAdvice,
 } from "./travel/advice";
 import { replaceSection } from "./store/sectionWriter";
-import { exportTrip } from "./export/pdfExport";
+import { canExportPdf, exportTrip, saveTextFile } from "./export/pdfExport";
 import { createTrip, deleteTrip, notifyError, updateTrip } from "./store/noteWriter";
 import { AwtySidebarView } from "./ui/view";
 import { TripModal } from "./ui/modals/tripModal";
@@ -571,7 +571,8 @@ export default class AwtyPlugin extends Plugin {
    * geocoding: anything without them travels as an address for My Maps to
    * resolve on import.
    */
-  async exportMap(trip: Trip): Promise<void> {
+  /** Every place on a trip that can be put on a map. */
+  private mapPlaces(trip: Trip): MapPlace[] {
     const places: MapPlace[] = [];
     const seen = new Set<string>();
 
@@ -623,6 +624,34 @@ export default class AwtyPlugin extends Plugin {
       });
     }
 
+    return places;
+  }
+
+  /** The KML alone, saved wherever the user wants it. */
+  async saveMapFile(trip: Trip): Promise<void> {
+    const places = this.mapPlaces(trip);
+    if (places.length === 0) {
+      new Notice("Nothing to map yet — add a booking with an address.");
+      return;
+    }
+
+    const suggested = `${sanitizeName(trip.title)}.kml`;
+    const saved = await saveTextFile(suggested, tripKml(trip.title, places), [
+      { name: "Google Earth / My Maps", extensions: ["kml"] },
+    ]);
+    if (saved === null) {
+      new Notice(
+        canExportPdf()
+          ? "Not saved."
+          : "Saving to disk needs the desktop app. The file is in the trip folder instead.",
+      );
+      return;
+    }
+    new Notice(`${places.length} places saved to ${saved}`, 8000);
+  }
+
+  async exportMap(trip: Trip): Promise<void> {
+    const places = this.mapPlaces(trip);
     if (places.length === 0) {
       new Notice("Nothing to map yet — add a booking with an address.");
       return;
