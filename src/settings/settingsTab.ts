@@ -30,7 +30,6 @@ const NAV_SECTIONS: { id: string; label: string; icon: string }[] = [
   { id: "you", label: "You", icon: "user" },
   { id: "notes", label: "Notes", icon: "file-text" },
   { id: "documents", label: "Documents", icon: "shield-check" },
-  { id: "flights", label: "Flights", icon: "ticket" },
   { id: "distances", label: "Distances", icon: "route" },
   { id: "food", label: "Food Spot", icon: "utensils" },
   { id: "about", label: "About", icon: "info" },
@@ -152,9 +151,6 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
         break;
       case "documents":
         this.renderDocuments(body);
-        break;
-      case "flights":
-        this.renderFlights(body);
         break;
       case "distances":
         this.renderDistances(body);
@@ -572,34 +568,6 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
     );
   }
 
-  // ---------------------------------------------------------------- flights
-
-  private renderFlights(body: HTMLElement): void {
-    const intake = this.group(body, {
-      icon: "clipboard-paste",
-      title: "Filling in a flight",
-      subtitle: "From your own booking confirmation.",
-      chip: { text: "no setup needed", tone: "ok" },
-    });
-
-    this.note(
-      intake.content,
-      "Paste the confirmation email anywhere in the flight wizard, or drop the calendar invite the airline attached. The invite is exact; pasted text is best-effort. It needs no account, no key and no network, and works on mobile.",
-    );
-
-    const lookup = this.group(body, {
-      icon: "search",
-      title: "Automatic look-up",
-      subtitle: "Filling a flight in from its number.",
-      chip: { text: "unavailable", tone: "pending" },
-    });
-
-    this.note(
-      lookup.content,
-      "Not offered. Amadeus retired its self-service portal in July 2026, and nothing else free and self-serve answers “what time does KL1885 leave” over HTTPS: AviationStack's free tier is HTTP-only, OpenSky only sees aircraft transmitting right now, and FlightAware has no free tier. If you find one you can register for, it is a small job to add.",
-    );
-  }
-
   // -------------------------------------------------------------- distances
 
   private renderDistances(body: HTMLElement): void {
@@ -782,6 +750,11 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
     this.note(
       group.content,
       "Obsidian only re-reads the plugin when it is toggled or the app restarts, so the load time above is how to tell whether a rebuild is actually running.",
+    );
+
+    this.note(
+      group.content,
+      "Flights are filled in from your own booking confirmation — paste it, or drop the calendar invite, anywhere in the flight wizard. Automatic look-up by flight number is not offered: Amadeus retired its self-service portal in July 2026, and nothing else free and self-serve answers it over HTTPS.",
     );
 
     const facts: [string, string][] = [
