@@ -1,4 +1,4 @@
-import { setIcon } from "obsidian";
+import { Menu, Notice, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
 import { bar, emptyState, readiness, sectionTitle, stateMark, statTiles, noTripState } from "../common";
 import { renderGettingAround } from "../gettingAround";
@@ -78,6 +78,39 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
       evt.stopPropagation();
       ctx.openFile(sub.file);
     });
+
+    // A trip can end up with a note it has no use for — Event Details on a
+    // holiday, say, or one left behind by an older version.
+    cell.addEventListener("contextmenu", (evt) => {
+      evt.preventDefault();
+      const menu = new Menu();
+      menu.addItem((i) =>
+        i.setTitle("Open").setIcon("file-text").onClick(() => ctx.openFile(sub.file)),
+      );
+      if (sub.id) {
+        menu.addItem((i) =>
+          i
+            .setTitle("Fill in…")
+            .setIcon("wand-2")
+            .onClick(() => plugin.openNoteWizard(trip, sub.id!)),
+        );
+      }
+      menu.addSeparator();
+      menu.addItem((i) =>
+        i
+          .setTitle("Remove this note")
+          .setIcon("trash-2")
+          .onClick(async () => {
+            // Goes to the vault's trash, so it is recoverable.
+            await ctx.app.fileManager.trashFile(sub.file);
+            new Notice(`Removed ${sub.label}.`);
+            plugin.store.invalidate();
+            ctx.refresh();
+          }),
+      );
+      menu.showAtMouseEvent(evt);
+    });
+    cell.setAttribute("aria-label", `${sub.label} — right-click for more`);
   }
 }
 

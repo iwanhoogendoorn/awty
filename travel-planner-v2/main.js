@@ -2488,6 +2488,29 @@ function renderTripNotes(parent, ctx) {
       evt.stopPropagation();
       ctx.openFile(sub.file);
     });
+    cell.addEventListener("contextmenu", (evt) => {
+      evt.preventDefault();
+      const menu = new import_obsidian9.Menu();
+      menu.addItem(
+        (i) => i.setTitle("Open").setIcon("file-text").onClick(() => ctx.openFile(sub.file))
+      );
+      if (sub.id) {
+        menu.addItem(
+          (i) => i.setTitle("Fill in\u2026").setIcon("wand-2").onClick(() => plugin.openNoteWizard(trip, sub.id))
+        );
+      }
+      menu.addSeparator();
+      menu.addItem(
+        (i) => i.setTitle("Remove this note").setIcon("trash-2").onClick(async () => {
+          await ctx.app.fileManager.trashFile(sub.file);
+          new import_obsidian9.Notice(`Removed ${sub.label}.`);
+          plugin.store.invalidate();
+          ctx.refresh();
+        })
+      );
+      menu.showAtMouseEvent(evt);
+    });
+    cell.setAttribute("aria-label", `${sub.label} \u2014 right-click for more`);
   }
 }
 function renderOverview(parent, ctx) {
