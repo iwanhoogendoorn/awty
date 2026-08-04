@@ -163,13 +163,15 @@ export class AddDayModal extends Modal {
     if (file) {
       const content = await this.app.vault.cachedRead(file);
       const empty = emptyDayDates(content);
-      // Every booking in the trip, not just the activities still on offer: a
-      // cancelled one is no longer listed, and its generated link would then
-      // read as something typed by hand and be kept forever.
+      // Only activities: this modal writes a link for nothing else. Widening
+      // it to every booking meant a hand-written "- [[Airport Hotel]]" under a
+      // day matched the stay of that name and was deleted as though generated.
+      // Cancelled ones are still included, since their link was written before
+      // they were cancelled and is ours to remove.
       const generated = new Set(
-        (this.trip ? this.plugin.bookings.getBookings(this.trip) : []).map(
-          (b) => b.file.basename,
-        ),
+        (this.trip ? this.plugin.bookings.getBookings(this.trip) : [])
+          .filter((b) => b.kind === "activity")
+          .map((b) => b.file.basename),
       );
       for (const date of this.days()) {
         if (!empty.has(date)) this.planned.add(date);

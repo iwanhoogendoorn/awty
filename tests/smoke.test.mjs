@@ -1441,6 +1441,30 @@ test("a return ticket is split into out and back, not one long outbound", () => 
   ]);
   assert.equal(overnight.back.length, 0, "eleven hours is a connection");
 
+  // Timings cannot tell a stay from a connection, so the route does it: a
+  // long connection on the way out no longer reads as the turn for home.
+  const longConnection = m.splitJourney([
+    leg("AMS", "JFK", "2026-08-17", "18:00", "21:00"),
+    leg("JFK", "LAX", "2026-08-18", "08:00", "11:00"),
+    leg("LAX", "AMS", "2026-08-18", "17:00", "23:00"),
+  ]);
+  assert.deepEqual(longConnection.outbound.map((l) => l.to), ["JFK", "LAX"]);
+  assert.deepEqual(longConnection.back.map((l) => l.to), ["AMS"]);
+
+  // A 26-hour stopover is still one journey; it never turns back.
+  const oneWayStopover = m.splitJourney([
+    leg("AMS", "DOH", "2026-08-17", "10:00", "19:00"),
+    leg("DOH", "BKK", "2026-08-18", "21:00", "23:00"),
+  ]);
+  assert.equal(oneWayStopover.back.length, 0, "a stopover is not a return");
+
+  // A double open jaw breaks where one journey ends and another begins.
+  const doubleJaw = m.splitJourney([
+    leg("AMS", "LHR", "2026-08-17", "08:00", "09:00"),
+    leg("LGW", "RTM", "2026-08-17", "19:00", "21:00"),
+  ]);
+  assert.equal(doubleJaw.back.length, 1, "LGW is not where LHR landed");
+
   // A connecting return splits at the stay, not at either layover.
   const both = m.splitJourney([
     leg("AMS", "VIE", "2026-08-17", "10:15", "11:55"),
@@ -1534,6 +1558,39 @@ test("saving the packing list does not delete the prose around it", () => {
   assert.deepEqual(extras.bySection.get("Clothing"), []);
   // The generated callout is rewritten every save and must not pile up.
   assert.ok(!extras.preamble.join(" ").includes("Quantities calculated"));
+});
+
+test("a note that opens with a horizontal rule keeps its first paragraph", () => {
+  // Frontmatter was detected by prefix, so a rule, a paragraph and a rule read
+  // as a YAML block and the paragraph was deleted on the next save.
+  const rule = "---\nCall the hotel before arrival.\n---\nKeep this too.";
+  assert.equal(m.stripFrontmatter(rule), rule);
+
+  // A close has to be a delimiter line of its own.
+  const loose = "---\ntype: trip\n---not-a-delimiter\nBody\n---\nTail";
+  assert.equal(m.stripFrontmatter(loose), loose, "unparseable: change nothing");
+
+  assert.equal(m.stripFrontmatter("---\ntype: trip\n---\nA\n\n---\n\nB"), "A\n\n---\n\nB");
+  assert.equal(m.stripFrontmatter("---\ntags:\n  - a\n---\nBody"), "Body");
+  assert.equal(m.stripFrontmatter("---\r\ntype: trip\r\n---\r\nBody"), "Body", "CRLF");
+});
+
+test("only a table we generated is treated as generated", () => {
+  // An expense writes no details table, so "the first table in the preamble"
+  // was the user's own — and editing the expense deleted it.
+  const expense = "# Dinner at Proto\n\n| Item | Cost |\n|---|---|\n| Wine | 40 |";
+  assert.match(m.customSections(expense), /Wine/);
+
+  // A booking's generated table has a bolded label in every row.
+  const booking = [
+    "# Rausion", "", "| | |", "|---|---|", "| **Status** | booked |", "",
+    "| Room | Price |", "|---|---|", "| Sea view | 210 |",
+  ].join("\n");
+  const kept = m.customSections(booking);
+  assert.ok(!kept.includes("**Status**"), kept);
+  assert.match(kept, /Sea view/);
+  // Stable: feeding the result back changes nothing.
+  assert.equal(m.customSections(`# Rausion\n\n${kept}`), kept);
 });
 
 test("a real note's frontmatter never reaches the body", () => {

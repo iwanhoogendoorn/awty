@@ -69,13 +69,23 @@ export function sectionText(content: string, heading: string): string {
  * table, so those two are dropped and the rest of the preamble is kept — a
  * sentence written under the details table is not the plugin's to delete.
  */
+/**
+ * The generated details table, recognised by its own shape.
+ *
+ * Every row it writes has a bolded label in the first cell. Treating "the first
+ * table in the preamble" as generated destroyed a hand-written table on any
+ * note that has no generated one — an expense, for instance, which writes no
+ * details table at all.
+ */
+function isGeneratedTable(rows: string[]): boolean {
+  return rows.some((row) => /^\|\s*\*\*[^|]+\*\*\s*\|/.test(row.trim()));
+}
+
 export function customSections(content: string): string {
-  const kept: string[] = [];
+  const preamble: string[] = [];
+  const sections: string[] = [];
   let keeping = false;
   let seenHeading = false;
-  let inPreambleTable = false;
-  let preambleTableStarted = false;
-  let preambleTableDone = false;
 
   for (const { line, fenced } of scanLines(content)) {
     if (!fenced) {
@@ -83,7 +93,7 @@ export function customSections(content: string): string {
       if (heading) {
         seenHeading = true;
         keeping = !OWNED_HEADINGS.includes(heading[1].trim().toLowerCase());
-        if (keeping) kept.push(line);
+        if (keeping) sections.push(line);
         continue;
       }
       // A top-level heading is the note's title. It ends any section, but it
@@ -92,27 +102,34 @@ export function customSections(content: string): string {
         keeping = false;
         continue;
       }
-
-      // The generated details table is the first run of table rows, and it
-      // ends at the blank line after it. Skipping blank lines without ending
-      // it swallowed a second, hand-written table further down as well.
-      if (!seenHeading && !preambleTableDone) {
-        if (line.trimStart().startsWith("|")) {
-          if (!inPreambleTable && !preambleTableStarted) {
-            inPreambleTable = true;
-            preambleTableStarted = true;
-          }
-          if (inPreambleTable) continue;
-        } else if (inPreambleTable) {
-          inPreambleTable = false;
-          preambleTableDone = true;
-          if (line.trim() === "") continue;
-        }
-      }
     }
 
-    if (keeping || !seenHeading) kept.push(line);
+    if (seenHeading) {
+      if (keeping) sections.push(line);
+    } else {
+      preamble.push(line);
+    }
   }
 
-  return kept.join("\n").trim();
+  return [dropGeneratedTable(preamble).join("\n").trim(), sections.join("\n").trim()]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/** Removes the first table in the preamble, but only if we wrote it. */
+function dropGeneratedTable(preamble: string[]): string[] {
+  let start = -1;
+  let end = -1;
+  for (const [index, line] of preamble.entries()) {
+    const isRow = line.trimStart().startsWith("|");
+    if (isRow && start === -1) start = index;
+    if (isRow) end = index;
+    else if (start !== -1) break;
+  }
+  if (start === -1) return preamble;
+  if (!isGeneratedTable(preamble.slice(start, end + 1))) return preamble;
+
+  const rest = preamble.slice(end + 1);
+  while (rest.length && rest[0].trim() === "") rest.shift();
+  return [...preamble.slice(0, start), ...rest];
 }

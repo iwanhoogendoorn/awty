@@ -108,39 +108,17 @@ export function legsToFrontmatter(legs: FlightLeg[]): Record<string, string>[] {
  * travelling" and "arrived, and going home later".
  */
 /**
- * A gap this long between two legs is a stay, not a connection.
- *
- * Used only when a journey does not end where it began — an open jaw, where
- * there is no other signal. A round trip is split at its longest gap whatever
- * the size, because a journey that returns to its own origin has one.
- */
-export const MIN_STAY_MINUTES = 24 * 60;
-
-/** Minutes between one leg landing and the next taking off. */
-function gapBetween(previous: FlightLeg, next: FlightLeg): number | null {
-  const exact = layoverMinutes(previous, next);
-  if (exact !== null) return exact;
-
-  // Legs typed without times still say which day they are on, and a day
-  // between two flights is a stay however little else is recorded.
-  const from = previous.arrDate || previous.date;
-  const to = next.date;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
-  const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
-  return Number.isFinite(days) && days >= 0 ? days * 24 * 60 : null;
-}
-
-/**
  * Splits a parsed confirmation into the way out and the way home.
  *
- * The original rule looked for the first leg departing from the final
- * destination, which on a normal return ticket is outbound leg zero — nothing
- * ever split, and AMS→DBV→AMS saved as an outbound "AMS → AMS via DBV".
+ * Timings cannot tell these apart. A day trip has an eight-hour stay, a
+ * long-haul ticket can have an eleven-hour connection, and a stopover can run
+ * longer than either — every threshold gets one of them wrong, and legs typed
+ * without times have no gap to measure at all.
  *
- * A journey that ends where it started is a return, and its longest gap is the
- * stay: that holds for a day trip to London as much as a fortnight in Croatia.
- * A journey that ends somewhere else is only split when a gap is long enough to
- * be a stay rather than an overnight connection.
+ * The route says it plainly instead. On a journey that ends where it began,
+ * you are on the way home from the moment you arrive somewhere you have
+ * already been. On one that ends elsewhere, a second journey starts where the
+ * first did not end — the break between two airports that are not the same.
  */
 export function splitJourney(legs: FlightLeg[]): { outbound: FlightLeg[]; back: FlightLeg[] } {
   const sorted = [...legs].sort((a, b) =>
@@ -148,20 +126,33 @@ export function splitJourney(legs: FlightLeg[]): { outbound: FlightLeg[]; back: 
   );
   if (sorted.length < 2) return { outbound: sorted, back: [] };
 
-  const origin = sorted[0].from.trim().toUpperCase();
-  const finish = sorted[sorted.length - 1].to.trim().toUpperCase();
+  const code = (value: string): string => value.trim().toUpperCase();
+  const origin = code(sorted[0].from);
+  const finish = code(sorted[sorted.length - 1].to);
   const roundTrip = Boolean(origin) && origin === finish;
 
   let pivot = -1;
-  let longest = roundTrip ? -1 : MIN_STAY_MINUTES - 1;
-  for (let i = 1; i < sorted.length; i += 1) {
-    const gap = gapBetween(sorted[i - 1], sorted[i]);
-    if (gap !== null && gap > longest) {
-      longest = gap;
-      pivot = i;
+  if (roundTrip) {
+    const visited = new Set([origin]);
+    for (let i = 0; i < sorted.length; i += 1) {
+      const to = code(sorted[i].to);
+      if (i > 0 && visited.has(to)) {
+        pivot = i;
+        break;
+      }
+      visited.add(to);
+    }
+  } else {
+    for (let i = 1; i < sorted.length; i += 1) {
+      // A connection leaves from where the last leg landed. Anything else is
+      // the start of a separate journey.
+      if (code(sorted[i].from) !== code(sorted[i - 1].to)) {
+        pivot = i;
+        break;
+      }
     }
   }
-  if (pivot === -1) return { outbound: sorted, back: [] };
+  if (pivot <= 0) return { outbound: sorted, back: [] };
 
   return { outbound: sorted.slice(0, pivot), back: sorted.slice(pivot) };
 }
