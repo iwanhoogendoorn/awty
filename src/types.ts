@@ -175,7 +175,7 @@ export interface TripDraft {
   passports: string[];
 }
 
-export interface TravelPlannerSettings {
+export interface AwtySettings {
   /** Root folder holding every trip. */
   tripsFolder: string;
   /**
@@ -232,7 +232,7 @@ export interface TravelPlannerSettings {
 /** Google travel modes; duplicated here to keep the settings type dependency-free. */
 export type TravelMode = "driving" | "transit" | "walking";
 
-export const DEFAULT_SETTINGS: TravelPlannerSettings = {
+export const DEFAULT_SETTINGS: AwtySettings = {
   tripsFolder: "Trips",
   folderPattern: "{year}/{start} {title}",
   defaultCountry: "Netherlands",
@@ -264,6 +264,6 @@ export const DEFAULT_SETTINGS: TravelPlannerSettings = {
   household: [],
 };
 
-export const TRAVEL_VIEW_TYPE = "travel-planner-sidebar";
-export const TRAVEL_DASHBOARD_TYPE = "travel-planner-dashboard";
+export const AWTY_SIDEBAR_TYPE = "awty-sidebar";
+export const AWTY_DASHBOARD_TYPE = "awty-dashboard";
 export const FOODSPOT_PLUGIN_ID = "foodspot";

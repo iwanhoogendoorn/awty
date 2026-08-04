@@ -3,7 +3,7 @@ import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { BookingKind, BookingStatus, CostCategory } from "../../bookings/types";
 import { BOOKING_KINDS, BOOKING_STATUSES, allCategories } from "../../bookings/types";
 import { countAttachmentsNamed, type BookingDraft } from "../../bookings/bookingWriter";
-import type { TravelPlannerSettings, Trip } from "../../types";
+import type { AwtySettings, Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
 import { AirlineSuggest, AirportSuggest, CitySuggest } from "../components/suggest";
 import { LegsField } from "../components/legsField";
@@ -90,7 +90,7 @@ export class BookingWizard extends Modal {
 
   constructor(
     app: App,
-    private settings: TravelPlannerSettings,
+    private settings: AwtySettings,
     private trip: Trip,
     kind: BookingKind,
     private currency: string,
@@ -141,34 +141,34 @@ export class BookingWizard extends Modal {
     keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass("tp-modal", "tp-wizard");
-    this.modalEl.addClass("tp-modal-shell");
+    contentEl.addClass("awty-modal", "awty-wizard");
+    this.modalEl.addClass("awty-modal-shell");
 
     const def = BOOKING_KINDS.find((k) => k.id === this.draft.kind);
-    const head = contentEl.createDiv({ cls: "tp-wizard-head" });
-    setIcon(head.createDiv({ cls: "tp-wizard-icon" }), def?.icon ?? "ticket");
+    const head = contentEl.createDiv({ cls: "awty-wizard-head" });
+    setIcon(head.createDiv({ cls: "awty-wizard-icon" }), def?.icon ?? "ticket");
     const headText = head.createDiv();
     headText.createDiv({
-      cls: "tp-modal-title",
+      cls: "awty-modal-title",
       text: `${this.editing ? "Edit" : "Add"} ${def?.label.toLowerCase() ?? "booking"}`,
     });
     headText.createDiv({
-      cls: "tp-wizard-sub",
+      cls: "awty-wizard-sub",
       text: `${this.trip.title} · ${formatDateRange(this.trip.startDate, this.trip.endDate)}`,
     });
 
-    this.stepsEl = contentEl.createDiv({ cls: "tp-wizard-steps" });
-    this.bodyEl = contentEl.createDiv({ cls: "tp-wizard-body" });
+    this.stepsEl = contentEl.createDiv({ cls: "awty-wizard-steps" });
+    this.bodyEl = contentEl.createDiv({ cls: "awty-wizard-body" });
 
     // Built once and kept alive across steps so pending files survive Back.
-    const hidden = contentEl.createDiv({ cls: "tp-attach-host is-hidden" });
+    const hidden = contentEl.createDiv({ cls: "awty-attach-host is-hidden" });
     this.attachments = new AttachmentField(hidden, {
       baseName: this.trip.title,
       startIndex: countAttachmentsNamed(this.app, this.settings, this.trip, this.trip.title),
     });
 
     new Setting(contentEl)
-      .setClass("tp-wizard-nav")
+      .setClass("awty-wizard-nav")
       .addButton((btn) => {
         this.backBtn = btn;
         btn.setButtonText("Back").onClick(() => this.go(this.step - 1));
@@ -202,10 +202,10 @@ export class BookingWizard extends Modal {
     this.stepsEl.empty();
     for (const [index, name] of this.steps.entries()) {
       const chip = this.stepsEl.createDiv({
-        cls: `tp-wizard-step${index === this.step ? " is-active" : ""}${index < this.step ? " is-done" : ""}`,
+        cls: `awty-wizard-step${index === this.step ? " is-active" : ""}${index < this.step ? " is-done" : ""}`,
       });
-      chip.createSpan({ cls: "tp-wizard-step-num", text: String(index + 1) });
-      chip.createSpan({ cls: "tp-wizard-step-name", text: name });
+      chip.createSpan({ cls: "awty-wizard-step-num", text: String(index + 1) });
+      chip.createSpan({ cls: "awty-wizard-step-name", text: name });
       chip.addEventListener("click", () => this.go(index));
     }
   }
@@ -257,7 +257,7 @@ export class BookingWizard extends Modal {
       // Answered once, on the trip. Repeating it here was the second place the
       // same fact had to be kept in step.
       this.bodyEl.createDiv({
-        cls: "tp-dash-hint",
+        cls: "awty-dash-hint",
         text: `For ${this.trip.travellers.join(", ")} — change this on the trip.`,
       });
     }
@@ -278,12 +278,12 @@ export class BookingWizard extends Modal {
    * a reminder rather than a place you have to aim at.
    */
   private renderConfirmationHint(): void {
-    const row = this.bodyEl.createDiv({ cls: "tp-confirm-row" });
+    const row = this.bodyEl.createDiv({ cls: "awty-confirm-row" });
 
     if (this.readSummary) {
-      setIcon(row.createSpan({ cls: "tp-confirm-row-icon is-done" }), "check");
-      row.createSpan({ cls: "tp-confirm-row-done", text: this.readSummary });
-      const again = row.createEl("button", { cls: "tp-confirm-link", text: "read another" });
+      setIcon(row.createSpan({ cls: "awty-confirm-row-icon is-done" }), "check");
+      row.createSpan({ cls: "awty-confirm-row-done", text: this.readSummary });
+      const again = row.createEl("button", { cls: "awty-confirm-link", text: "read another" });
       again.type = "button";
       again.addEventListener("click", () => {
         this.readSummary = "";
@@ -292,13 +292,13 @@ export class BookingWizard extends Modal {
       return;
     }
 
-    setIcon(row.createSpan({ cls: "tp-confirm-row-icon" }), "clipboard-paste");
+    setIcon(row.createSpan({ cls: "awty-confirm-row-icon" }), "clipboard-paste");
     row.createSpan({ text: "Paste your booking confirmation to fill this in" });
 
     const file = row.createEl("input");
     file.type = "file";
     file.accept = ".ics,.txt,.eml,text/calendar,message/rfc822,text/plain";
-    file.addClass("tp-attach-input");
+    file.addClass("awty-attach-input");
     file.addEventListener("change", async () => {
       const chosen = file.files?.[0];
       if (!chosen) return;
@@ -307,7 +307,7 @@ export class BookingWizard extends Modal {
       this.readConfirmation(text, chosen.name);
     });
 
-    const choose = row.createEl("button", { cls: "tp-confirm-link", text: "or open a file" });
+    const choose = row.createEl("button", { cls: "awty-confirm-link", text: "or open a file" });
     choose.type = "button";
     choose.addEventListener("click", () => file.click());
   }
@@ -406,7 +406,7 @@ export class BookingWizard extends Modal {
 
   private renderFlightLegs(): void {
     this.renderConfirmationHint();
-    this.bodyEl.createDiv({ cls: "tp-section-label", text: "Outbound" });
+    this.bodyEl.createDiv({ cls: "awty-section-label", text: "Outbound" });
     this.legsField = new LegsField({
       app: this.app,
       container: this.bodyEl.createDiv(),
@@ -442,7 +442,7 @@ export class BookingWizard extends Modal {
       });
 
     if (this.hasReturn) {
-      this.bodyEl.createDiv({ cls: "tp-section-label", text: "Return" });
+      this.bodyEl.createDiv({ cls: "awty-section-label", text: "Return" });
       this.returnField = new LegsField({
         app: this.app,
         container: this.bodyEl.createDiv(),
@@ -534,7 +534,7 @@ export class BookingWizard extends Modal {
       }
     });
 
-    const starBtn = setting.controlEl.createEl("button", { cls: "tp-star-btn" });
+    const starBtn = setting.controlEl.createEl("button", { cls: "awty-star-btn" });
     syncStar = () => {
       const value = this.draft[spec.key];
       const starred = value.length > 0 && this.stars.isStarred(kind, value);
@@ -574,7 +574,7 @@ export class BookingWizard extends Modal {
 
   private renderWhen(): void {
     const isStay = this.draft.kind === "stay";
-    const wrap = this.bodyEl.createDiv({ cls: "tp-daterange" });
+    const wrap = this.bodyEl.createDiv({ cls: "awty-daterange" });
 
     const dateRow = (
       label: string,
@@ -584,9 +584,9 @@ export class BookingWizard extends Modal {
       timeValue: string,
       onTime: (v: string) => void,
     ) => {
-      const row = wrap.createDiv({ cls: "tp-date-row" });
-      row.createEl("label", { text: label, cls: "tp-date-label" });
-      const date = row.createEl("input", { cls: "tp-date-input" });
+      const row = wrap.createDiv({ cls: "awty-date-row" });
+      row.createEl("label", { text: label, cls: "awty-date-label" });
+      const date = row.createEl("input", { cls: "awty-date-input" });
       date.type = "date";
       date.value = value;
       // Nudge towards the trip's own dates without forbidding anything else.
@@ -595,7 +595,7 @@ export class BookingWizard extends Modal {
       if (isValidISODate(this.trip.endDate)) date.max = this.trip.endDate;
       date.addEventListener("change", () => onChange(date.value));
 
-      const time = row.createEl("input", { cls: "tp-time-input" });
+      const time = row.createEl("input", { cls: "awty-time-input" });
       time.type = "time";
       time.value = timeValue;
       time.setAttribute("aria-label", timeLabel);
@@ -624,7 +624,7 @@ export class BookingWizard extends Modal {
     );
 
     wrap.createDiv({
-      cls: "tp-date-readout",
+      cls: "awty-date-readout",
       text: isStay
         ? "Leave check-out the same as check-in for a single night."
         : "Leave the end blank-equal for a one-off departure and arrival on the same day.",
@@ -666,12 +666,12 @@ export class BookingWizard extends Modal {
         dd.onChange((v) => (this.draft.category = v as CostCategory));
       });
 
-    this.bodyEl.createDiv({ cls: "tp-cost-preview" });
+    this.bodyEl.createDiv({ cls: "awty-cost-preview" });
     this.renderCostPreview();
   }
 
   private renderCostPreview(): void {
-    const el = this.bodyEl.querySelector<HTMLElement>(".tp-cost-preview");
+    const el = this.bodyEl.querySelector<HTMLElement>(".awty-cost-preview");
     if (!el) return;
     el.empty();
     if (this.draft.amount === null) {
@@ -684,14 +684,14 @@ export class BookingWizard extends Modal {
   }
 
   private renderAttachments(): void {
-    const host = this.contentEl.querySelector<HTMLElement>(".tp-attach-host");
+    const host = this.contentEl.querySelector<HTMLElement>(".awty-attach-host");
     if (host) {
       host.removeClass("is-hidden");
       this.bodyEl.appendChild(host);
     }
 
-    const summary = this.bodyEl.createDiv({ cls: "tp-wizard-summary" });
-    summary.createDiv({ cls: "tp-section-label", text: "Review" });
+    const summary = this.bodyEl.createDiv({ cls: "awty-wizard-summary" });
+    summary.createDiv({ cls: "awty-section-label", text: "Review" });
 
     const rows: [string, string][] = [
       ["What", this.effectiveTitle()],
@@ -705,9 +705,9 @@ export class BookingWizard extends Modal {
       ["Status", this.draft.status],
     ];
     for (const [label, value] of rows) {
-      const row = summary.createDiv({ cls: "tp-wizard-summary-row" });
-      row.createSpan({ cls: "tp-wizard-summary-label", text: label });
-      row.createSpan({ cls: "tp-wizard-summary-value", text: value || "—" });
+      const row = summary.createDiv({ cls: "awty-wizard-summary-row" });
+      row.createSpan({ cls: "awty-wizard-summary-label", text: label });
+      row.createSpan({ cls: "awty-wizard-summary-value", text: value || "—" });
     }
   }
 
@@ -763,7 +763,7 @@ export class BookingWizard extends Modal {
       this.close();
     } catch (err) {
       new Notice(err instanceof Error ? err.message : "Could not save the booking.");
-      console.error("[travel-planner]", err);
+      console.error("[awty]", err);
       this.submitting = false;
       this.nextBtn.setDisabled(false).setButtonText(this.editing ? "Save changes" : "Save booking");
     }

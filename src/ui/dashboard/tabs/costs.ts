@@ -79,7 +79,7 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
   ]);
 
   sectionTitle(parent, "Cost by category");
-  const catWrap = parent.createDiv({ cls: "tp-budget-list" });
+  const catWrap = parent.createDiv({ cls: "awty-budget-list" });
   let anyCategory = false;
 
   for (const category of categories) {
@@ -89,11 +89,11 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
     anyCategory = true;
 
     const ratio = target === 0 ? (spentPrimary === 0 ? 0 : actual / spentPrimary) : actual / target;
-    const row = catWrap.createDiv({ cls: "tp-budget-row" });
-    const head = row.createDiv({ cls: "tp-budget-head" });
-    head.createSpan({ cls: "tp-budget-cat", text: category });
+    const row = catWrap.createDiv({ cls: "awty-budget-row" });
+    const head = row.createDiv({ cls: "awty-budget-head" });
+    head.createSpan({ cls: "awty-budget-cat", text: category });
     head.createSpan({
-      cls: `tp-budget-amount${target > 0 && actual > target ? " is-over" : ""}`,
+      cls: `awty-budget-amount${target > 0 && actual > target ? " is-over" : ""}`,
       text:
         target > 0
           ? `cost ${formatMoney({ amount: actual, currency })} · budget ${formatMoney({ amount: target, currency })}`
@@ -101,27 +101,27 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
     });
     bar(row, ratio, target === 0 ? "good" : ratio > 1 ? "bad" : ratio > 0.9 ? "warn" : "good");
   }
-  if (!anyCategory) catWrap.createDiv({ cls: "tp-dash-hint", text: "Nothing recorded yet." });
+  if (!anyCategory) catWrap.createDiv({ cls: "awty-dash-hint", text: "Nothing recorded yet." });
 
   // ------------------------------------------------------------ lines
   if (lines.length > 0) {
     sectionTitle(parent, "Every line");
-    const list = parent.createDiv({ cls: "tp-cost-lines" });
+    const list = parent.createDiv({ cls: "awty-cost-lines" });
     for (const line of lines) {
-      const row = list.createDiv({ cls: `tp-cost-line${line.counted ? "" : " is-excluded"}` });
+      const row = list.createDiv({ cls: `awty-cost-line${line.counted ? "" : " is-excluded"}` });
       setIcon(
-        row.createDiv({ cls: "tp-cost-icon" }),
+        row.createDiv({ cls: "awty-cost-icon" }),
         line.source === "booking" ? "ticket" : "receipt",
       );
-      const body = row.createDiv({ cls: "tp-cost-body" });
-      body.createDiv({ cls: "tp-cost-desc", text: line.description });
+      const body = row.createDiv({ cls: "awty-cost-body" });
+      body.createDiv({ cls: "awty-cost-desc", text: line.description });
       body.createDiv({
-        cls: "tp-cost-meta",
+        cls: "awty-cost-meta",
         text: [line.date, line.category, line.counted ? "" : "cancelled"]
           .filter(Boolean)
           .join(" · "),
       });
-      row.createDiv({ cls: "tp-cost-amount", text: formatMoney(line.money) });
+      row.createDiv({ cls: "awty-cost-amount", text: formatMoney(line.money) });
       row.addEventListener("click", () => {
         if (!editItem(ctx, line.file)) ctx.openFile(line.file);
       });

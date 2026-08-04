@@ -42,14 +42,14 @@ export class PackingModal extends Modal {
     keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass("tp-modal", "tp-packing");
-    this.modalEl.addClass("tp-modal-shell");
+    contentEl.addClass("awty-modal", "awty-packing");
+    this.modalEl.addClass("awty-modal-shell");
 
-    contentEl.createEl("h2", { text: "Packing list", cls: "tp-modal-title" });
+    contentEl.createEl("h2", { text: "Packing list", cls: "awty-modal-title" });
     const def = kindDef(this.trip.kind);
     const days = def.singleDay ? 1 : daysBetween(this.trip.startDate, this.trip.endDate);
     contentEl.createDiv({
-      cls: "tp-wizard-sub",
+      cls: "awty-wizard-sub",
       text: `${this.trip.title} · ${days} day${days === 1 ? "" : "s"}`,
     });
 
@@ -58,8 +58,8 @@ export class PackingModal extends Modal {
     this.renderPackFor(contentEl);
     this.renderAddItem(contentEl);
 
-    this.summaryEl = contentEl.createDiv({ cls: "tp-packing-summary" });
-    this.listEl = contentEl.createDiv({ cls: "tp-packing-list" });
+    this.summaryEl = contentEl.createDiv({ cls: "awty-packing-summary" });
+    this.listEl = contentEl.createDiv({ cls: "awty-packing-list" });
     this.renderList();
 
     new Setting(contentEl)
@@ -151,11 +151,11 @@ export class PackingModal extends Modal {
     const setting = new Setting(parent)
       .setName("Packing for")
       .setDesc("Clothing counts scale with who you tick. Toiletries and gear stay as one each.");
-    setting.settingEl.addClass("tp-setting-stack");
+    setting.settingEl.addClass("awty-setting-stack");
 
-    const row = setting.controlEl.createDiv({ cls: "tp-settings-subnotes" });
+    const row = setting.controlEl.createDiv({ cls: "awty-settings-subnotes" });
     for (const person of people) {
-      const label = row.createEl("label", { cls: "tp-subnote" });
+      const label = row.createEl("label", { cls: "awty-subnote" });
       const box = label.createEl("input");
       box.type = "checkbox";
       box.checked = this.packFor.has(person);
@@ -236,13 +236,13 @@ export class PackingModal extends Modal {
       const rows = this.rows.filter((r) => r.section === section);
       if (rows.length === 0) continue;
 
-      this.listEl.createDiv({ cls: "tp-packing-section", text: section });
+      this.listEl.createDiv({ cls: "awty-packing-section", text: section });
       for (const row of rows) {
         const line = this.listEl.createDiv({
-          cls: `tp-packing-row${row.include ? "" : " is-excluded"}`,
+          cls: `awty-packing-row${row.include ? "" : " is-excluded"}`,
         });
 
-        const include = line.createEl("input", { cls: "tp-packing-include" });
+        const include = line.createEl("input", { cls: "awty-packing-include" });
         include.type = "checkbox";
         include.checked = row.include;
         include.setAttribute("aria-label", `Include ${row.label}`);
@@ -251,10 +251,10 @@ export class PackingModal extends Modal {
           this.renderList();
         });
 
-        line.createSpan({ cls: "tp-packing-label", text: row.label });
+        line.createSpan({ cls: "awty-packing-label", text: row.label });
 
         if (row.quantity !== null) {
-          const qty = line.createEl("input", { cls: "tp-packing-qty" });
+          const qty = line.createEl("input", { cls: "awty-packing-qty" });
           qty.type = "number";
           qty.min = "1";
           qty.value = String(this.quantityFor(row) ?? 1);
@@ -268,7 +268,7 @@ export class PackingModal extends Modal {
           });
         }
 
-        if (row.packed) line.createSpan({ cls: "tp-packing-packed", text: "packed" });
+        if (row.packed) line.createSpan({ cls: "awty-packing-packed", text: "packed" });
       }
     }
   }
@@ -304,7 +304,7 @@ export class PackingModal extends Modal {
       this.close();
     } catch (err) {
       new Notice(err instanceof Error ? err.message : "Could not save the packing list.");
-      console.error("[travel-planner]", err);
+      console.error("[awty]", err);
       this.saveBtn?.setDisabled(false).setButtonText("Save list");
     }
   }

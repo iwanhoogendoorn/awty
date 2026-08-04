@@ -1,7 +1,7 @@
 import { ItemView, Menu, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
-import type TravelPlannerPlugin from "../main";
+import type AwtyPlugin from "../main";
 import type { Trip, TripStatus } from "../types";
-import { TRAVEL_VIEW_TYPE, kindDef } from "../types";
+import { AWTY_SIDEBAR_TYPE, kindDef } from "../types";
 import type { SubNote } from "../store/tripStore";
 import type { NoteProgress } from "../store/noteProgress";
 import { daysUntil, formatDateRange, formatDuration } from "../util/dates";
@@ -22,7 +22,7 @@ const SUB_NOTE_ICONS: Record<string, string> = {
   "event-details": "ticket",
 };
 
-export class TravelSidebarView extends ItemView {
+export class AwtySidebarView extends ItemView {
   private query = "";
   private unsubscribe: (() => void) | null = null;
   /** Trip paths whose sub-note list is open. */
@@ -31,17 +31,17 @@ export class TravelSidebarView extends ItemView {
 
   constructor(
     leaf: WorkspaceLeaf,
-    private plugin: TravelPlannerPlugin,
+    private plugin: AwtyPlugin,
   ) {
     super(leaf);
   }
 
   getViewType(): string {
-    return TRAVEL_VIEW_TYPE;
+    return AWTY_SIDEBAR_TYPE;
   }
 
   getDisplayText(): string {
-    return "Travel Planner";
+    return "Are We There Yet?";
   }
 
   getIcon(): string {
@@ -63,7 +63,7 @@ export class TravelSidebarView extends ItemView {
   render(): void {
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
-    container.addClass("tp-sidebar");
+    container.addClass("awty-sidebar");
 
     this.renderHeader(container);
 
@@ -84,11 +84,11 @@ export class TravelSidebarView extends ItemView {
       const items = trips.filter((t) => t.status === group.status);
       if (items.length === 0) continue;
 
-      const heading = container.createDiv({ cls: "tp-group" });
-      heading.createSpan({ cls: "tp-group-title", text: group.label });
-      heading.createSpan({ cls: "tp-group-count", text: String(items.length) });
+      const heading = container.createDiv({ cls: "awty-group" });
+      heading.createSpan({ cls: "awty-group-title", text: group.label });
+      heading.createSpan({ cls: "awty-group-count", text: String(items.length) });
 
-      const list = container.createDiv({ cls: "tp-list" });
+      const list = container.createDiv({ cls: "awty-list" });
       for (const trip of items) this.renderTrip(list, trip);
     }
 
@@ -120,14 +120,14 @@ export class TravelSidebarView extends ItemView {
   }
 
   private renderHeader(container: HTMLElement): void {
-    const header = container.createDiv({ cls: "tp-header" });
+    const header = container.createDiv({ cls: "awty-header" });
 
-    const newBtn = header.createEl("button", { cls: "tp-new-btn" });
-    setIcon(newBtn.createSpan({ cls: "tp-new-icon" }), "plus");
+    const newBtn = header.createEl("button", { cls: "awty-new-btn" });
+    setIcon(newBtn.createSpan({ cls: "awty-new-icon" }), "plus");
     newBtn.createSpan({ text: "New trip" });
     newBtn.addEventListener("click", () => this.plugin.openNewTripModal());
 
-    const search = header.createEl("input", { cls: "tp-search" });
+    const search = header.createEl("input", { cls: "awty-search" });
     search.type = "search";
     search.placeholder = "Filter trips…";
     search.value = this.query;
@@ -135,17 +135,17 @@ export class TravelSidebarView extends ItemView {
       this.query = search.value;
       this.render();
       // Re-render blows away the input, so put the cursor back where it was.
-      const next = this.containerEl.querySelector<HTMLInputElement>(".tp-search");
+      const next = this.containerEl.querySelector<HTMLInputElement>(".awty-search");
       next?.focus();
       next?.setSelectionRange(next.value.length, next.value.length);
     });
   }
 
   private renderEmpty(container: HTMLElement, title: string, detail: string): void {
-    const empty = container.createDiv({ cls: "tp-empty" });
-    setIcon(empty.createDiv({ cls: "tp-empty-icon" }), "plane");
-    empty.createDiv({ cls: "tp-empty-title", text: title });
-    empty.createDiv({ cls: "tp-empty-detail", text: detail });
+    const empty = container.createDiv({ cls: "awty-empty" });
+    setIcon(empty.createDiv({ cls: "awty-empty-icon" }), "plane");
+    empty.createDiv({ cls: "awty-empty-title", text: title });
+    empty.createDiv({ cls: "awty-empty-detail", text: detail });
   }
 
   private filter(trips: Trip[]): Trip[] {
@@ -158,12 +158,12 @@ export class TravelSidebarView extends ItemView {
 
   private renderTrip(list: HTMLElement, trip: Trip): void {
     const def = kindDef(trip.kind);
-    const wrapper = list.createDiv({ cls: `tp-trip-wrap is-${trip.status}` });
-    const item = wrapper.createDiv({ cls: "tp-trip" });
+    const wrapper = list.createDiv({ cls: `awty-trip-wrap is-${trip.status}` });
+    const item = wrapper.createDiv({ cls: "awty-trip" });
 
     const isOpen = this.expanded.has(trip.file.path);
     const twisty = item.createDiv({
-      cls: `tp-twisty${isOpen ? " is-open" : ""}`,
+      cls: `awty-twisty${isOpen ? " is-open" : ""}`,
       attr: { "aria-label": isOpen ? "Collapse" : "Expand" },
     });
     setIcon(twisty, "chevron-right");
@@ -174,24 +174,24 @@ export class TravelSidebarView extends ItemView {
       this.render();
     });
 
-    const icon = item.createDiv({ cls: "tp-trip-icon" });
+    const icon = item.createDiv({ cls: "awty-trip-icon" });
     setIcon(icon, def.icon);
 
-    const body = item.createDiv({ cls: "tp-trip-body" });
-    body.createDiv({ cls: "tp-trip-title", text: trip.title });
+    const body = item.createDiv({ cls: "awty-trip-body" });
+    body.createDiv({ cls: "awty-trip-title", text: trip.title });
 
-    const meta = body.createDiv({ cls: "tp-trip-meta" });
-    meta.createSpan({ cls: "tp-trip-dates", text: formatDateRange(trip.startDate, trip.endDate) });
+    const meta = body.createDiv({ cls: "awty-trip-meta" });
+    meta.createSpan({ cls: "awty-trip-dates", text: formatDateRange(trip.startDate, trip.endDate) });
 
     const where = [trip.city, trip.country].filter(Boolean).join(", ");
-    if (where) meta.createSpan({ cls: "tp-trip-where", text: where });
+    if (where) meta.createSpan({ cls: "awty-trip-where", text: where });
 
     const subNotes = this.plugin.store.getSubNotes(trip);
     this.renderTripSummary(body, trip, subNotes);
 
-    const actions = item.createDiv({ cls: "tp-trip-actions" });
+    const actions = item.createDiv({ cls: "awty-trip-actions" });
     const menuBtn = actions.createEl("button", {
-      cls: "tp-icon-btn",
+      cls: "awty-icon-btn",
       attr: { "aria-label": "Trip actions" },
     });
     setIcon(menuBtn, "more-vertical");
@@ -215,10 +215,10 @@ export class TravelSidebarView extends ItemView {
 
   /** Countdown plus a one-line "how much is still blank" roll-up. */
   private renderTripSummary(body: HTMLElement, trip: Trip, subNotes: SubNote[]): void {
-    const row = body.createDiv({ cls: "tp-trip-summary" });
+    const row = body.createDiv({ cls: "awty-trip-summary" });
 
     const badge = this.countdown(trip);
-    if (badge) row.createSpan({ cls: `tp-badge is-${trip.status}`, text: badge });
+    if (badge) row.createSpan({ cls: `awty-badge is-${trip.status}`, text: badge });
 
     if (subNotes.length === 0) return;
 
@@ -234,45 +234,45 @@ export class TravelSidebarView extends ItemView {
 
     const outstanding = known - done;
     row.createSpan({
-      cls: `tp-progress-pill${outstanding === 0 ? " is-complete" : ""}`,
+      cls: `awty-progress-pill${outstanding === 0 ? " is-complete" : ""}`,
       text: outstanding === 0 ? "All notes started" : `${outstanding} still empty`,
     });
 
-    const track = body.createDiv({ cls: "tp-progress-track" });
-    const fill = track.createDiv({ cls: "tp-progress-fill" });
+    const track = body.createDiv({ cls: "awty-progress-track" });
+    const fill = track.createDiv({ cls: "awty-progress-fill" });
     fill.style.width = `${Math.round((done / known) * 100)}%`;
   }
 
   /** The expanded list — every sub-note openable without touching the trip note. */
   private renderSubNotes(wrapper: HTMLElement, trip: Trip, subNotes: SubNote[]): void {
-    const list = wrapper.createDiv({ cls: "tp-subnotes" });
+    const list = wrapper.createDiv({ cls: "awty-subnotes" });
 
     if (subNotes.length === 0) {
-      list.createDiv({ cls: "tp-subnote-empty", text: "No notes in this trip folder yet." });
+      list.createDiv({ cls: "awty-subnote-empty", text: "No notes in this trip folder yet." });
       return;
     }
 
     for (const sub of subNotes) {
       const progress = this.plugin.progress.peek(sub.file);
       const state = progress?.state ?? "empty";
-      const row = list.createDiv({ cls: `tp-subnote-row is-${state}` });
+      const row = list.createDiv({ cls: `awty-subnote-row is-${state}` });
 
-      const dot = row.createDiv({ cls: "tp-dot", attr: { "aria-label": this.stateLabel(state) } });
+      const dot = row.createDiv({ cls: "awty-dot", attr: { "aria-label": this.stateLabel(state) } });
       dot.setAttribute("title", this.stateLabel(state));
 
-      const iconEl = row.createDiv({ cls: "tp-subnote-icon" });
+      const iconEl = row.createDiv({ cls: "awty-subnote-icon" });
       setIcon(iconEl, sub.id ? (SUB_NOTE_ICONS[sub.id] ?? "file-text") : "file-text");
 
-      const text = row.createDiv({ cls: "tp-subnote-text" });
-      text.createDiv({ cls: "tp-subnote-name", text: sub.label });
+      const text = row.createDiv({ cls: "awty-subnote-text" });
+      text.createDiv({ cls: "awty-subnote-name", text: sub.label });
       text.createDiv({
-        cls: "tp-subnote-detail",
+        cls: "awty-subnote-detail",
         text: progress?.detail ?? "Reading…",
       });
 
       if (progress?.ratio !== null && progress?.ratio !== undefined) {
-        const ring = row.createDiv({ cls: "tp-mini-track" });
-        const fill = ring.createDiv({ cls: "tp-mini-fill" });
+        const ring = row.createDiv({ cls: "awty-mini-track" });
+        const fill = ring.createDiv({ cls: "awty-mini-fill" });
         fill.style.width = `${Math.round(progress.ratio * 100)}%`;
       }
 

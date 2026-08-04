@@ -2,7 +2,7 @@ import { App, TFile, normalizePath } from "obsidian";
 import type { Coord, Place, TravelLeg, TravelMode } from "./types";
 import { coordKey, formatLocation, legKey, parseLocation } from "./types";
 import { MAX_DESTINATIONS, distanceMatrix, geocode } from "./googleApi";
-import type { TravelPlannerSettings, Trip } from "../types";
+import type { AwtySettings, Trip } from "../types";
 import type { Booking } from "../bookings/types";
 import { parseISO } from "../util/dates";
 
@@ -32,7 +32,7 @@ export class TravelUnavailable extends Error {}
 export class TravelService {
   constructor(
     private app: App,
-    private getSettings: () => TravelPlannerSettings,
+    private getSettings: () => AwtySettings,
     private cache: TravelCache,
     private persist: () => Promise<void>,
   ) {}
@@ -52,7 +52,7 @@ export class TravelService {
       throw new TravelUnavailable("Travel times are switched off in settings.");
     }
     const key = settings.googleApiKey.trim();
-    if (!key) throw new TravelUnavailable("No Google API key set in Travel Planner settings.");
+    if (!key) throw new TravelUnavailable("No Google API key set in Are We There Yet? settings.");
     return key;
   }
 

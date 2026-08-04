@@ -1,5 +1,5 @@
 import { App, Notice, TAbstractFile, TFile, TFolder, normalizePath } from "obsidian";
-import type { SubNoteId, TravelPlannerSettings, Trip, TripDraft } from "../types";
+import type { SubNoteId, AwtySettings, Trip, TripDraft } from "../types";
 import { kindDef } from "../types";
 import { buildSubNote, buildTripBody, type TemplateContext } from "./templates";
 import { expandFolderPattern, joinPath, sanitizeName } from "../util/paths";
@@ -53,7 +53,7 @@ function uniqueFolder(app: App, path: string): string {
   return candidate;
 }
 
-export function tripFolderPath(settings: TravelPlannerSettings, draft: TripDraft): string {
+export function tripFolderPath(settings: AwtySettings, draft: TripDraft): string {
   const start = parseISO(draft.startDate);
   const relative = expandFolderPattern(settings.folderPattern, {
     year: start ? String(start.getUTCFullYear()) : "Undated",
@@ -111,7 +111,7 @@ export interface CreatedTrip {
 
 export async function createTrip(
   app: App,
-  settings: TravelPlannerSettings,
+  settings: AwtySettings,
   draft: TripDraft,
   foodSpotAvailable: boolean,
 ): Promise<CreatedTrip> {
@@ -165,7 +165,7 @@ export async function createTrip(
  */
 export async function updateTrip(
   app: App,
-  settings: TravelPlannerSettings,
+  settings: AwtySettings,
   trip: Trip,
   draft: TripDraft,
 ): Promise<TFile> {
@@ -337,6 +337,6 @@ export async function insertItineraryDay(
 
 export function notifyError(err: unknown, fallback: string): void {
   const message = err instanceof Error ? err.message : fallback;
-  new Notice(`Travel Planner: ${message}`);
-  console.error("[travel-planner]", err);
+  new Notice(`AWTY: ${message}`);
+  console.error("[awty]", err);
 }

@@ -1,17 +1,17 @@
-.tp-sidebar {
+.awty-sidebar {
   padding: 0.6em 0.5em 2em;
 }
 
 /* ------------------------------------------------------------------ header */
 
-.tp-header {
+.awty-header {
   display: flex;
   flex-direction: column;
   gap: 0.5em;
   margin-bottom: 0.9em;
 }
 
-.tp-new-btn {
+.awty-new-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -25,26 +25,26 @@
   cursor: pointer;
 }
 
-.tp-new-btn:hover {
+.awty-new-btn:hover {
   background: var(--interactive-accent-hover);
 }
 
-.tp-new-icon {
+.awty-new-icon {
   display: flex;
 }
 
-.tp-new-icon .svg-icon {
+.awty-new-icon .svg-icon {
   width: 1em;
   height: 1em;
 }
 
-.tp-search {
+.awty-search {
   width: 100%;
 }
 
 /* ------------------------------------------------------------------ groups */
 
-.tp-group {
+.awty-group {
   display: flex;
   align-items: center;
   gap: 0.5em;
@@ -52,7 +52,7 @@
   padding: 0 0.2em;
 }
 
-.tp-group-title {
+.awty-group-title {
   font-size: var(--font-ui-smaller);
   font-weight: var(--font-semibold);
   text-transform: uppercase;
@@ -60,7 +60,7 @@
   color: var(--text-muted);
 }
 
-.tp-group-count {
+.awty-group-count {
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);
   background: var(--background-modifier-hover);
@@ -68,7 +68,7 @@
   padding: 0 0.5em;
 }
 
-.tp-list {
+.awty-list {
   display: flex;
   flex-direction: column;
   gap: 0.25em;
@@ -76,7 +76,7 @@
 
 /* ------------------------------------------------------------------- trips */
 
-.tp-trip {
+.awty-trip {
   display: flex;
   align-items: flex-start;
   gap: 0.6em;
@@ -87,51 +87,51 @@
   position: relative;
 }
 
-.tp-trip:hover {
+.awty-trip:hover {
   background: var(--background-modifier-hover);
 }
 
-.tp-trip.is-current {
+.awty-trip.is-current {
   border-left-color: var(--color-green);
 }
 
-.tp-trip.is-upcoming {
+.awty-trip.is-upcoming {
   border-left-color: var(--color-blue);
 }
 
-.tp-trip.is-past {
+.awty-trip.is-past {
   border-left-color: var(--background-modifier-border);
 }
 
-.tp-trip.is-past .tp-trip-title,
-.tp-trip.is-past .tp-trip-icon {
+.awty-trip.is-past .awty-trip-title,
+.awty-trip.is-past .awty-trip-icon {
   color: var(--text-muted);
 }
 
-.tp-trip-icon {
+.awty-trip-icon {
   display: flex;
   padding-top: 0.15em;
   color: var(--text-accent);
 }
 
-.tp-trip-icon .svg-icon {
+.awty-trip-icon .svg-icon {
   width: 1.1em;
   height: 1.1em;
 }
 
-.tp-trip-body {
+.awty-trip-body {
   flex: 1;
   min-width: 0;
 }
 
-.tp-trip-title {
+.awty-trip-title {
   font-weight: var(--font-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tp-trip-meta {
+.awty-trip-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 0.15em 0.5em;
@@ -139,11 +139,11 @@
   color: var(--text-muted);
 }
 
-.tp-trip-where {
+.awty-trip-where {
   color: var(--text-faint);
 }
 
-.tp-badge {
+.awty-badge {
   display: inline-block;
   margin-top: 0.3em;
   padding: 0.05em 0.5em;
@@ -153,24 +153,24 @@
   color: var(--text-muted);
 }
 
-.tp-badge.is-current {
+.awty-badge.is-current {
   background: var(--color-green);
   color: var(--text-on-accent);
 }
 
 /* Actions stay out of the way until the row is hovered or focused. */
 
-.tp-trip-actions {
+.awty-trip-actions {
   opacity: 0;
   transition: opacity 80ms ease-in-out;
 }
 
-.tp-trip:hover .tp-trip-actions,
-.tp-trip:focus-within .tp-trip-actions {
+.awty-trip:hover .awty-trip-actions,
+.awty-trip:focus-within .awty-trip-actions {
   opacity: 1;
 }
 
-.tp-icon-btn {
+.awty-icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -183,42 +183,42 @@
   box-shadow: none;
 }
 
-.tp-icon-btn:hover {
+.awty-icon-btn:hover {
   background: var(--background-modifier-border);
   color: var(--text-normal);
 }
 
-.tp-icon-btn .svg-icon {
+.awty-icon-btn .svg-icon {
   width: 1em;
   height: 1em;
 }
 
 /* ------------------------------------------------------------------- empty */
 
-.tp-empty {
+.awty-empty {
   text-align: center;
   padding: 2.5em 1em;
   color: var(--text-muted);
 }
 
-.tp-empty-icon {
+.awty-empty-icon {
   display: flex;
   justify-content: center;
   margin-bottom: 0.6em;
   color: var(--text-faint);
 }
 
-.tp-empty-icon .svg-icon {
+.awty-empty-icon .svg-icon {
   width: 2em;
   height: 2em;
 }
 
-.tp-empty-title {
+.awty-empty-title {
   font-weight: var(--font-medium);
   color: var(--text-normal);
 }
 
-.tp-empty-detail {
+.awty-empty-detail {
   font-size: var(--font-ui-smaller);
   margin-top: 0.2em;
 }

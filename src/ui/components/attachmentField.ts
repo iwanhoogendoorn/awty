@@ -48,14 +48,14 @@ export class AttachmentField {
   }
 
   private render(): void {
-    const wrap = this.container.createDiv({ cls: "tp-attach" });
+    const wrap = this.container.createDiv({ cls: "awty-attach" });
 
-    const drop = wrap.createDiv({ cls: "tp-attach-drop" });
-    setIcon(drop.createDiv({ cls: "tp-attach-icon" }), "paperclip");
-    drop.createDiv({ cls: "tp-attach-label", text: this.label });
-    drop.createDiv({ cls: "tp-attach-hint", text: "Drop files here, paste with Cmd+V, or click to choose" });
+    const drop = wrap.createDiv({ cls: "awty-attach-drop" });
+    setIcon(drop.createDiv({ cls: "awty-attach-icon" }), "paperclip");
+    drop.createDiv({ cls: "awty-attach-label", text: this.label });
+    drop.createDiv({ cls: "awty-attach-hint", text: "Drop files here, paste with Cmd+V, or click to choose" });
 
-    this.inputEl = wrap.createEl("input", { cls: "tp-attach-input" });
+    this.inputEl = wrap.createEl("input", { cls: "awty-attach-input" });
     this.inputEl.type = "file";
     this.inputEl.multiple = true;
     this.inputEl.addEventListener("change", () => {
@@ -104,7 +104,7 @@ export class AttachmentField {
     };
     document.addEventListener("paste", this.pasteHandler);
 
-    this.listEl = wrap.createDiv({ cls: "tp-attach-list" });
+    this.listEl = wrap.createDiv({ cls: "awty-attach-list" });
     this.renderList();
   }
 
@@ -120,15 +120,15 @@ export class AttachmentField {
   private renderList(): void {
     this.listEl.empty();
     for (const [index, file] of this.files.entries()) {
-      const chip = this.listEl.createDiv({ cls: "tp-attach-chip" });
+      const chip = this.listEl.createDiv({ cls: "awty-attach-chip" });
       setIcon(
-        chip.createSpan({ cls: "tp-attach-chip-icon" }),
+        chip.createSpan({ cls: "awty-attach-chip-icon" }),
         /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(file.name) ? "image" : "file-text",
       );
-      chip.createSpan({ cls: "tp-attach-chip-name", text: file.name });
-      chip.createSpan({ cls: "tp-attach-chip-size", text: formatSize(file.size) });
+      chip.createSpan({ cls: "awty-attach-chip-name", text: file.name });
+      chip.createSpan({ cls: "awty-attach-chip-size", text: formatSize(file.size) });
 
-      const remove = chip.createSpan({ cls: "tp-attach-chip-remove", attr: { "aria-label": "Remove" } });
+      const remove = chip.createSpan({ cls: "awty-attach-chip-remove", attr: { "aria-label": "Remove" } });
       setIcon(remove, "x");
       remove.addEventListener("click", (evt) => {
         evt.stopPropagation();

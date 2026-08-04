@@ -1,5 +1,5 @@
 import { App, Notice, TFile, TFolder, arrayBufferToBase64 } from "obsidian";
-import type TravelPlannerPlugin from "../main";
+import type AwtyPlugin from "../main";
 import type { Trip } from "../types";
 import { SUB_NOTE_LABELS, kindDef } from "../types";
 import { BOOKING_KINDS } from "../bookings/types";
@@ -60,7 +60,7 @@ function flightJourney(app: App, file: TFile, band: number): string {
 
 /** Gathers everything the plugin knows about a trip into one printable shape. */
 export async function buildTripDocument(
-  plugin: TravelPlannerPlugin,
+  plugin: AwtyPlugin,
   trip: Trip,
 ): Promise<TripDocument> {
   const app = plugin.app;
@@ -473,7 +473,7 @@ async function exportHtmlToPdf(html: string, suggestedName: string): Promise<Pdf
   // no vault and no network.
   let tmpPath: string;
   try {
-    tmpPath = bits.tmpFile(`travel-planner-${Date.now()}.html`, html);
+    tmpPath = bits.tmpFile(`awty-${Date.now()}.html`, html);
   } catch (e) {
     new Notice(`Could not prepare the document for printing — ${errorText(e)}`);
     return "failed";
@@ -587,7 +587,7 @@ async function ensureFolder(app: App, path: string): Promise<void> {
  * only inside the vault. A copy of the self-contained HTML is kept in the trip
  * folder, since it opens anywhere and needs no plugin.
  */
-export async function exportTrip(plugin: TravelPlannerPlugin, trip: Trip): Promise<void> {
+export async function exportTrip(plugin: AwtyPlugin, trip: Trip): Promise<void> {
   const notice = new Notice("Building the document…", 0);
   let html: string;
 
@@ -603,7 +603,7 @@ export async function exportTrip(plugin: TravelPlannerPlugin, trip: Trip): Promi
   } catch (err) {
     notice.hide();
     new Notice(err instanceof Error ? err.message : "Could not build the document.", 8000);
-    console.error("[travel-planner]", err);
+    console.error("[awty]", err);
     return;
   }
   notice.hide();

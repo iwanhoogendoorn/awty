@@ -1,5 +1,5 @@
 import { App, Plugin, TFile, TFolder, normalizePath } from "obsidian";
-import type { SubNoteId, TravelPlannerSettings, Trip, TripStatus } from "../types";
+import type { SubNoteId, AwtySettings, Trip, TripStatus } from "../types";
 import { SUB_NOTE_LABELS, isTripKind } from "../types";
 
 export interface SubNote {
@@ -41,7 +41,7 @@ export class TripStore {
 
   constructor(
     private app: App,
-    private getSettings: () => TravelPlannerSettings,
+    private getSettings: () => AwtySettings,
   ) {}
 
   /** Subscribes to the vault so the sidebar reflects edits made in the notes. */

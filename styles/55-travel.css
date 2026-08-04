@@ -1,6 +1,6 @@
 /* ------------------------------------------------------- getting around */
 
-.tp-around-group {
+.awty-around-group {
   margin: 0.7em 0 0.35em;
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);
@@ -8,13 +8,13 @@
   letter-spacing: 0.04em;
 }
 
-.tp-around-list {
+.awty-around-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.tp-around-row {
+.awty-around-row {
   display: flex;
   align-items: center;
   gap: 0.7em;
@@ -23,38 +23,38 @@
   background: var(--background-secondary);
 }
 
-.tp-around-row.is-clickable {
+.awty-around-row.is-clickable {
   cursor: pointer;
 }
 
-.tp-around-row.is-clickable:hover {
+.awty-around-row.is-clickable:hover {
   background: var(--background-modifier-hover);
 }
 
-.tp-around-text {
+.awty-around-text {
   flex: 1;
   min-width: 0;
 }
 
-.tp-around-name {
+.awty-around-name {
   font-size: var(--font-ui-small);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tp-around-dist {
+.awty-around-dist {
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);
 }
 
-.tp-around-times {
+.awty-around-times {
   display: flex;
   gap: 0.3em;
   flex: none;
 }
 
-.tp-around-chip {
+.awty-around-chip {
   display: inline-flex;
   align-items: center;
   gap: 0.25em;
@@ -67,28 +67,28 @@
   white-space: nowrap;
 }
 
-.tp-around-chip.is-transit {
+.awty-around-chip.is-transit {
   background: color-mix(in srgb, var(--color-blue) 18%, transparent);
   color: var(--color-blue);
 }
 
-.tp-around-chip.is-walking {
+.awty-around-chip.is-walking {
   background: color-mix(in srgb, var(--color-green) 18%, transparent);
   color: var(--color-green);
 }
 
-.tp-around-chip-icon {
+.awty-around-chip-icon {
   display: flex;
 }
 
-.tp-around-chip-icon .svg-icon {
+.awty-around-chip-icon .svg-icon {
   width: 0.85em;
   height: 0.85em;
 }
 
 /* Travel between consecutive items on the itinerary timeline. */
 
-.tp-leg {
+.awty-leg {
   display: flex;
   align-items: center;
   gap: 0.4em;
@@ -99,15 +99,15 @@
 
 /* Sits between two timeline items, indented past the time column so it lines
    up with the titles it joins. */
-.tp-day-items .tp-leg {
+.awty-day-items .awty-leg {
   padding: 0.3em 0 0.3em 4.6em;
 }
 
-.tp-leg-icon {
+.awty-leg-icon {
   display: flex;
 }
 
-.tp-leg-icon .svg-icon {
+.awty-leg-icon .svg-icon {
   width: 0.85em;
   height: 0.85em;
 }
@@ -116,13 +116,13 @@
 
 /* ------------------------------------------------- documents & advice */
 
-.tp-doc-list-rows {
+.awty-doc-list-rows {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.tp-doc-item {
+.awty-doc-item {
   display: flex;
   align-items: center;
   gap: 0.6em;
@@ -132,69 +132,69 @@
   border-left: 3px solid var(--background-modifier-border);
 }
 
-.tp-doc-item.is-good,
-.tp-doc-item.is-advice-groen {
+.awty-doc-item.is-good,
+.awty-doc-item.is-advice-groen {
   border-left-color: var(--color-green);
 }
 
-.tp-doc-item.is-warn,
-.tp-doc-item.is-advice-geel {
+.awty-doc-item.is-warn,
+.awty-doc-item.is-advice-geel {
   border-left-color: var(--color-yellow);
 }
 
-.tp-doc-item.is-advice-oranje {
+.awty-doc-item.is-advice-oranje {
   border-left-color: var(--color-orange);
 }
 
-.tp-doc-item.is-bad,
-.tp-doc-item.is-advice-rood {
+.awty-doc-item.is-bad,
+.awty-doc-item.is-advice-rood {
   border-left-color: var(--color-red);
 }
 
-.tp-doc-item-icon {
+.awty-doc-item-icon {
   display: flex;
   flex: none;
   color: var(--text-muted);
 }
 
-.tp-doc-item.is-good .tp-doc-item-icon,
-.tp-doc-item.is-advice-groen .tp-doc-item-icon {
+.awty-doc-item.is-good .awty-doc-item-icon,
+.awty-doc-item.is-advice-groen .awty-doc-item-icon {
   color: var(--color-green);
 }
 
-.tp-doc-item.is-warn .tp-doc-item-icon,
-.tp-doc-item.is-advice-geel .tp-doc-item-icon,
-.tp-doc-item.is-advice-oranje .tp-doc-item-icon {
+.awty-doc-item.is-warn .awty-doc-item-icon,
+.awty-doc-item.is-advice-geel .awty-doc-item-icon,
+.awty-doc-item.is-advice-oranje .awty-doc-item-icon {
   color: var(--color-orange);
 }
 
-.tp-doc-item.is-bad .tp-doc-item-icon,
-.tp-doc-item.is-advice-rood .tp-doc-item-icon {
+.awty-doc-item.is-bad .awty-doc-item-icon,
+.awty-doc-item.is-advice-rood .awty-doc-item-icon {
   color: var(--color-red);
 }
 
-.tp-doc-item-body {
+.awty-doc-item-body {
   flex: 1;
   min-width: 0;
 }
 
-.tp-doc-item-title {
+.awty-doc-item-title {
   font-size: var(--font-ui-small);
   font-weight: var(--font-medium);
 }
 
-.tp-doc-item-detail {
+.awty-doc-item-detail {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
 }
 
-.tp-doc-item-warn {
+.awty-doc-item-warn {
   font-size: var(--font-ui-smaller);
   color: var(--color-orange);
   margin-top: 0.15em;
 }
 
-.tp-doc-badge {
+.awty-doc-badge {
   flex: none;
   padding: 0.05em 0.55em;
   border-radius: 999px;
@@ -204,46 +204,46 @@
   white-space: nowrap;
 }
 
-.tp-doc-badge.is-good,
-.tp-doc-badge.is-advice-groen {
+.awty-doc-badge.is-good,
+.awty-doc-badge.is-advice-groen {
   background: color-mix(in srgb, var(--color-green) 20%, transparent);
   color: var(--color-green);
 }
 
-.tp-doc-badge.is-warn,
-.tp-doc-badge.is-advice-geel {
+.awty-doc-badge.is-warn,
+.awty-doc-badge.is-advice-geel {
   background: color-mix(in srgb, var(--color-yellow) 22%, transparent);
   color: var(--color-orange);
 }
 
-.tp-doc-badge.is-advice-oranje {
+.awty-doc-badge.is-advice-oranje {
   background: color-mix(in srgb, var(--color-orange) 20%, transparent);
   color: var(--color-orange);
 }
 
-.tp-doc-badge.is-bad,
-.tp-doc-badge.is-advice-rood {
+.awty-doc-badge.is-bad,
+.awty-doc-badge.is-advice-rood {
   background: color-mix(in srgb, var(--color-red) 18%, transparent);
   color: var(--color-red);
 }
 
-.tp-doc-link {
+.awty-doc-link {
   display: flex;
   flex: none;
   color: var(--text-muted);
 }
 
-.tp-doc-link:hover {
+.awty-doc-link:hover {
   color: var(--text-accent);
 }
 
-.tp-doc-link .svg-icon {
+.awty-doc-link .svg-icon {
   width: 0.95em;
   height: 0.95em;
 }
 
 /* Neither source is authoritative; say so where it is read. */
-.tp-doc-caveat {
+.awty-doc-caveat {
   margin-top: 0.5em;
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);
@@ -253,7 +253,7 @@
 
 
 
-.tp-passport-icon .svg-icon {
+.awty-passport-icon .svg-icon {
   width: 0.95em;
   height: 0.95em;
 }
@@ -261,7 +261,7 @@
 
 
 /* Says what is missing, rather than the section vanishing entirely. */
-.tp-around-notice {
+.awty-around-notice {
   display: flex;
   gap: 0.6em;
   padding: 0.7em 0.9em;
@@ -269,69 +269,69 @@
   background: var(--background-secondary);
 }
 
-.tp-around-notice-icon {
+.awty-around-notice-icon {
   display: flex;
   flex: none;
   color: var(--text-faint);
   padding-top: 0.1em;
 }
 
-.tp-around-notice-icon .svg-icon {
+.awty-around-notice-icon .svg-icon {
   width: 1em;
   height: 1em;
 }
 
-.tp-around-notice-title {
+.awty-around-notice-title {
   font-size: var(--font-ui-small);
   font-weight: var(--font-medium);
 }
 
-.tp-around-notice-detail {
+.awty-around-notice-detail {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   line-height: 1.45;
 }
 
 /* A mode with no route: visible and struck, not silently absent. */
-.tp-around-chip.is-none {
+.awty-around-chip.is-none {
   opacity: 0.5;
   text-decoration: line-through;
 }
 
-.tp-around-chip.is-flight {
+.awty-around-chip.is-flight {
   background: color-mix(in srgb, var(--color-purple, var(--color-blue)) 18%, transparent);
   color: var(--color-purple, var(--color-blue));
 }
 
 /* ------------------------------------------------------------ route modal */
 
-.tp-leg.is-clickable {
+.awty-leg.is-clickable {
   cursor: pointer;
   border-radius: var(--radius-s);
 }
 
-.tp-leg.is-clickable:hover {
+.awty-leg.is-clickable:hover {
   color: var(--text-muted);
   background: var(--background-modifier-hover);
 }
 
-.tp-route-result {
+.awty-route-result {
   margin-top: 0.4em;
 }
 
-.tp-route-dist {
+.awty-route-dist {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   margin-bottom: 0.5em;
 }
 
-.tp-route-modes {
+.awty-route-modes {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.tp-route-mode {
+.awty-route-mode {
   display: flex;
   align-items: center;
   gap: 0.6em;
@@ -340,22 +340,22 @@
   background: var(--background-secondary);
 }
 
-.tp-route-mode-icon {
+.awty-route-mode-icon {
   display: flex;
   color: var(--text-muted);
 }
 
-.tp-route-mode-label {
+.awty-route-mode-label {
   flex: 1;
 }
 
-.tp-route-mode-time {
+.awty-route-mode-time {
   font-variant-numeric: tabular-nums;
   color: var(--text-normal);
 }
 
 /* A mode with no route says so, rather than vanishing. */
-.tp-route-mode.is-none .tp-route-mode-time {
+.awty-route-mode.is-none .awty-route-mode-time {
   color: var(--text-faint);
   text-decoration: line-through;
 }

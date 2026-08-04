@@ -116,15 +116,15 @@ export function renderGallery(parent: HTMLElement, ctx: DashboardContext): void 
   sectionTitle(parent, `${total} attachment${total === 1 ? "" : "s"}`);
 
   for (const group of groups) {
-    const box = parent.createDiv({ cls: "tp-gallery-group" });
+    const box = parent.createDiv({ cls: "awty-gallery-group" });
 
-    const head = box.createDiv({ cls: "tp-gallery-head" });
-    setIcon(head.createDiv({ cls: "tp-gallery-head-icon" }), group.icon);
-    const headText = head.createDiv({ cls: "tp-gallery-head-text" });
-    headText.createDiv({ cls: "tp-gallery-head-title", text: group.title });
-    if (group.detail) headText.createDiv({ cls: "tp-gallery-head-detail", text: group.detail });
+    const head = box.createDiv({ cls: "awty-gallery-head" });
+    setIcon(head.createDiv({ cls: "awty-gallery-head-icon" }), group.icon);
+    const headText = head.createDiv({ cls: "awty-gallery-head-text" });
+    headText.createDiv({ cls: "awty-gallery-head-title", text: group.title });
+    if (group.detail) headText.createDiv({ cls: "awty-gallery-head-detail", text: group.detail });
     head.createDiv({
-      cls: "tp-gallery-head-count",
+      cls: "awty-gallery-head-count",
       text: `${group.files.length} file${group.files.length === 1 ? "" : "s"}`,
     });
     if (group.source) {
@@ -132,22 +132,22 @@ export function renderGallery(parent: HTMLElement, ctx: DashboardContext): void 
       head.addEventListener("click", () => ctx.openFile(group.source!));
     }
 
-    const grid = box.createDiv({ cls: "tp-gallery" });
+    const grid = box.createDiv({ cls: "awty-gallery" });
     for (const file of group.files) {
-      const cell = grid.createDiv({ cls: "tp-gallery-cell" });
+      const cell = grid.createDiv({ cls: "awty-gallery-cell" });
 
       if (IMAGE_RE.test(file.name)) {
-        const img = cell.createEl("img", { cls: "tp-gallery-img" });
+        const img = cell.createEl("img", { cls: "awty-gallery-img" });
         img.src = app.vault.getResourcePath(file);
         img.alt = file.name;
         img.loading = "lazy";
       } else {
-        const doc = cell.createDiv({ cls: "tp-gallery-doc" });
+        const doc = cell.createDiv({ cls: "awty-gallery-doc" });
         setIcon(doc, file.extension === "pdf" ? "file-text" : "file");
-        doc.createSpan({ cls: "tp-gallery-doc-ext", text: file.extension.toUpperCase() });
+        doc.createSpan({ cls: "awty-gallery-doc-ext", text: file.extension.toUpperCase() });
       }
 
-      cell.createDiv({ cls: "tp-gallery-caption", text: file.name });
+      cell.createDiv({ cls: "awty-gallery-caption", text: file.name });
       cell.setAttribute("title", `${file.name} — ${group.title}`);
       cell.addEventListener("click", () => openAttachment(app, allFiles, file));
     }

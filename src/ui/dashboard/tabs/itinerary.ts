@@ -39,13 +39,13 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
     onClick: () => plugin.openAddDayModal(trip),
   });
   if (itineraryNote) {
-    const open = parent.createDiv({ cls: "tp-dash-hint tp-timeline-open" });
+    const open = parent.createDiv({ cls: "awty-dash-hint awty-timeline-open" });
     const link = open.createEl("a", { text: "Open the itinerary note" });
     link.addEventListener("click", () => ctx.openFile(itineraryNote.file));
   }
 
   const router = makeRouter(ctx);
-  const timeline = parent.createDiv({ cls: "tp-timeline" });
+  const timeline = parent.createDiv({ cls: "awty-timeline" });
 
   for (const [index, date] of days.entries()) {
     const parsed = parseISO(date);
@@ -53,36 +53,36 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
     const ongoing = ongoingOn(bookings, date);
 
     const row = timeline.createDiv({
-      cls: `tp-day${date === today ? " is-today" : ""}${date < today ? " is-past" : ""}`,
+      cls: `awty-day${date === today ? " is-today" : ""}${date < today ? " is-past" : ""}`,
     });
 
-    const marker = row.createDiv({ cls: "tp-day-marker" });
-    marker.createDiv({ cls: "tp-day-num", text: parsed ? String(parsed.getUTCDate()) : "?" });
-    marker.createDiv({ cls: "tp-day-dow", text: parsed ? WEEKDAYS[parsed.getUTCDay()] : "" });
+    const marker = row.createDiv({ cls: "awty-day-marker" });
+    marker.createDiv({ cls: "awty-day-num", text: parsed ? String(parsed.getUTCDate()) : "?" });
+    marker.createDiv({ cls: "awty-day-dow", text: parsed ? WEEKDAYS[parsed.getUTCDay()] : "" });
 
-    const body = row.createDiv({ cls: "tp-day-body" });
-    const head = body.createDiv({ cls: "tp-day-head" });
-    head.createSpan({ cls: "tp-day-label", text: `Day ${index + 1}` });
+    const body = row.createDiv({ cls: "awty-day-body" });
+    const head = body.createDiv({ cls: "awty-day-head" });
+    head.createSpan({ cls: "awty-day-label", text: `Day ${index + 1}` });
     head.createSpan({
-      cls: "tp-day-date",
+      cls: "awty-day-date",
       text: parsed ? `${parsed.getUTCDate()} ${monthName(date)}` : date,
     });
-    if (date === today) head.createSpan({ cls: "tp-day-today", text: "Today" });
+    if (date === today) head.createSpan({ cls: "awty-day-today", text: "Today" });
 
     // Where you are sleeping, as a quiet one-liner rather than another card.
     for (const stay of ongoing) {
-      const rail = body.createDiv({ cls: "tp-day-ongoing" });
-      setIcon(rail.createSpan({ cls: "tp-day-ongoing-icon" }), "bed");
+      const rail = body.createDiv({ cls: "awty-day-ongoing" });
+      setIcon(rail.createSpan({ cls: "awty-day-ongoing-icon" }), "bed");
       rail.createSpan({ text: `${stay.title} · night ${stay.night} of ${stay.nights}` });
       rail.addEventListener("click", () => ctx.openFile(stay.file));
     }
 
     if (events.length === 0) {
-      if (ongoing.length === 0) body.createDiv({ cls: "tp-day-empty", text: "Nothing planned" });
+      if (ongoing.length === 0) body.createDiv({ cls: "awty-day-empty", text: "Nothing planned" });
       continue;
     }
 
-    const list = body.createDiv({ cls: "tp-day-items" });
+    const list = body.createDiv({ cls: "awty-day-items" });
 
     // You wake up where you slept, so the first hop of a day is from the hotel
     // — unless the day starts by arriving at it.
@@ -91,16 +91,16 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
     }
 
     for (const [position, event] of events.entries()) {
-      const item = list.createDiv({ cls: "tp-day-item" });
-      item.createDiv({ cls: "tp-day-item-time", text: event.time || "—" });
-      setIcon(item.createDiv({ cls: "tp-day-item-icon" }), event.icon);
+      const item = list.createDiv({ cls: "awty-day-item" });
+      item.createDiv({ cls: "awty-day-item-time", text: event.time || "—" });
+      setIcon(item.createDiv({ cls: "awty-day-item-icon" }), event.icon);
 
-      const text = item.createDiv({ cls: "tp-day-item-text" });
-      text.createDiv({ cls: "tp-day-item-title", text: event.title });
+      const text = item.createDiv({ cls: "awty-day-item-text" });
+      text.createDiv({ cls: "awty-day-item-title", text: event.title });
       const detail = [event.detail, flightDetail(event, ctx)].filter(Boolean).join(" · ");
-      if (detail) text.createDiv({ cls: "tp-day-item-meta", text: detail });
+      if (detail) text.createDiv({ cls: "awty-day-item-meta", text: detail });
 
-      if (event.cost) item.createDiv({ cls: "tp-day-item-cost", text: event.cost });
+      if (event.cost) item.createDiv({ cls: "awty-day-item-cost", text: event.cost });
       item.addEventListener("click", () => {
         if (!editItem(ctx, event.file)) ctx.openFile(event.file);
       });
@@ -162,15 +162,15 @@ function makeRouter(ctx: DashboardContext): DayRouter | null {
       if (!legs || legs.length === 0) return;
 
       const reference = legs.find((l) => l.mode === "walking") ?? legs[0];
-      const row = parent.createDiv({ cls: "tp-leg is-clickable" });
+      const row = parent.createDiv({ cls: "awty-leg is-clickable" });
       row.setAttribute("title", "Measure between two other places");
       row.addEventListener("click", (evt) => {
         evt.stopPropagation();
         new RouteModal(ctx.app, plugin, trip, { from, to }).open();
       });
-      setIcon(row.createSpan({ cls: "tp-leg-icon" }), "move-right");
+      setIcon(row.createSpan({ cls: "awty-leg-icon" }), "move-right");
       row.createSpan({
-        cls: "tp-leg-text",
+        cls: "awty-leg-text",
         text: [
           fromLabel ? `from ${fromLabel}` : "",
           formatDistance(reference.distanceMeters),

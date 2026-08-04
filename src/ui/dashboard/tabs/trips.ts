@@ -84,17 +84,17 @@ export function renderTrips(
 
   renderAllTripsSummary(parent, ctx, trips);
 
-  const grid = parent.createDiv({ cls: "tp-trip-grid" });
+  const grid = parent.createDiv({ cls: "awty-trip-grid" });
   for (const trip of trips) {
     const def = kindDef(trip.kind);
-    const card = grid.createDiv({ cls: `tp-card is-${trip.status}` });
+    const card = grid.createDiv({ cls: `awty-card is-${trip.status}` });
 
-    const head = card.createDiv({ cls: "tp-card-head" });
-    setIcon(head.createDiv({ cls: "tp-card-icon" }), def.icon);
-    const headText = head.createDiv({ cls: "tp-card-head-text" });
-    headText.createDiv({ cls: "tp-card-title", text: trip.title });
+    const head = card.createDiv({ cls: "awty-card-head" });
+    setIcon(head.createDiv({ cls: "awty-card-icon" }), def.icon);
+    const headText = head.createDiv({ cls: "awty-card-head-text" });
+    headText.createDiv({ cls: "awty-card-title", text: trip.title });
     headText.createDiv({
-      cls: "tp-card-where",
+      cls: "awty-card-where",
       text: [trip.city, trip.country].filter(Boolean).join(", ") || def.label,
     });
 
@@ -109,25 +109,25 @@ export function renderTrips(
             : until === 0
               ? "Today"
               : `${until}d`;
-    if (badge) card.createDiv({ cls: `tp-card-badge is-${trip.status}`, text: badge });
+    if (badge) card.createDiv({ cls: `awty-card-badge is-${trip.status}`, text: badge });
 
-    const meta = card.createDiv({ cls: "tp-card-meta" });
+    const meta = card.createDiv({ cls: "awty-card-meta" });
     meta.createDiv({ text: formatDateRange(trip.startDate, trip.endDate) });
-    meta.createDiv({ cls: "tp-card-duration", text: formatDuration(trip.startDate, trip.endDate) });
+    meta.createDiv({ cls: "awty-card-duration", text: formatDuration(trip.startDate, trip.endDate) });
 
     const lines = plugin.bookings.getCostLines(trip).filter((l) => l.counted);
     const spent = sumMoney(lines.map((l) => l.money));
     const bookings = plugin.bookings.getBookings(trip);
 
-    const foot = card.createDiv({ cls: "tp-card-foot" });
-    foot.createSpan({ cls: "tp-card-stat", text: formatTotals(spent, "No costs") });
-    foot.createSpan({ cls: "tp-card-stat", text: `${bookings.length} booking${bookings.length === 1 ? "" : "s"}` });
+    const foot = card.createDiv({ cls: "awty-card-foot" });
+    foot.createSpan({ cls: "awty-card-stat", text: formatTotals(spent, "No costs") });
+    foot.createSpan({ cls: "awty-card-stat", text: `${bookings.length} booking${bookings.length === 1 ? "" : "s"}` });
 
     const ready = readiness(plugin, trip);
     if (ready.total > 0) {
-      const progress = card.createDiv({ cls: "tp-card-progress" });
+      const progress = card.createDiv({ cls: "awty-card-progress" });
       progress.createDiv({
-        cls: "tp-card-progress-label",
+        cls: "awty-card-progress-label",
         text: `${Math.round(ready.ratio * 100)}% planned`,
       });
       bar(progress, ready.ratio, ready.ratio >= 1 ? "good" : ready.ratio < 0.34 ? "warn" : "good");
@@ -135,18 +135,18 @@ export function renderTrips(
 
     // One dot per note, filled in as it gets done, so an unfinished trip is
     // obvious from the grid without opening it.
-    const marks = card.createDiv({ cls: "tp-card-marks" });
+    const marks = card.createDiv({ cls: "awty-card-marks" });
     for (const sub of plugin.store.getSubNotes(trip)) {
       const state = plugin.progress.peek(sub.file)?.state ?? "empty";
       const mark = stateMark(state);
-      const el = marks.createDiv({ cls: `tp-mark is-small is-${state}` });
+      const el = marks.createDiv({ cls: `awty-mark is-small is-${state}` });
       if (mark.icon) setIcon(el, mark.icon);
       el.setAttribute("title", `${sub.label}: ${mark.label}`);
       el.setAttribute("aria-label", `${sub.label}: ${mark.label}`);
     }
 
     const menuBtn = card.createEl("button", {
-      cls: "tp-icon-btn tp-card-menu",
+      cls: "awty-icon-btn awty-card-menu",
       attr: { "aria-label": "Trip actions" },
     });
     setIcon(menuBtn, "more-vertical");

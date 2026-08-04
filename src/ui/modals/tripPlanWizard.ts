@@ -1,6 +1,6 @@
 import { App, Modal, Setting, setIcon } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
-import type TravelPlannerPlugin from "../../main";
+import type AwtyPlugin from "../../main";
 import type { Trip } from "../../types";
 import { SUB_NOTE_LABELS, kindDef } from "../../types";
 import { daysBetween, formatDateRange } from "../../util/dates";
@@ -36,7 +36,7 @@ export class TripPlanWizard extends Modal {
 
   constructor(
     app: App,
-    private plugin: TravelPlannerPlugin,
+    private plugin: AwtyPlugin,
     private trip: Trip,
   ) {
     super(app);
@@ -44,7 +44,7 @@ export class TripPlanWizard extends Modal {
 
   onOpen(): void {
     keepOpenOnBackgroundClick(this);
-    this.modalEl.addClass("tp-modal-shell");
+    this.modalEl.addClass("awty-modal-shell");
     // Wizards launched from here change the answers, so redraw when they land.
     this.unsubscribe = this.plugin.store.onChange(() => this.render());
     this.render();
@@ -246,47 +246,47 @@ export class TripPlanWizard extends Modal {
     const trip = this.currentTrip();
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass("tp-modal", "tp-plan");
+    contentEl.addClass("awty-modal", "awty-plan");
 
-    const head = contentEl.createDiv({ cls: "tp-wizard-head" });
-    setIcon(head.createDiv({ cls: "tp-wizard-icon" }), kindDef(trip.kind).icon);
+    const head = contentEl.createDiv({ cls: "awty-wizard-head" });
+    setIcon(head.createDiv({ cls: "awty-wizard-icon" }), kindDef(trip.kind).icon);
     const headText = head.createDiv();
-    headText.createDiv({ cls: "tp-modal-title", text: `Plan ${trip.title}` });
+    headText.createDiv({ cls: "awty-modal-title", text: `Plan ${trip.title}` });
     headText.createDiv({
-      cls: "tp-wizard-sub",
+      cls: "awty-wizard-sub",
       text: formatDateRange(trip.startDate, trip.endDate),
     });
 
     const steps = this.buildSteps(trip);
     const done = steps.filter((s) => s.done).length;
 
-    const progress = contentEl.createDiv({ cls: "tp-plan-progress" });
+    const progress = contentEl.createDiv({ cls: "awty-plan-progress" });
     progress.createSpan({ text: `${done} of ${steps.length} done` });
-    const track = progress.createDiv({ cls: "tp-bar-track" });
-    const fill = track.createDiv({ cls: "tp-bar-fill is-good" });
+    const track = progress.createDiv({ cls: "awty-bar-track" });
+    const fill = track.createDiv({ cls: "awty-bar-fill is-good" });
     fill.style.width = `${Math.round((done / Math.max(1, steps.length)) * 100)}%`;
 
     contentEl.createDiv({
-      cls: "tp-plan-note",
+      cls: "awty-plan-note",
       text: "Nothing here is required. Fill in what you know and come back when you know more.",
     });
 
-    const list = contentEl.createDiv({ cls: "tp-plan-list" });
+    const list = contentEl.createDiv({ cls: "awty-plan-list" });
     for (const step of steps) {
-      const row = list.createDiv({ cls: `tp-plan-row${step.done ? " is-done" : ""}` });
+      const row = list.createDiv({ cls: `awty-plan-row${step.done ? " is-done" : ""}` });
 
-      const mark = row.createDiv({ cls: `tp-mark ${step.done ? "is-complete" : "is-empty"}` });
+      const mark = row.createDiv({ cls: `awty-mark ${step.done ? "is-complete" : "is-empty"}` });
       setIcon(mark, step.done ? "check" : "x");
 
-      const icon = row.createDiv({ cls: "tp-plan-icon" });
+      const icon = row.createDiv({ cls: "awty-plan-icon" });
       setIcon(icon, step.icon);
 
-      const text = row.createDiv({ cls: "tp-plan-text" });
-      text.createDiv({ cls: "tp-plan-title", text: step.title });
-      text.createDiv({ cls: "tp-plan-summary", text: step.summary || step.detail });
+      const text = row.createDiv({ cls: "awty-plan-text" });
+      text.createDiv({ cls: "awty-plan-title", text: step.title });
+      text.createDiv({ cls: "awty-plan-summary", text: step.summary || step.detail });
 
       const btn = row.createEl("button", {
-        cls: `tp-plan-btn${step.done ? "" : " is-cta"}`,
+        cls: `awty-plan-btn${step.done ? "" : " is-cta"}`,
         text: step.actionLabel,
       });
       btn.addEventListener("click", () => step.action());

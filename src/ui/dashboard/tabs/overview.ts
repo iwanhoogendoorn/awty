@@ -104,34 +104,34 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
   });
 
   if (subNotes.length === 0) {
-    parent.createDiv({ cls: "tp-dash-hint", text: "This trip has no sub-notes." });
+    parent.createDiv({ cls: "awty-dash-hint", text: "This trip has no sub-notes." });
     return;
   }
 
-  const grid = parent.createDiv({ cls: "tp-note-grid" });
+  const grid = parent.createDiv({ cls: "awty-note-grid" });
   for (const sub of subNotes) {
     const progress = plugin.progress.peek(sub.file);
     const state = progress?.state ?? "empty";
     const mark = stateMark(state);
-    const cell = grid.createDiv({ cls: `tp-note-cell is-${state}` });
+    const cell = grid.createDiv({ cls: `awty-note-cell is-${state}` });
 
-    const head = cell.createDiv({ cls: "tp-note-head" });
-    const markEl = head.createDiv({ cls: "tp-mark" });
+    const head = cell.createDiv({ cls: "awty-note-head" });
+    const markEl = head.createDiv({ cls: "awty-mark" });
     if (mark.icon) setIcon(markEl, mark.icon);
     markEl.setAttribute("aria-label", mark.label);
     markEl.setAttribute("title", mark.label);
-    head.createDiv({ cls: "tp-note-name", text: sub.label });
+    head.createDiv({ cls: "awty-note-name", text: sub.label });
 
-    cell.createDiv({ cls: "tp-note-detail", text: progress?.detail ?? "Reading…" });
+    cell.createDiv({ cls: "awty-note-detail", text: progress?.detail ?? "Reading…" });
     if (progress?.ratio !== null && progress?.ratio !== undefined) {
       bar(cell, progress.ratio, progress.ratio >= 1 ? "good" : "warn");
     }
 
-    const actions = cell.createDiv({ cls: "tp-note-actions" });
+    const actions = cell.createDiv({ cls: "awty-note-actions" });
 
     // The wizard is the primary action; the note itself is the escape hatch.
     if (sub.id) {
-      const fill = actions.createEl("button", { cls: "tp-note-btn is-cta" });
+      const fill = actions.createEl("button", { cls: "awty-note-btn is-cta" });
       setIcon(fill.createSpan(), "wand-2");
       fill.createSpan({ text: primaryLabel(sub.id, state === "empty") });
       fill.addEventListener("click", (evt) => {
@@ -144,7 +144,7 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
     // "Add" and "Open" alone left no way to change what was already there.
     const existing = itemsFor(sub.id, ctx);
     if (existing.length > 0) {
-      const edit = actions.createEl("button", { cls: "tp-note-btn" });
+      const edit = actions.createEl("button", { cls: "awty-note-btn" });
       setIcon(edit.createSpan(), "pencil");
       edit.createSpan({ text: "Edit" });
       edit.addEventListener("click", (evt) => {
@@ -159,7 +159,7 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
       });
     }
 
-    const open = actions.createEl("button", { cls: "tp-note-btn" });
+    const open = actions.createEl("button", { cls: "awty-note-btn" });
     setIcon(open.createSpan(), "file-text");
     open.createSpan({ text: "Open" });
     open.addEventListener("click", (evt) => {
@@ -220,25 +220,25 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
   const until = daysUntil(trip.startDate);
 
   // ------------------------------------------------------------- hero
-  const hero = parent.createDiv({ cls: `tp-hero is-${trip.status}` });
-  const heroMain = hero.createDiv({ cls: "tp-hero-main" });
-  heroMain.createDiv({ cls: "tp-hero-title", text: trip.title });
+  const hero = parent.createDiv({ cls: `awty-hero is-${trip.status}` });
+  const heroMain = hero.createDiv({ cls: "awty-hero-main" });
+  heroMain.createDiv({ cls: "awty-hero-title", text: trip.title });
   const where = [trip.city, trip.country].filter(Boolean).join(", ");
   heroMain.createDiv({
-    cls: "tp-hero-sub",
+    cls: "awty-hero-sub",
     text: [formatDateRange(trip.startDate, trip.endDate), where].filter(Boolean).join(" · "),
   });
 
-  const countdown = hero.createDiv({ cls: "tp-hero-countdown" });
+  const countdown = hero.createDiv({ cls: "awty-hero-countdown" });
   if (trip.status === "current") {
-    countdown.createDiv({ cls: "tp-hero-big", text: "Now" });
-    countdown.createDiv({ cls: "tp-hero-small", text: "You're on this trip" });
+    countdown.createDiv({ cls: "awty-hero-big", text: "Now" });
+    countdown.createDiv({ cls: "awty-hero-small", text: "You're on this trip" });
   } else if (until !== null && until >= 0) {
-    countdown.createDiv({ cls: "tp-hero-big", text: String(until) });
-    countdown.createDiv({ cls: "tp-hero-small", text: until === 1 ? "day to go" : "days to go" });
+    countdown.createDiv({ cls: "awty-hero-big", text: String(until) });
+    countdown.createDiv({ cls: "awty-hero-small", text: until === 1 ? "day to go" : "days to go" });
   } else {
-    countdown.createDiv({ cls: "tp-hero-big", text: "✓" });
-    countdown.createDiv({ cls: "tp-hero-small", text: "Completed" });
+    countdown.createDiv({ cls: "awty-hero-big", text: "✓" });
+    countdown.createDiv({ cls: "awty-hero-small", text: "Completed" });
   }
 
   // ------------------------------------------------------------ stats
@@ -286,19 +286,19 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
 
   if (upcoming.length > 0) {
     sectionTitle(parent, trip.status === "current" ? "Coming up" : "First up");
-    const list = parent.createDiv({ cls: "tp-next-list" });
+    const list = parent.createDiv({ cls: "awty-next-list" });
     for (const booking of upcoming) {
-      const row = list.createDiv({ cls: "tp-next-row" });
+      const row = list.createDiv({ cls: "awty-next-row" });
       const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
-      setIcon(row.createDiv({ cls: "tp-next-icon" }), def?.icon ?? "ticket");
-      const text = row.createDiv({ cls: "tp-next-text" });
-      text.createDiv({ cls: "tp-next-title", text: booking.title });
+      setIcon(row.createDiv({ cls: "awty-next-icon" }), def?.icon ?? "ticket");
+      const text = row.createDiv({ cls: "awty-next-text" });
+      text.createDiv({ cls: "awty-next-title", text: booking.title });
       text.createDiv({
-        cls: "tp-next-meta",
+        cls: "awty-next-meta",
         text: [booking.date, booking.time].filter(Boolean).join(" · "),
       });
       if (booking.cost) {
-        row.createDiv({ cls: "tp-next-cost", text: formatMoney(booking.cost) });
+        row.createDiv({ cls: "awty-next-cost", text: formatMoney(booking.cost) });
       }
       row.addEventListener("click", () => ctx.openFile(booking.file));
     }
@@ -332,14 +332,14 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
 
   sectionTitle(parent, "Needs attention");
   if (attention.length === 0) {
-    const done = parent.createDiv({ cls: "tp-all-clear" });
+    const done = parent.createDiv({ cls: "awty-all-clear" });
     setIcon(done.createSpan(), "check-circle");
     done.createSpan({ text: "Everything's filled in. Have a good trip." });
   } else {
-    const list = parent.createDiv({ cls: "tp-attention-list" });
+    const list = parent.createDiv({ cls: "awty-attention-list" });
     for (const item of attention) {
-      const row = list.createDiv({ cls: `tp-attention-row${item.action ? " is-clickable" : ""}` });
-      setIcon(row.createSpan({ cls: "tp-attention-icon" }), "alert-circle");
+      const row = list.createDiv({ cls: `awty-attention-row${item.action ? " is-clickable" : ""}` });
+      setIcon(row.createSpan({ cls: "awty-attention-icon" }), "alert-circle");
       row.createSpan({ text: item.text });
       if (item.action) row.addEventListener("click", item.action);
     }
@@ -357,24 +357,24 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
       onClick: () => plugin.openBudgetModal(trip),
     });
 
-    const head = parent.createDiv({ cls: "tp-budget-headline" });
+    const head = parent.createDiv({ cls: "awty-budget-headline" });
     const left = head.createDiv();
-    left.createDiv({ cls: "tp-budget-headline-label", text: "Total cost so far" });
+    left.createDiv({ cls: "awty-budget-headline-label", text: "Total cost so far" });
     left.createDiv({
-      cls: "tp-budget-headline-value",
+      cls: "awty-budget-headline-value",
       text: formatTotals(spent, formatMoney({ amount: 0, currency })),
     });
 
     if (budgetTotalSet > 0) {
       const over = spentPrimary - budgetTotalSet;
-      const right = head.createDiv({ cls: "tp-budget-headline-right" });
-      right.createDiv({ cls: "tp-budget-headline-label", text: "Trip budget" });
+      const right = head.createDiv({ cls: "awty-budget-headline-right" });
+      right.createDiv({ cls: "awty-budget-headline-label", text: "Trip budget" });
       right.createDiv({
-        cls: "tp-budget-headline-value",
+        cls: "awty-budget-headline-value",
         text: formatMoney({ amount: budgetTotalSet, currency }),
       });
       right.createDiv({
-        cls: `tp-budget-headline-delta${over > 0 ? " is-over" : ""}`,
+        cls: `awty-budget-headline-delta${over > 0 ? " is-over" : ""}`,
         text:
           over > 0
             ? `${formatMoney({ amount: over, currency })} over budget`
@@ -386,20 +386,20 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
         over > 0 ? "bad" : spentPrimary / budgetTotalSet > 0.9 ? "warn" : "good",
       );
     } else {
-      head.createDiv({ cls: "tp-dash-hint", text: "No budget set for this trip." });
+      head.createDiv({ cls: "awty-dash-hint", text: "No budget set for this trip." });
     }
 
     if (budget.size > 0) {
       const byCategory = totalsByCategory(lines);
-      const wrap = parent.createDiv({ cls: "tp-budget-list" });
+      const wrap = parent.createDiv({ cls: "awty-budget-list" });
       for (const [category, target] of budget) {
         const actual = byCategory.get(category)?.get(currency) ?? 0;
         const ratio = target === 0 ? 0 : actual / target;
-        const row = wrap.createDiv({ cls: "tp-budget-row" });
-        const rowHead = row.createDiv({ cls: "tp-budget-head" });
-        rowHead.createSpan({ cls: "tp-budget-cat", text: category });
+        const row = wrap.createDiv({ cls: "awty-budget-row" });
+        const rowHead = row.createDiv({ cls: "awty-budget-head" });
+        rowHead.createSpan({ cls: "awty-budget-cat", text: category });
         rowHead.createSpan({
-          cls: `tp-budget-amount${ratio > 1 ? " is-over" : ""}`,
+          cls: `awty-budget-amount${ratio > 1 ? " is-over" : ""}`,
           text: `cost ${formatMoney({ amount: actual, currency })} · budget ${formatMoney({ amount: target, currency })}`,
         });
         // Exactly on budget is fine, not a warning.

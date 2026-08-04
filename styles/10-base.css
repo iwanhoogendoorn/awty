@@ -3,20 +3,20 @@
 
 /* A form this shape reads badly stretched across a wide window; cap it and let
    Obsidian's own modal-content handle the scrolling. */
-.tp-modal-shell {
+.awty-modal-shell {
   width: min(640px, 92vw);
 }
 
-.tp-modal .tp-modal-title {
+.awty-modal .awty-modal-title {
   margin: 0 0 1em;
   font-size: var(--font-ui-larger);
 }
 
-.tp-section {
+.awty-section {
   margin: 0 0 1.1em;
 }
 
-.tp-section-label {
+.awty-section-label {
   font-size: var(--font-ui-smaller);
   font-weight: var(--font-semibold);
   color: var(--text-muted);
@@ -29,7 +29,7 @@
   display: none !important;
 }
 
-.tp-suggest-hint {
+.awty-suggest-hint {
   margin-left: 0.6em;
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);

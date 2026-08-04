@@ -1,5 +1,5 @@
 import { App, Modal, Notice, Setting, setIcon } from "obsidian";
-import type TravelPlannerPlugin from "../../main";
+import type AwtyPlugin from "../../main";
 import type { Place, TravelLeg } from "../../travel/types";
 import { TRAVEL_MODES, formatDistance, formatDuration } from "../../travel/types";
 import type { TripPlaces } from "../../travel/travelService";
@@ -31,7 +31,7 @@ export class RouteModal extends Modal {
 
   constructor(
     app: App,
-    private plugin: TravelPlannerPlugin,
+    private plugin: AwtyPlugin,
     private trip: Trip,
     defaults: { from?: Place; to?: Place } = {},
   ) {
@@ -49,13 +49,13 @@ export class RouteModal extends Modal {
 
   onOpen(): void {
     const { contentEl, modalEl } = this;
-    modalEl.addClass("tp-modal");
+    modalEl.addClass("awty-modal");
     keepOpenOnBackgroundClick(this);
     contentEl.createEl("h2", { text: "Travel time" });
 
     if (this.places.length < 2) {
       contentEl.createDiv({
-        cls: "tp-dash-hint",
+        cls: "awty-dash-hint",
         text: "Calculate travel times for this trip first — there are not two placed bookings to measure between yet.",
       });
       return;
@@ -105,7 +105,7 @@ export class RouteModal extends Modal {
       },
     );
 
-    this.body = contentEl.createDiv({ cls: "tp-route-result" });
+    this.body = contentEl.createDiv({ cls: "awty-route-result" });
     this.renderResult();
   }
 
@@ -115,7 +115,7 @@ export class RouteModal extends Modal {
 
     if (!this.from || !this.to) return;
     if (this.from.id === this.to.id) {
-      body.createDiv({ cls: "tp-dash-hint", text: "Pick two different places." });
+      body.createDiv({ cls: "awty-dash-hint", text: "Pick two different places." });
       return;
     }
 
@@ -124,7 +124,7 @@ export class RouteModal extends Modal {
 
     if (legs.length === 0) {
       body.createDiv({
-        cls: "tp-dash-hint",
+        cls: "awty-dash-hint",
         text: "This pair has not been measured yet. Looking it up makes one billed Google request per mode.",
       });
       this.renderLookup(body);
@@ -133,19 +133,19 @@ export class RouteModal extends Modal {
 
     const reference = legs.find((l) => l.mode === "walking") ?? legs[0];
     body.createDiv({
-      cls: "tp-route-dist",
+      cls: "awty-route-dist",
       text: `${formatDistance(reference.distanceMeters)} · ${this.from.label} → ${this.to.label}`,
     });
 
-    const list = body.createDiv({ cls: "tp-route-modes" });
+    const list = body.createDiv({ cls: "awty-route-modes" });
     for (const mode of modes) {
       const leg = legs.find((l: TravelLeg) => l.mode === mode);
       const def = TRAVEL_MODES.find((m) => m.id === mode);
-      const row = list.createDiv({ cls: `tp-route-mode${leg ? "" : " is-none"}` });
-      setIcon(row.createSpan({ cls: "tp-route-mode-icon" }), def?.icon ?? "route");
-      row.createSpan({ cls: "tp-route-mode-label", text: def?.label ?? mode });
+      const row = list.createDiv({ cls: `awty-route-mode${leg ? "" : " is-none"}` });
+      setIcon(row.createSpan({ cls: "awty-route-mode-icon" }), def?.icon ?? "route");
+      row.createSpan({ cls: "awty-route-mode-label", text: def?.label ?? mode });
       row.createSpan({
-        cls: "tp-route-mode-time",
+        cls: "awty-route-mode-time",
         text: leg ? formatDuration(leg.durationSeconds) : "no route",
       });
     }
@@ -176,7 +176,7 @@ export class RouteModal extends Modal {
             new Notice(
               err instanceof TravelUnavailable
                 ? err.message
-                : `Travel Planner: ${err instanceof Error ? err.message : "lookup failed"}`,
+                : `AWTY: ${err instanceof Error ? err.message : "lookup failed"}`,
             );
           }
         }),

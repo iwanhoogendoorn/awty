@@ -1,6 +1,6 @@
 import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
-import type { TravelPlannerSettings, Trip } from "../../types";
+import type { AwtySettings, Trip } from "../../types";
 import { appendTableRow, ensureSubNote } from "../../store/sectionWriter";
 import { isValidISODate, todayISO } from "../../util/dates";
 import { FOODSPOT_COUNTRIES } from "../../data/countries";
@@ -22,7 +22,7 @@ export class FoodModal extends Modal {
 
   constructor(
     app: App,
-    private settings: TravelPlannerSettings,
+    private settings: AwtySettings,
     private trip: Trip,
     private onSaved: () => void,
   ) {
@@ -36,12 +36,12 @@ export class FoodModal extends Modal {
     keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass("tp-modal");
-    this.modalEl.addClass("tp-modal-shell");
+    contentEl.addClass("awty-modal");
+    this.modalEl.addClass("awty-modal-shell");
 
-    contentEl.createEl("h2", { text: "Book a table", cls: "tp-modal-title" });
+    contentEl.createEl("h2", { text: "Book a table", cls: "awty-modal-title" });
     contentEl.createDiv({
-      cls: "tp-wizard-sub",
+      cls: "awty-wizard-sub",
       text: [this.trip.title, this.trip.city].filter(Boolean).join(" · "),
     });
 
@@ -52,14 +52,14 @@ export class FoodModal extends Modal {
     });
 
     const when = new Setting(contentEl).setName("When");
-    const date = when.controlEl.createEl("input", { cls: "tp-date-input" });
+    const date = when.controlEl.createEl("input", { cls: "awty-date-input" });
     date.type = "date";
     date.value = this.date;
     if (isValidISODate(this.trip.startDate)) date.min = this.trip.startDate;
     if (isValidISODate(this.trip.endDate)) date.max = this.trip.endDate;
     date.addEventListener("change", () => (this.date = date.value));
 
-    const time = when.controlEl.createEl("input", { cls: "tp-time-input" });
+    const time = when.controlEl.createEl("input", { cls: "awty-time-input" });
     time.type = "time";
     time.setAttribute("aria-label", "Time");
     time.addEventListener("change", () => (this.time = time.value));
@@ -75,7 +75,7 @@ export class FoodModal extends Modal {
       ta.onChange((v) => (this.notes = v));
     });
 
-    const hint = contentEl.createDiv({ cls: "tp-dash-hint" });
+    const hint = contentEl.createDiv({ cls: "awty-dash-hint" });
     hint.setText(
       this.trip.city
         ? `Places you still want to try are listed by the Food Spot block in this note, filtered to ${this.trip.city}.`
@@ -125,7 +125,7 @@ export class FoodModal extends Modal {
       this.close();
     } catch (err) {
       new Notice(err instanceof Error ? err.message : "Could not save the booking.");
-      console.error("[travel-planner]", err);
+      console.error("[awty]", err);
       this.saveBtn?.setDisabled(false).setButtonText("Save booking");
     }
   }

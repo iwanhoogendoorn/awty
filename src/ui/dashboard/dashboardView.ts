@@ -1,8 +1,8 @@
 import { ItemView, Menu, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import { BOOKING_KINDS } from "../../bookings/types";
-import type TravelPlannerPlugin from "../../main";
+import type AwtyPlugin from "../../main";
 import type { Trip } from "../../types";
-import { TRAVEL_DASHBOARD_TYPE } from "../../types";
+import { AWTY_DASHBOARD_TYPE } from "../../types";
 import type { DashboardContext } from "./common";
 import { renderOverview } from "./tabs/overview";
 import { renderTrips } from "./tabs/trips";
@@ -23,7 +23,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "gallery", label: "Gallery", icon: "image" },
 ];
 
-export class TravelDashboardView extends ItemView {
+export class AwtyDashboardView extends ItemView {
   private tab: TabId = "overview";
   private tripPath: string | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -31,13 +31,13 @@ export class TravelDashboardView extends ItemView {
 
   constructor(
     leaf: WorkspaceLeaf,
-    private plugin: TravelPlannerPlugin,
+    private plugin: AwtyPlugin,
   ) {
     super(leaf);
   }
 
   getViewType(): string {
-    return TRAVEL_DASHBOARD_TYPE;
+    return AWTY_DASHBOARD_TYPE;
   }
 
   getDisplayText(): string {
@@ -99,14 +99,14 @@ export class TravelDashboardView extends ItemView {
   render(): void {
     const root = this.containerEl.children[1] as HTMLElement;
     root.empty();
-    root.addClass("tp-dashboard");
+    root.addClass("awty-dashboard");
 
     const trip = this.currentTrip();
     if (trip) this.tripPath = trip.file.path;
 
     this.renderHeader(root, trip);
 
-    const content = root.createDiv({ cls: "tp-dash-content" });
+    const content = root.createDiv({ cls: "awty-dash-content" });
     const ctx = this.context(trip);
 
     switch (this.tab) {
@@ -155,13 +155,13 @@ export class TravelDashboardView extends ItemView {
   }
 
   private renderHeader(root: HTMLElement, trip: Trip | null): void {
-    const header = root.createDiv({ cls: "tp-dash-header" });
+    const header = root.createDiv({ cls: "awty-dash-header" });
 
-    const top = header.createDiv({ cls: "tp-dash-top" });
+    const top = header.createDiv({ cls: "awty-dash-top" });
     const trips = this.plugin.store.getTrips();
 
     if (trips.length > 0) {
-      const select = top.createEl("select", { cls: "tp-dash-select dropdown" });
+      const select = top.createEl("select", { cls: "awty-dash-select dropdown" });
       for (const t of trips) {
         const option = select.createEl("option", { text: t.title, value: t.file.path });
         if (trip && t.file.path === trip.file.path) option.selected = true;
@@ -176,24 +176,24 @@ export class TravelDashboardView extends ItemView {
     // selector so they are reachable from every tab.
     if (trip) {
       const menuBtn = top.createEl("button", {
-        cls: "tp-icon-btn tp-dash-tripmenu",
+        cls: "awty-icon-btn awty-dash-tripmenu",
         attr: { "aria-label": "Trip actions" },
       });
       setIcon(menuBtn, "more-vertical");
       menuBtn.addEventListener("click", (evt) => showTripMenu(evt, trip, this.context()));
     }
 
-    const actions = top.createDiv({ cls: "tp-dash-quick" });
+    const actions = top.createDiv({ cls: "awty-dash-quick" });
     if (trip) {
       // One primary action. The individual wizards used to sit up here under
       // names ("Stay", "Expense") that didn't match the note names below
       // ("Accommodation", "Budget"), which read as two competing systems.
-      const plan = actions.createEl("button", { cls: "tp-dash-quick-btn is-cta" });
+      const plan = actions.createEl("button", { cls: "awty-dash-quick-btn is-cta" });
       setIcon(plan.createSpan(), "wand-2");
       plan.createSpan({ text: "Plan trip" });
       plan.addEventListener("click", () => this.plugin.openPlanWizard(trip));
 
-      const add = actions.createEl("button", { cls: "tp-dash-quick-btn" });
+      const add = actions.createEl("button", { cls: "awty-dash-quick-btn" });
       setIcon(add.createSpan(), "plus");
       add.createSpan({ text: "Add" });
       add.addEventListener("click", (evt) => {
@@ -218,19 +218,19 @@ export class TravelDashboardView extends ItemView {
 
       // Exporting is a whole-trip action, so it belongs beside the other
       // whole-trip actions rather than inside the Trip notes card on one tab.
-      const exportBtn = actions.createEl("button", { cls: "tp-dash-quick-btn" });
+      const exportBtn = actions.createEl("button", { cls: "awty-dash-quick-btn" });
       setIcon(exportBtn.createSpan(), "file-down");
       exportBtn.createSpan({ text: "Export PDF" });
       exportBtn.setAttribute("aria-label", "Export the whole trip to a PDF on disk");
       exportBtn.addEventListener("click", () => this.plugin.exportTrip(trip));
     }
 
-    const tabs = header.createDiv({ cls: "tp-dash-tabs" });
+    const tabs = header.createDiv({ cls: "awty-dash-tabs" });
     for (const tab of TABS) {
       const el = tabs.createDiv({
-        cls: `tp-dash-tab${tab.id === this.tab ? " is-active" : ""}`,
+        cls: `awty-dash-tab${tab.id === this.tab ? " is-active" : ""}`,
       });
-      setIcon(el.createSpan({ cls: "tp-dash-tab-icon" }), tab.icon);
+      setIcon(el.createSpan({ cls: "awty-dash-tab-icon" }), tab.icon);
       el.createSpan({ text: tab.label });
       el.addEventListener("click", () => {
         this.tab = tab.id;

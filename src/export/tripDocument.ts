@@ -395,7 +395,7 @@ export function renderTripDocument(doc: TripDocument): string {
   }
 
   parts.push(
-    `<footer>${escapeHtml(doc.title)} · exported ${escapeHtml(doc.generatedOn)} from Travel Planner</footer>`,
+    `<footer>${escapeHtml(doc.title)} · exported ${escapeHtml(doc.generatedOn)} from Are We There Yet?</footer>`,
     "</body></html>",
   );
 

@@ -1,12 +1,12 @@
 import { FOODSPOT_COUNTRIES } from "../data/countries";
-import type { SubNoteId, TravelPlannerSettings, TripDraft } from "../types";
+import type { SubNoteId, AwtySettings, TripDraft } from "../types";
 import { SUB_NOTE_LABELS, kindDef } from "../types";
 import { datesInRange, daysBetween, formatDateRange, formatDuration } from "../util/dates";
 import { buildPackingPlan, renderPackingPlan } from "./packing";
 
 export interface TemplateContext {
   draft: TripDraft;
-  settings: TravelPlannerSettings;
+  settings: AwtySettings;
   /** Wiki link back to the trip note, already formatted. */
   tripLink: string;
   /** Whether the Food Spot plugin is actually enabled in this vault. */

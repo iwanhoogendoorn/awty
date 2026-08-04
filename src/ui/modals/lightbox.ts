@@ -30,17 +30,17 @@ export class Lightbox extends Modal {
   }
 
   onOpen(): void {
-    this.modalEl.addClass("tp-lightbox-shell");
+    this.modalEl.addClass("awty-lightbox-shell");
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass("tp-lightbox");
+    contentEl.addClass("awty-lightbox");
 
-    const bar = contentEl.createDiv({ cls: "tp-lightbox-bar" });
-    this.captionEl = bar.createDiv({ cls: "tp-lightbox-caption" });
+    const bar = contentEl.createDiv({ cls: "awty-lightbox-bar" });
+    this.captionEl = bar.createDiv({ cls: "awty-lightbox-caption" });
 
-    const controls = bar.createDiv({ cls: "tp-lightbox-controls" });
+    const controls = bar.createDiv({ cls: "awty-lightbox-controls" });
     const button = (icon: string, label: string, onClick: () => void) => {
-      const btn = controls.createEl("button", { cls: "tp-icon-btn", attr: { "aria-label": label } });
+      const btn = controls.createEl("button", { cls: "awty-icon-btn", attr: { "aria-label": label } });
       setIcon(btn, icon);
       btn.addEventListener("click", onClick);
       return btn;
@@ -54,18 +54,18 @@ export class Lightbox extends Modal {
       this.close();
     });
 
-    this.stageEl = contentEl.createDiv({ cls: "tp-lightbox-stage" });
+    this.stageEl = contentEl.createDiv({ cls: "awty-lightbox-stage" });
 
     if (this.files.length > 1) {
       const prev = contentEl.createEl("button", {
-        cls: "tp-lightbox-nav is-prev",
+        cls: "awty-lightbox-nav is-prev",
         attr: { "aria-label": "Previous" },
       });
       setIcon(prev, "chevron-left");
       prev.addEventListener("click", () => this.step(-1));
 
       const next = contentEl.createEl("button", {
-        cls: "tp-lightbox-nav is-next",
+        cls: "awty-lightbox-nav is-next",
         attr: { "aria-label": "Next" },
       });
       setIcon(next, "chevron-right");
@@ -116,7 +116,7 @@ export class Lightbox extends Modal {
     );
 
     if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(file.name)) {
-      const img = this.stageEl.createEl("img", { cls: "tp-lightbox-img" });
+      const img = this.stageEl.createEl("img", { cls: "awty-lightbox-img" });
       img.src = this.app.vault.getResourcePath(file);
       img.alt = file.name;
       this.imgEl = img;
@@ -127,15 +127,15 @@ export class Lightbox extends Modal {
 
     if (file.extension.toLowerCase() === "pdf") {
       // Electron renders PDFs natively, so this works without a viewer library.
-      const frame = this.stageEl.createEl("iframe", { cls: "tp-lightbox-frame" });
+      const frame = this.stageEl.createEl("iframe", { cls: "awty-lightbox-frame" });
       frame.src = this.app.vault.getResourcePath(file);
       return;
     }
 
-    const box = this.stageEl.createDiv({ cls: "tp-lightbox-fallback" });
+    const box = this.stageEl.createDiv({ cls: "awty-lightbox-fallback" });
     setIcon(box.createDiv(), "file");
     box.createDiv({ text: file.name });
-    const open = box.createEl("button", { cls: "tp-dash-empty-btn is-cta", text: "Open in a tab" });
+    const open = box.createEl("button", { cls: "awty-dash-empty-btn is-cta", text: "Open in a tab" });
     open.addEventListener("click", () => {
       void this.app.workspace.getLeaf(true).openFile(file);
       this.close();

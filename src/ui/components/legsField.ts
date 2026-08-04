@@ -45,14 +45,14 @@ export class LegsField {
   private render(): void {
     const { container } = this.opts;
     container.empty();
-    container.addClass("tp-legs");
+    container.addClass("awty-legs");
 
     for (const [index, leg] of this.legs.entries()) {
       if (index > 0) this.renderLayover(container, this.legs[index - 1], leg);
       this.renderLeg(container, leg, index);
     }
 
-    const add = container.createEl("button", { cls: "tp-leg-add" });
+    const add = container.createEl("button", { cls: "awty-leg-add" });
     add.type = "button";
     setIcon(add.createSpan(), "plus");
     add.createSpan({ text: this.legs.length === 1 ? "Add a connecting flight" : "Add another leg" });
@@ -69,30 +69,30 @@ export class LegsField {
 
   private renderLayover(parent: HTMLElement, previous: FlightLeg, next: FlightLeg): void {
     const minutes = layoverMinutes(previous, next);
-    const row = parent.createDiv({ cls: "tp-layover" });
-    setIcon(row.createSpan({ cls: "tp-layover-icon" }), "hourglass");
+    const row = parent.createDiv({ cls: "awty-layover" });
+    setIcon(row.createSpan({ cls: "awty-layover-icon" }), "hourglass");
 
     if (minutes === null) {
-      row.createSpan({ cls: "tp-layover-text", text: "Layover — add times to work it out" });
+      row.createSpan({ cls: "awty-layover-text", text: "Layover — add times to work it out" });
       return;
     }
 
     const tight = minutes < TIGHT_CONNECTION_MINUTES;
     row.toggleClass("is-tight", tight);
     row.createSpan({
-      cls: "tp-layover-text",
+      cls: "awty-layover-text",
       text: `${formatLayover(minutes)} layover${previous.to ? ` in ${previous.to}` : ""}`,
     });
-    if (tight) row.createSpan({ cls: "tp-layover-warn", text: "tight connection" });
+    if (tight) row.createSpan({ cls: "awty-layover-warn", text: "tight connection" });
   }
 
   private renderLeg(parent: HTMLElement, leg: FlightLeg, index: number): void {
-    const box = parent.createDiv({ cls: "tp-leg-box" });
+    const box = parent.createDiv({ cls: "awty-leg-box" });
 
-    const head = box.createDiv({ cls: "tp-leg-head" });
-    head.createSpan({ cls: "tp-leg-num", text: `Leg ${index + 1}` });
+    const head = box.createDiv({ cls: "awty-leg-head" });
+    head.createSpan({ cls: "awty-leg-num", text: `Leg ${index + 1}` });
     if (this.legs.length > 1) {
-      const remove = head.createEl("button", { cls: "tp-icon-btn", attr: { "aria-label": "Remove leg" } });
+      const remove = head.createEl("button", { cls: "awty-icon-btn", attr: { "aria-label": "Remove leg" } });
       remove.type = "button";
       setIcon(remove, "trash-2");
       remove.addEventListener("click", () => {
@@ -102,12 +102,12 @@ export class LegsField {
       });
     }
 
-    const grid = box.createDiv({ cls: "tp-leg-grid" });
+    const grid = box.createDiv({ cls: "awty-leg-grid" });
 
     const field = (label: string, build: (input: HTMLInputElement) => void, cls = "") => {
-      const cell = grid.createDiv({ cls: `tp-leg-cell ${cls}` });
-      cell.createEl("label", { cls: "tp-leg-label", text: label });
-      const input = cell.createEl("input", { cls: "tp-leg-input" });
+      const cell = grid.createDiv({ cls: `awty-leg-cell ${cls}` });
+      cell.createEl("label", { cls: "awty-leg-label", text: label });
+      const input = cell.createEl("input", { cls: "awty-leg-input" });
       build(input);
       return input;
     };

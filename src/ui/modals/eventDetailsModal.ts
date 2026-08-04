@@ -31,11 +31,11 @@ export class EventDetailsModal extends Modal {
     keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass("tp-modal");
-    this.modalEl.addClass("tp-modal-shell");
+    contentEl.addClass("awty-modal");
+    this.modalEl.addClass("awty-modal-shell");
 
-    contentEl.createEl("h2", { text: "Event details", cls: "tp-modal-title" });
-    contentEl.createDiv({ cls: "tp-wizard-sub", text: this.trip.title });
+    contentEl.createEl("h2", { text: "Event details", cls: "awty-modal-title" });
+    contentEl.createDiv({ cls: "awty-wizard-sub", text: this.trip.title });
 
     await this.prefillFromNote();
 
@@ -51,7 +51,7 @@ export class EventDetailsModal extends Modal {
 
     const timeRow = new Setting(contentEl).setName("Doors / start");
     for (const key of ["doors", "start"] as const) {
-      const input = timeRow.controlEl.createEl("input", { cls: "tp-time-input" });
+      const input = timeRow.controlEl.createEl("input", { cls: "awty-time-input" });
       input.type = "time";
       input.value = this.fields[key];
       input.setAttribute("aria-label", key === "doors" ? "Doors open" : "Start time");
@@ -140,7 +140,7 @@ export class EventDetailsModal extends Modal {
       this.close();
     } catch (err) {
       new Notice(err instanceof Error ? err.message : "Could not save the event details.");
-      console.error("[travel-planner]", err);
+      console.error("[awty]", err);
       this.saveBtn?.setDisabled(false).setButtonText("Save details");
     }
   }

@@ -52,7 +52,7 @@ export function renderBookings(parent: HTMLElement, ctx: DashboardContext): void
       onClick: () => plugin.openBookingWizard(trip, def.id),
     });
 
-    const wrap = parent.createDiv({ cls: "tp-booking-list" });
+    const wrap = parent.createDiv({ cls: "awty-booking-list" });
     for (const booking of list) renderRow(wrap, booking, ctx);
   }
 }
@@ -61,32 +61,32 @@ function renderRow(parent: HTMLElement, booking: Booking, ctx: DashboardContext)
   const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
   const status = BOOKING_STATUSES.find((s) => s.id === booking.status);
 
-  const row = parent.createDiv({ cls: `tp-booking is-${booking.status}` });
-  setIcon(row.createDiv({ cls: "tp-booking-icon" }), def?.icon ?? "ticket");
+  const row = parent.createDiv({ cls: `awty-booking is-${booking.status}` });
+  setIcon(row.createDiv({ cls: "awty-booking-icon" }), def?.icon ?? "ticket");
 
-  const body = row.createDiv({ cls: "tp-booking-body" });
-  body.createDiv({ cls: "tp-booking-title", text: booking.title });
+  const body = row.createDiv({ cls: "awty-booking-body" });
+  body.createDiv({ cls: "awty-booking-title", text: booking.title });
 
-  const meta = body.createDiv({ cls: "tp-booking-meta" });
+  const meta = body.createDiv({ cls: "awty-booking-meta" });
   meta.createSpan({ text: formatDateRange(booking.date, booking.endDate) });
   const times = [booking.time, booking.endTime].filter(Boolean).join(" → ");
   if (times) meta.createSpan({ text: times });
-  if (booking.reference) meta.createSpan({ cls: "tp-mono", text: booking.reference });
+  if (booking.reference) meta.createSpan({ cls: "awty-mono", text: booking.reference });
   if (booking.seat) meta.createSpan({ text: `Seat ${booking.seat}` });
   if (booking.attachments.length) {
-    const attach = meta.createSpan({ cls: "tp-booking-attach" });
+    const attach = meta.createSpan({ cls: "awty-booking-attach" });
     setIcon(attach.createSpan(), "paperclip");
     attach.createSpan({ text: String(booking.attachments.length) });
   }
 
-  const right = row.createDiv({ cls: "tp-booking-right" });
+  const right = row.createDiv({ cls: "awty-booking-right" });
   if (booking.cost) {
     right.createDiv({
-      cls: `tp-booking-cost${booking.status === "cancelled" ? " is-struck" : ""}`,
+      cls: `awty-booking-cost${booking.status === "cancelled" ? " is-struck" : ""}`,
       text: formatMoney(booking.cost),
     });
   }
-  const pill = right.createDiv({ cls: `tp-status-pill is-${booking.status}` });
+  const pill = right.createDiv({ cls: `awty-status-pill is-${booking.status}` });
   pill.setText(status?.label ?? booking.status);
 
   // Clicking a booking opens the form that made it. Opening the raw note was

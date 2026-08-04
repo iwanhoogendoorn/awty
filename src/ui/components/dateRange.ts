@@ -53,25 +53,25 @@ export class DateRangeField {
   }
 
   private render(): void {
-    const wrap = this.container.createDiv({ cls: "tp-daterange" });
+    const wrap = this.container.createDiv({ cls: "awty-daterange" });
 
-    const startRow = wrap.createDiv({ cls: "tp-date-row" });
-    startRow.createEl("label", { text: "Start", cls: "tp-date-label" });
-    this.startInput = startRow.createEl("input", { cls: "tp-date-input" });
+    const startRow = wrap.createDiv({ cls: "awty-date-row" });
+    startRow.createEl("label", { text: "Start", cls: "awty-date-label" });
+    this.startInput = startRow.createEl("input", { cls: "awty-date-input" });
     this.startInput.type = "date";
     this.startInput.value = this.startDate;
 
-    this.endRow = wrap.createDiv({ cls: "tp-date-row" });
-    this.endRow.createEl("label", { text: "End", cls: "tp-date-label" });
-    this.endInput = this.endRow.createEl("input", { cls: "tp-date-input" });
+    this.endRow = wrap.createDiv({ cls: "awty-date-row" });
+    this.endRow.createEl("label", { text: "End", cls: "awty-date-label" });
+    this.endInput = this.endRow.createEl("input", { cls: "awty-date-input" });
     this.endInput.type = "date";
     this.endInput.value = this.endDate;
 
-    this.chipRow = wrap.createDiv({ cls: "tp-chip-row" });
-    this.chipRow.createSpan({ cls: "tp-chip-label", text: "Length" });
+    this.chipRow = wrap.createDiv({ cls: "awty-chip-row" });
+    this.chipRow.createSpan({ cls: "awty-chip-label", text: "Length" });
     for (const days of DURATIONS) {
       const chip = this.chipRow.createEl("button", {
-        cls: "tp-chip",
+        cls: "awty-chip",
         text: days === 1 ? "1 day" : `${days}d`,
       });
       chip.type = "button";
@@ -79,7 +79,7 @@ export class DateRangeField {
       this.chips.set(days, chip);
     }
 
-    this.readout = wrap.createDiv({ cls: "tp-date-readout" });
+    this.readout = wrap.createDiv({ cls: "awty-date-readout" });
 
     this.startInput.addEventListener("change", () => {
       const next = this.startInput.value;

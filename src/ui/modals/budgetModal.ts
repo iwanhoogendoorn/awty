@@ -38,9 +38,9 @@ export class BudgetModal extends Modal {
     keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass("tp-modal");
-    contentEl.createEl("h2", { text: "Budget", cls: "tp-modal-title" });
-    contentEl.createDiv({ cls: "tp-wizard-sub", text: this.trip.title });
+    contentEl.addClass("awty-modal");
+    contentEl.createEl("h2", { text: "Budget", cls: "awty-modal-title" });
+    contentEl.createDiv({ cls: "awty-wizard-sub", text: this.trip.title });
 
     new Setting(contentEl)
       .setName("Budget for the whole trip")
@@ -114,7 +114,7 @@ export class BudgetModal extends Modal {
     // just data entry; this seeds each line from what is actually committed.
     if (this.values.size === 0 && this.actuals.size > 0) {
       const seed = contentEl.createEl("button", {
-        cls: "tp-dash-add",
+        cls: "awty-dash-add",
         text: "Start from what's already booked",
       });
       seed.addEventListener("click", () => {
@@ -165,7 +165,7 @@ export class BudgetModal extends Modal {
 
     addSetting.addButton((b) => b.setButtonText("Add").onClick(() => void addCategory()));
 
-    this.totalEl = contentEl.createDiv({ cls: "tp-budget-total" });
+    this.totalEl = contentEl.createDiv({ cls: "awty-budget-total" });
     this.renderTotal();
 
     new Setting(contentEl)
@@ -180,7 +180,7 @@ export class BudgetModal extends Modal {
               this.close();
             } catch (err) {
               new Notice(err instanceof Error ? err.message : "Could not save the budget.");
-              console.error("[travel-planner]", err);
+              console.error("[awty]", err);
             }
           }),
       );
@@ -195,7 +195,7 @@ export class BudgetModal extends Modal {
 
     if (this.total === null) {
       this.totalEl.createDiv({
-        cls: "tp-budget-note",
+        cls: "awty-budget-note",
         text: "No overall budget set — the categories are the budget.",
       });
       return;
@@ -207,12 +207,12 @@ export class BudgetModal extends Modal {
     const difference = categories - this.total;
     if (difference > 0) {
       this.totalEl.createDiv({
-        cls: "tp-budget-note is-over",
+        cls: "awty-budget-note is-over",
         text: `Categories exceed the trip budget by ${money(difference)}.`,
       });
     } else if (difference < 0) {
       this.totalEl.createDiv({
-        cls: "tp-budget-note",
+        cls: "awty-budget-note",
         text: `${money(-difference)} of the trip budget is not allocated to a category.`,
       });
     }

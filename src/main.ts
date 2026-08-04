@@ -1,13 +1,13 @@
-import { App, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { App, Notice, Plugin, TFile, WorkspaceLeaf, normalizePath } from "obsidian";
 import {
   DEFAULT_SETTINGS,
   FOODSPOT_PLUGIN_ID,
   CREATABLE_SUB_NOTES,
   KINDS,
-  TRAVEL_DASHBOARD_TYPE,
-  TRAVEL_VIEW_TYPE,
+  AWTY_DASHBOARD_TYPE,
+  AWTY_SIDEBAR_TYPE,
   type SubNoteId,
-  type TravelPlannerSettings,
+  type AwtySettings,
   type Trip,
   type TripDraft,
   type TripKind,
@@ -26,7 +26,7 @@ import {
   importAttachments,
   saveBudget,
 } from "./bookings/bookingWriter";
-import { TravelDashboardView } from "./ui/dashboard/dashboardView";
+import { AwtyDashboardView } from "./ui/dashboard/dashboardView";
 import { BookingWizard } from "./ui/modals/bookingWizard";
 import { ExpenseModal } from "./ui/modals/expenseModal";
 import { BudgetModal } from "./ui/modals/budgetModal";
@@ -56,11 +56,11 @@ import {
 import { replaceSection } from "./store/sectionWriter";
 import { exportTrip } from "./export/pdfExport";
 import { createTrip, deleteTrip, notifyError, updateTrip } from "./store/noteWriter";
-import { TravelSidebarView } from "./ui/view";
+import { AwtySidebarView } from "./ui/view";
 import { TripModal } from "./ui/modals/tripModal";
 import { ConfirmDeleteModal } from "./ui/modals/confirmDelete";
 import { AddDayModal } from "./ui/modals/addDayModal";
-import { TravelPlannerSettingTab } from "./settings/settingsTab";
+import { AwtySettingTab } from "./settings/settingsTab";
 
 /**
  * `app.plugins` is real but not part of the public typings, so this is the
@@ -70,8 +70,8 @@ interface AppWithPlugins {
   plugins?: { enabledPlugins?: Set<string> };
 }
 
-export default class TravelPlannerPlugin extends Plugin {
-  settings: TravelPlannerSettings = { ...DEFAULT_SETTINGS };
+export default class AwtyPlugin extends Plugin {
+  settings: AwtySettings = { ...DEFAULT_SETTINGS };
   store!: TripStore;
   /** Sub-note completion, keyed on mtime so edits invalidate themselves. */
   progress!: ProgressCache;
@@ -102,13 +102,13 @@ export default class TravelPlannerPlugin extends Plugin {
     // Bookings live in the same vault events the trip store already watches.
     this.store.onChange(() => this.bookings.invalidate());
 
-    this.registerView(TRAVEL_VIEW_TYPE, (leaf) => new TravelSidebarView(leaf, this));
-    this.registerView(TRAVEL_DASHBOARD_TYPE, (leaf) => new TravelDashboardView(leaf, this));
+    this.registerView(AWTY_SIDEBAR_TYPE, (leaf) => new AwtySidebarView(leaf, this));
+    this.registerView(AWTY_DASHBOARD_TYPE, (leaf) => new AwtyDashboardView(leaf, this));
 
     // One ribbon icon, and it lands on the dashboard. The sidebar is still a
     // registered view — dock it from the command palette if you want it pinned.
-    this.addRibbonIcon("plane", "Travel Planner", () => void this.activateDashboard());
-    this.addSettingTab(new TravelPlannerSettingTab(this.app, this));
+    this.addRibbonIcon("plane", "Are We There Yet?", () => void this.activateDashboard());
+    this.addSettingTab(new AwtySettingTab(this.app, this));
 
     this.addCommand({
       id: "open-sidebar",
@@ -239,7 +239,7 @@ export default class TravelPlannerPlugin extends Plugin {
         if (repaired === 0) return;
         this.bookings.invalidate();
         this.refreshViews();
-        console.info(`[travel-planner] filled in legs for ${repaired} flight(s)`);
+        console.info(`[awty] filled in legs for ${repaired} flight(s)`);
       });
     });
 
@@ -260,10 +260,33 @@ export default class TravelPlannerPlugin extends Plugin {
 
   // ---------------------------------------------------------------- settings
 
+  /**
+   * Settings left behind by the plugin's former id.
+   *
+   * Obsidian keys a plugin's data by its folder, so renaming would otherwise
+   * have thrown away the Google key, the starred airports and every cached
+   * travel time. Read once, when this install has nothing of its own.
+   */
+  private async inheritOldSettings(): Promise<unknown | null> {
+    for (const id of ["travel-planner-v2", "travel-planner"]) {
+      const path = normalizePath(`${this.app.vault.configDir}/plugins/${id}/data.json`);
+      try {
+        const parsed = JSON.parse(await this.app.vault.adapter.read(path)) as unknown;
+        if (parsed && typeof parsed === "object") {
+          console.info(`[awty] adopted settings from ${id}`);
+          return parsed;
+        }
+      } catch {
+        // Not installed, or nothing saved. Try the next one.
+      }
+    }
+    return null;
+  }
+
   async loadSettings(): Promise<void> {
-    const raw = (await this.loadData()) as
-      | (Partial<TravelPlannerSettings> & {
-          settings?: Partial<TravelPlannerSettings>;
+    const raw = ((await this.loadData()) ?? (await this.inheritOldSettings())) as
+      | (Partial<AwtySettings> & {
+          settings?: Partial<AwtySettings>;
           travelCache?: TravelCache;
         })
       | null;
@@ -306,10 +329,10 @@ export default class TravelPlannerPlugin extends Plugin {
 
   async activateSidebar(): Promise<void> {
     const { workspace } = this.app;
-    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(TRAVEL_VIEW_TYPE)[0] ?? null;
+    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(AWTY_SIDEBAR_TYPE)[0] ?? null;
     if (!leaf) {
       leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf(true);
-      await leaf.setViewState({ type: TRAVEL_VIEW_TYPE, active: true });
+      await leaf.setViewState({ type: AWTY_SIDEBAR_TYPE, active: true });
     }
     await workspace.revealLeaf(leaf);
   }
@@ -346,38 +369,38 @@ export default class TravelPlannerPlugin extends Plugin {
     }
 
     const active = workspace.getMostRecentLeaf();
-    if (active && active.view.getViewType() !== TRAVEL_DASHBOARD_TYPE) {
+    if (active && active.view.getViewType() !== AWTY_DASHBOARD_TYPE) {
       await active.openFile(file);
       return;
     }
 
     const others: WorkspaceLeaf[] = [];
     workspace.iterateRootLeaves((leaf) => {
-      if (leaf.view.getViewType() !== TRAVEL_DASHBOARD_TYPE) others.push(leaf);
+      if (leaf.view.getViewType() !== AWTY_DASHBOARD_TYPE) others.push(leaf);
     });
     await (others[others.length - 1] ?? this.newTabAtEnd()).openFile(file);
   }
 
   async activateDashboard(trip?: Trip): Promise<void> {
     const { workspace } = this.app;
-    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(TRAVEL_DASHBOARD_TYPE)[0] ?? null;
+    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(AWTY_DASHBOARD_TYPE)[0] ?? null;
     if (!leaf) {
       leaf = this.newTabAtEnd();
-      await leaf.setViewState({ type: TRAVEL_DASHBOARD_TYPE, active: true });
+      await leaf.setViewState({ type: AWTY_DASHBOARD_TYPE, active: true });
     }
     await workspace.revealLeaf(leaf);
     const view = leaf.view;
-    if (trip && view instanceof TravelDashboardView) view.showTrip(trip);
+    if (trip && view instanceof AwtyDashboardView) view.showTrip(trip);
   }
 
   refreshViews(): void {
-    for (const leaf of this.app.workspace.getLeavesOfType(TRAVEL_VIEW_TYPE)) {
+    for (const leaf of this.app.workspace.getLeavesOfType(AWTY_SIDEBAR_TYPE)) {
       const view = leaf.view;
-      if (view instanceof TravelSidebarView) view.render();
+      if (view instanceof AwtySidebarView) view.render();
     }
-    for (const leaf of this.app.workspace.getLeavesOfType(TRAVEL_DASHBOARD_TYPE)) {
+    for (const leaf of this.app.workspace.getLeavesOfType(AWTY_DASHBOARD_TYPE)) {
       const view = leaf.view;
-      if (view instanceof TravelDashboardView) view.render();
+      if (view instanceof AwtyDashboardView) view.render();
     }
   }
 
@@ -532,7 +555,7 @@ export default class TravelPlannerPlugin extends Plugin {
     } catch (err) {
       notice?.hide();
       if (quiet) {
-        console.error("[travel-planner] advice refresh failed", err);
+        console.error("[awty] advice refresh failed", err);
         return;
       }
       const message =
@@ -541,8 +564,8 @@ export default class TravelPlannerPlugin extends Plugin {
           : err instanceof Error
             ? err.message
             : "Could not fetch travel advice.";
-      new Notice(`Travel Planner: ${message}`, 8000);
-      console.error("[travel-planner]", err);
+      new Notice(`AWTY: ${message}`, 8000);
+      console.error("[awty]", err);
     }
   }
 
@@ -609,7 +632,7 @@ export default class TravelPlannerPlugin extends Plugin {
       setting.openTabById(this.manifest.id);
       return;
     }
-    new Notice("Open Settings → Community plugins → Travel Planner.");
+    new Notice("Open Settings → Community plugins → Are We There Yet?");
   }
 
   isFoodSpotAvailable(): boolean {
@@ -661,9 +684,9 @@ export default class TravelPlannerPlugin extends Plugin {
 
   /** Points any open dashboard at a trip, without opening its note. */
   selectTripInDashboard(path: string): void {
-    for (const leaf of this.app.workspace.getLeavesOfType(TRAVEL_DASHBOARD_TYPE)) {
+    for (const leaf of this.app.workspace.getLeavesOfType(AWTY_DASHBOARD_TYPE)) {
       const view = leaf.view;
-      if (view instanceof TravelDashboardView) view.selectByPath(path);
+      if (view instanceof AwtyDashboardView) view.selectByPath(path);
     }
     this.refreshViews();
   }
@@ -744,7 +767,7 @@ export default class TravelPlannerPlugin extends Plugin {
    */
   async computeTravelTimes(trip: Trip, onDone?: () => void, force = false): Promise<void> {
     if (!this.travel.isConfigured()) {
-      new Notice("Travel Planner: switch on travel times and add a Google API key in settings.");
+      new Notice("AWTY: switch on travel times and add a Google API key in settings.");
       return;
     }
 
@@ -802,8 +825,8 @@ export default class TravelPlannerPlugin extends Plugin {
           : err instanceof Error
             ? err.message
             : "Could not work out travel times.";
-      new Notice(`Travel Planner: ${message}`, 8000);
-      console.error("[travel-planner]", err);
+      new Notice(`AWTY: ${message}`, 8000);
+      console.error("[awty]", err);
     }
   }
 

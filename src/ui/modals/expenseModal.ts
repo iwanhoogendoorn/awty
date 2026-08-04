@@ -3,7 +3,7 @@ import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { CostCategory } from "../../bookings/types";
 import { allCategories } from "../../bookings/types";
 import { countAttachmentsNamed, type ExpenseDraft } from "../../bookings/bookingWriter";
-import type { TravelPlannerSettings, Trip } from "../../types";
+import type { AwtySettings, Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
 import { COMMON_CURRENCIES, parseAmount } from "../../util/money";
 import { isValidISODate, todayISO } from "../../util/dates";
@@ -20,7 +20,7 @@ export class ExpenseModal extends Modal {
 
   constructor(
     app: App,
-    private settings: TravelPlannerSettings,
+    private settings: AwtySettings,
     private trip: Trip,
     currency: string,
     private onSubmit: (draft: ExpenseDraft, files: File[]) => Promise<void>,
@@ -51,12 +51,12 @@ export class ExpenseModal extends Modal {
     keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass("tp-modal");
+    contentEl.addClass("awty-modal");
     contentEl.createEl("h2", {
       text: this.editing ? "Edit expense" : "Log an expense",
-      cls: "tp-modal-title",
+      cls: "awty-modal-title",
     });
-    contentEl.createDiv({ cls: "tp-wizard-sub", text: this.trip.title });
+    contentEl.createDiv({ cls: "awty-wizard-sub", text: this.trip.title });
 
     new Setting(contentEl).setName("What was it?").addText((t) => {
       t.setPlaceholder("Dinner at Proto");
@@ -81,7 +81,7 @@ export class ExpenseModal extends Modal {
       });
 
     const dateSetting = new Setting(contentEl).setName("Date");
-    const date = dateSetting.controlEl.createEl("input", { cls: "tp-date-input" });
+    const date = dateSetting.controlEl.createEl("input", { cls: "awty-date-input" });
     date.type = "date";
     date.value = this.draft.date;
     date.addEventListener("change", () => (this.draft.date = date.value));
@@ -139,7 +139,7 @@ export class ExpenseModal extends Modal {
       this.close();
     } catch (err) {
       new Notice(err instanceof Error ? err.message : "Could not save the expense.");
-      console.error("[travel-planner]", err);
+      console.error("[awty]", err);
       this.submitting = false;
       this.saveBtn?.setDisabled(false).setButtonText(this.editing ? "Save changes" : "Save expense");
     }

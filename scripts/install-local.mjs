@@ -1,9 +1,10 @@
 /*
- * Copies the built plugin into the vault as `travel-planner-v2`.
+ * Copies the built plugin into the vault as `awty`.
  *
- * Deliberately a copy into a NEW folder, not a symlink over the old one: the
- * existing `travel-planner` 1.0.1 install stays exactly where it is so both can
- * run side by side until v2 has earned the slot.
+ * Deliberately a copy into a NEW folder, not a symlink over an old one: every
+ * earlier install (`travel-planner`, `travel-planner-v2`) stays exactly where
+ * it is. Disable them in Obsidian — two copies of this plugin reading the same
+ * notes will both register views and both answer the ribbon.
  *
  * Usage: npm run install-local [-- /path/to/vault]
  */
@@ -13,8 +14,8 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const OUT_DIR = path.join(ROOT, "travel-planner-v2");
-const PLUGIN_ID = "travel-planner-v2";
+const OUT_DIR = path.join(ROOT, "awty");
+const PLUGIN_ID = "awty";
 const FILES = ["main.js", "manifest.json", "styles.css"];
 
 const vault = process.argv[2] ?? path.join(os.homedir(), "Documents", "IWAN-REMOTE-VAULT");

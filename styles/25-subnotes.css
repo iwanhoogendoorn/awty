@@ -1,29 +1,29 @@
 /* Expandable trip rows: the sub-notes are reachable straight from the sidebar
    rather than only via links inside the trip note. */
 
-.tp-trip-wrap {
+.awty-trip-wrap {
   border-radius: var(--radius-s);
   border-left: 3px solid transparent;
 }
 
-.tp-trip-wrap.is-current {
+.awty-trip-wrap.is-current {
   border-left-color: var(--color-green);
 }
 
-.tp-trip-wrap.is-upcoming {
+.awty-trip-wrap.is-upcoming {
   border-left-color: var(--color-blue);
 }
 
-.tp-trip-wrap.is-past {
+.awty-trip-wrap.is-past {
   border-left-color: var(--background-modifier-border);
 }
 
 /* The border now lives on the wrapper. */
-.tp-trip-wrap .tp-trip {
+.awty-trip-wrap .awty-trip {
   border-left: none;
 }
 
-.tp-twisty {
+.awty-twisty {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -34,22 +34,22 @@
   flex: none;
 }
 
-.tp-twisty:hover {
+.awty-twisty:hover {
   color: var(--text-normal);
 }
 
-.tp-twisty.is-open {
+.awty-twisty.is-open {
   transform: rotate(90deg);
 }
 
-.tp-twisty .svg-icon {
+.awty-twisty .svg-icon {
   width: 0.9em;
   height: 0.9em;
 }
 
 /* ------------------------------------------------------------ roll-up bar */
 
-.tp-trip-summary {
+.awty-trip-summary {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -57,7 +57,7 @@
   margin-top: 0.3em;
 }
 
-.tp-progress-pill {
+.awty-progress-pill {
   padding: 0.05em 0.5em;
   border-radius: 999px;
   font-size: var(--font-ui-smaller);
@@ -65,11 +65,11 @@
   color: var(--text-muted);
 }
 
-.tp-progress-pill.is-complete {
+.awty-progress-pill.is-complete {
   color: var(--color-green);
 }
 
-.tp-progress-track {
+.awty-progress-track {
   margin-top: 0.35em;
   height: 3px;
   border-radius: 999px;
@@ -77,7 +77,7 @@
   overflow: hidden;
 }
 
-.tp-progress-fill {
+.awty-progress-fill {
   height: 100%;
   background: var(--color-blue);
   border-radius: 999px;
@@ -86,14 +86,14 @@
 
 /* ------------------------------------------------------------- sub-notes */
 
-.tp-subnotes {
+.awty-subnotes {
   display: flex;
   flex-direction: column;
   gap: 1px;
   padding: 0.1em 0 0.4em 1.5em;
 }
 
-.tp-subnote-row {
+.awty-subnote-row {
   display: flex;
   align-items: center;
   gap: 0.45em;
@@ -102,13 +102,13 @@
   cursor: pointer;
 }
 
-.tp-subnote-row:hover {
+.awty-subnote-row:hover {
   background: var(--background-modifier-hover);
 }
 
 /* The status dot: hollow means nothing has been written in there yet. */
 
-.tp-dot {
+.awty-dot {
   width: 7px;
   height: 7px;
   flex: none;
@@ -117,49 +117,49 @@
   background: transparent;
 }
 
-.tp-subnote-row.is-started .tp-dot {
+.awty-subnote-row.is-started .awty-dot {
   border-color: var(--color-orange);
   background: var(--color-orange);
 }
 
-.tp-subnote-row.is-complete .tp-dot {
+.awty-subnote-row.is-complete .awty-dot {
   border-color: var(--color-green);
   background: var(--color-green);
 }
 
-.tp-subnote-icon {
+.awty-subnote-icon {
   display: flex;
   color: var(--text-muted);
   flex: none;
 }
 
-.tp-subnote-icon .svg-icon {
+.awty-subnote-icon .svg-icon {
   width: 0.95em;
   height: 0.95em;
 }
 
-.tp-subnote-text {
+.awty-subnote-text {
   flex: 1;
   min-width: 0;
 }
 
-.tp-subnote-name {
+.awty-subnote-name {
   font-size: var(--font-ui-small);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tp-subnote-row.is-empty .tp-subnote-name {
+.awty-subnote-row.is-empty .awty-subnote-name {
   color: var(--text-muted);
 }
 
-.tp-subnote-detail {
+.awty-subnote-detail {
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);
 }
 
-.tp-mini-track {
+.awty-mini-track {
   width: 34px;
   height: 3px;
   flex: none;
@@ -168,13 +168,13 @@
   overflow: hidden;
 }
 
-.tp-mini-fill {
+.awty-mini-fill {
   height: 100%;
   background: var(--color-green);
   border-radius: 999px;
 }
 
-.tp-subnote-empty {
+.awty-subnote-empty {
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);
   padding: 0.3em 0.5em;

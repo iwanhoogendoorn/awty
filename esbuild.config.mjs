@@ -6,7 +6,7 @@ import path from "path";
 
 const prod = process.argv[2] === "production";
 
-const OUT_DIR = "travel-planner-v2";
+const OUT_DIR = "awty";
 
 const banner = `/*
 Travel Planner — bundled by esbuild. Source: src/ in this repository.

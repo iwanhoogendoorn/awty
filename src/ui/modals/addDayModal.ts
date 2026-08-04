@@ -1,6 +1,6 @@
 import { App, Modal, Notice, Setting, TFile, setIcon } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
-import type TravelPlannerPlugin from "../../main";
+import type AwtyPlugin from "../../main";
 import type { Trip } from "../../types";
 import { SUB_NOTE_LABELS } from "../../types";
 import type { Booking, DaySlot } from "../../bookings/types";
@@ -52,7 +52,7 @@ export class AddDayModal extends Modal {
 
   constructor(
     app: App,
-    private plugin: TravelPlannerPlugin,
+    private plugin: AwtyPlugin,
     preselected: Trip | null,
     private onDone: () => void,
     /** Open straight onto one day, for editing a day already planned. */
@@ -87,9 +87,9 @@ export class AddDayModal extends Modal {
     keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass("tp-modal");
-    this.modalEl.addClass("tp-modal-shell");
-    contentEl.createEl("h2", { text: "Plan a day", cls: "tp-modal-title" });
+    contentEl.addClass("awty-modal");
+    this.modalEl.addClass("awty-modal-shell");
+    contentEl.createEl("h2", { text: "Plan a day", cls: "awty-modal-title" });
 
     const trips = this.plugin.store.getTrips();
     if (trips.length === 0) {
@@ -118,7 +118,7 @@ export class AddDayModal extends Modal {
     this.daySelect = daySetting.controlEl.createEl("select", { cls: "dropdown" });
     this.daySelect.addEventListener("change", () => this.showDay(this.daySelect.value));
 
-    this.dateInput = daySetting.controlEl.createEl("input", { cls: "tp-date-input" });
+    this.dateInput = daySetting.controlEl.createEl("input", { cls: "awty-date-input" });
     this.dateInput.type = "date";
     this.dateInput.addEventListener("change", () => {
       if (isValidISODate(this.dateInput.value)) this.showDay(this.dateInput.value);
@@ -129,7 +129,7 @@ export class AddDayModal extends Modal {
     this.renderDayOptions();
     this.renderSlots();
 
-    this.statusEl = contentEl.createDiv({ cls: "tp-autosave" });
+    this.statusEl = contentEl.createDiv({ cls: "awty-autosave" });
     this.setStatus("Changes save as you make them.");
 
     new Setting(contentEl)
@@ -234,7 +234,7 @@ export class AddDayModal extends Modal {
       for (const date of dates) this.pending.add(date);
       this.setStatus("Could not save — trying again shortly.");
       new Notice(err instanceof Error ? err.message : "Could not save the day.", 8000);
-      console.error("[travel-planner]", err);
+      console.error("[awty]", err);
     } finally {
       this.saving = false;
     }
@@ -342,8 +342,8 @@ export class AddDayModal extends Modal {
     const notes = this.notes();
 
     for (const slot of DAY_SLOTS) {
-      const section = this.bodyEl.createDiv({ cls: "tp-slot" });
-      section.createDiv({ cls: "tp-section-label", text: slot.label });
+      const section = this.bodyEl.createDiv({ cls: "awty-slot" });
+      section.createDiv({ cls: "awty-section-label", text: slot.label });
 
       for (const activity of activities) {
         const placed = this.placements.get(activity.file.path);
@@ -351,7 +351,7 @@ export class AddDayModal extends Modal {
         const elsewhere = placed && placed.date !== this.date ? placed.date : null;
 
         const row = section.createEl("label", {
-          cls: `tp-slot-activity${elsewhere ? " is-elsewhere" : ""}`,
+          cls: `awty-slot-activity${elsewhere ? " is-elsewhere" : ""}`,
         });
         const box = row.createEl("input");
         box.type = "checkbox";
@@ -373,22 +373,22 @@ export class AddDayModal extends Modal {
           this.renderDayOptions();
         });
 
-        row.createSpan({ cls: "tp-slot-activity-name", text: activity.title });
-        if (activity.time) row.createSpan({ cls: "tp-slot-activity-meta", text: activity.time });
+        row.createSpan({ cls: "awty-slot-activity-name", text: activity.title });
+        if (activity.time) row.createSpan({ cls: "awty-slot-activity-meta", text: activity.time });
         if (activity.cost) {
-          row.createSpan({ cls: "tp-slot-activity-meta", text: formatMoney(activity.cost) });
+          row.createSpan({ cls: "awty-slot-activity-meta", text: formatMoney(activity.cost) });
         }
-        if (elsewhere) row.createSpan({ cls: "tp-slot-activity-meta", text: `on ${elsewhere}` });
+        if (elsewhere) row.createSpan({ cls: "awty-slot-activity-meta", text: `on ${elsewhere}` });
       }
 
-      const addRow = section.createDiv({ cls: "tp-slot-add" });
+      const addRow = section.createDiv({ cls: "awty-slot-add" });
       setIcon(addRow.createSpan(), "plus");
       addRow.createSpan({ text: activities.length ? "Add another activity" : "Add an activity" });
       addRow.addEventListener("click", () => {
         if (this.trip) this.plugin.openBookingWizard(this.trip, "activity");
       });
 
-      const area = section.createEl("textarea", { cls: "tp-slot-notes" });
+      const area = section.createEl("textarea", { cls: "awty-slot-notes" });
       area.rows = 2;
       area.placeholder = "Anything else — breakfast, a walk, nothing booked…";
       area.value = notes[slot.id];

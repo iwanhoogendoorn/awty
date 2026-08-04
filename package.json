@@ -1,8 +1,8 @@
 {
-  "name": "travel-planner",
+  "name": "awty",
   "version": "2.0.0",
   "description": "Travel Planner \u2014 plan holidays, day trips, concerts and events as markdown notes in Obsidian",
-  "main": "travel-planner-v2/main.js",
+  "main": "awty/main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",

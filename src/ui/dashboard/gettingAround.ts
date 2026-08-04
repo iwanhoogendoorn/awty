@@ -45,7 +45,7 @@ export function renderGettingAround(parent: HTMLElement, ctx: DashboardContext):
   // Everything below measures outward from the hotel; this is how you ask about
   // any other pair — airport to the old town, restaurant to the concert.
   if (places && origin) {
-    const btn = head.createEl("button", { cls: "tp-dash-action" });
+    const btn = head.createEl("button", { cls: "awty-dash-action" });
     setIcon(btn.createSpan(), "route");
     btn.createSpan({ text: "Route" });
     btn.addEventListener("click", () => new RouteModal(ctx.app, plugin, trip).open());
@@ -63,7 +63,7 @@ export function renderGettingAround(parent: HTMLElement, ctx: DashboardContext):
     renderNotice(
       parent,
       "No Google API key set.",
-      "Add one under Settings → Travel Planner → Travel times. Geocoding API and Distance Matrix API need enabling on that project.",
+      "Add one under Settings → Are We There Yet? → Travel times. Geocoding API and Distance Matrix API need enabling on that project.",
     );
     return;
   }
@@ -113,8 +113,8 @@ export function renderGettingAround(parent: HTMLElement, ctx: DashboardContext):
     if (legs.size === 0) continue;
     rendered += 1;
 
-    parent.createDiv({ cls: "tp-around-group", text: group.title });
-    const list = parent.createDiv({ cls: "tp-around-list" });
+    parent.createDiv({ cls: "awty-around-group", text: group.title });
+    const list = parent.createDiv({ cls: "awty-around-list" });
 
     // Chronological when everything is dated — that is the order you will do
     // them in. Nearest first otherwise, which is the question a list of
@@ -142,11 +142,11 @@ export function renderGettingAround(parent: HTMLElement, ctx: DashboardContext):
 
 /** Says what is missing and what to do about it, rather than showing nothing. */
 function renderNotice(parent: HTMLElement, title: string, detail: string): void {
-  const box = parent.createDiv({ cls: "tp-around-notice" });
-  setIcon(box.createDiv({ cls: "tp-around-notice-icon" }), "route");
+  const box = parent.createDiv({ cls: "awty-around-notice" });
+  setIcon(box.createDiv({ cls: "awty-around-notice-icon" }), "route");
   const text = box.createDiv();
-  text.createDiv({ cls: "tp-around-notice-title", text: title });
-  text.createDiv({ cls: "tp-around-notice-detail", text: detail });
+  text.createDiv({ cls: "awty-around-notice-title", text: title });
+  text.createDiv({ cls: "awty-around-notice-detail", text: detail });
 }
 
 function shortest(legs: TravelLeg[] | undefined): number {
@@ -161,10 +161,10 @@ function renderRow(
   modes: TravelMode[],
   ctx: DashboardContext,
 ): void {
-  const row = parent.createDiv({ cls: "tp-around-row" });
+  const row = parent.createDiv({ cls: "awty-around-row" });
 
-  const text = row.createDiv({ cls: "tp-around-text" });
-  text.createDiv({ cls: "tp-around-name", text: place.label });
+  const text = row.createDiv({ cls: "awty-around-text" });
+  text.createDiv({ cls: "awty-around-name", text: place.label });
 
   const walking = legs.find((l) => l.mode === "walking");
   const driving = legs.find((l) => l.mode === "driving");
@@ -176,17 +176,17 @@ function renderRow(
     reference ? formatDistance(reference.distanceMeters) : "",
     place.date ? [formatDayLabel(place.date), place.time].filter(Boolean).join(" ") : "",
   ].filter(Boolean);
-  if (meta.length) text.createDiv({ cls: "tp-around-dist", text: meta.join(" · ") });
+  if (meta.length) text.createDiv({ cls: "awty-around-dist", text: meta.join(" · ") });
 
-  const times = row.createDiv({ cls: "tp-around-times" });
+  const times = row.createDiv({ cls: "awty-around-times" });
   for (const mode of modes) {
     const leg = legs.find((l) => l.mode === mode);
     const label = TRAVEL_MODES.find((m) => m.id === mode)?.label ?? mode;
 
     // A mode with no route gets a struck-through chip rather than vanishing:
     // "no bus goes there" and "the plugin forgot" look identical otherwise.
-    const chip = times.createDiv({ cls: `tp-around-chip is-${mode}${leg ? "" : " is-none"}` });
-    setIcon(chip.createSpan({ cls: "tp-around-chip-icon" }), MODE_ICON.get(mode) ?? "route");
+    const chip = times.createDiv({ cls: `awty-around-chip is-${mode}${leg ? "" : " is-none"}` });
+    setIcon(chip.createSpan({ cls: "awty-around-chip-icon" }), MODE_ICON.get(mode) ?? "route");
     chip.createSpan({ text: leg ? formatDuration(leg.durationSeconds) : "none" });
     chip.setAttribute(
       "aria-label",
@@ -221,8 +221,8 @@ function renderFlights(parent: HTMLElement, ctx: DashboardContext): void {
     .filter((b) => b.kind === "flight" && b.status !== "cancelled");
   if (flights.length === 0) return;
 
-  parent.createDiv({ cls: "tp-around-group", text: "Flights" });
-  const list = parent.createDiv({ cls: "tp-around-list" });
+  parent.createDiv({ cls: "awty-around-group", text: "Flights" });
+  const list = parent.createDiv({ cls: "awty-around-list" });
 
   for (const flight of flights) {
     const fm = app.metadataCache.getFileCache(flight.file)?.frontmatter;
@@ -260,10 +260,10 @@ function renderFlights(parent: HTMLElement, ctx: DashboardContext): void {
             : [];
       if (legs.length === 0) continue;
 
-      const row = list.createDiv({ cls: "tp-around-row is-clickable" });
-      const text = row.createDiv({ cls: "tp-around-text" });
+      const row = list.createDiv({ cls: "awty-around-row is-clickable" });
+      const text = row.createDiv({ cls: "awty-around-text" });
       text.createDiv({
-        cls: "tp-around-name",
+        cls: "awty-around-name",
         text: `${direction.label} · ${routeTitle(legs) || flight.title}`,
       });
 
@@ -273,11 +273,11 @@ function renderFlights(parent: HTMLElement, ctx: DashboardContext): void {
         summary.label.split(" · ").pop() ?? "",
         ...summary.layovers,
       ].filter(Boolean);
-      text.createDiv({ cls: "tp-around-dist", text: bits.join(" · ") });
+      text.createDiv({ cls: "awty-around-dist", text: bits.join(" · ") });
 
-      const times = row.createDiv({ cls: "tp-around-times" });
-      const chip = times.createDiv({ cls: "tp-around-chip is-flight" });
-      setIcon(chip.createSpan({ cls: "tp-around-chip-icon" }), "plane");
+      const times = row.createDiv({ cls: "awty-around-times" });
+      const chip = times.createDiv({ cls: "awty-around-chip is-flight" });
+      setIcon(chip.createSpan({ cls: "awty-around-chip-icon" }), "plane");
       chip.createSpan({
         text: summary.totalMinutes === null ? "—" : formatLayover(summary.totalMinutes),
       });

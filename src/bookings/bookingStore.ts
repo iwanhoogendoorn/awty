@@ -9,7 +9,7 @@ import type {
   Money,
 } from "./types";
 import { BOOKING_KINDS } from "./types";
-import type { TravelPlannerSettings, Trip } from "../types";
+import type { AwtySettings, Trip } from "../types";
 import { isValidISODate } from "../util/dates";
 import { parseAmount } from "../util/money";
 
@@ -70,7 +70,7 @@ export class BookingStore {
 
   constructor(
     private app: App,
-    private getSettings: () => TravelPlannerSettings,
+    private getSettings: () => AwtySettings,
   ) {}
 
   invalidate(): void {

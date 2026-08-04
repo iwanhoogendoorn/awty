@@ -1,6 +1,6 @@
 import { App, ButtonComponent, Modal, Notice, Setting, setIcon } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
-import type { SubNoteId, TravelPlannerSettings, Trip, TripDraft, TripKind } from "../../types";
+import type { SubNoteId, AwtySettings, Trip, TripDraft, TripKind } from "../../types";
 import { CREATABLE_SUB_NOTES, KINDS, SUB_NOTE_LABELS, kindDef } from "../../types";
 import { DateRangeField } from "../components/dateRange";
 import { AirportSuggest, CitySuggest, CountrySuggest, countryForCity } from "../components/suggest";
@@ -30,7 +30,7 @@ export class TripModal extends Modal {
 
   constructor(
     app: App,
-    private settings: TravelPlannerSettings,
+    private settings: AwtySettings,
     private mode: TripModalMode,
     initial: Partial<TripDraft>,
     private onSubmit: (draft: TripDraft) => Promise<void>,
@@ -61,7 +61,7 @@ export class TripModal extends Modal {
 
   static forEdit(
     app: App,
-    settings: TravelPlannerSettings,
+    settings: AwtySettings,
     trip: Trip,
     onSubmit: (draft: TripDraft) => Promise<void>,
   ): TripModal {
@@ -92,19 +92,19 @@ export class TripModal extends Modal {
     keepOpenOnBackgroundClick(this);
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass("tp-modal");
-    this.modalEl.addClass("tp-modal-shell");
+    contentEl.addClass("awty-modal");
+    this.modalEl.addClass("awty-modal-shell");
 
     contentEl.createEl("h2", {
       text: this.mode === "create" ? "New trip" : "Edit trip",
-      cls: "tp-modal-title",
+      cls: "awty-modal-title",
     });
 
     this.renderKindPicker(contentEl);
     this.renderPlaceFields(contentEl);
 
-    const dateSection = contentEl.createDiv({ cls: "tp-section" });
-    dateSection.createDiv({ cls: "tp-section-label", text: "Dates" });
+    const dateSection = contentEl.createDiv({ cls: "awty-section" });
+    dateSection.createDiv({ cls: "awty-section-label", text: "Dates" });
     this.dates = new DateRangeField(
       dateSection,
       { startDate: this.draft.startDate, endDate: this.draft.endDate },
@@ -148,15 +148,15 @@ export class TripModal extends Modal {
   }
 
   private renderKindPicker(parent: HTMLElement): void {
-    const section = parent.createDiv({ cls: "tp-section" });
-    section.createDiv({ cls: "tp-section-label", text: "What kind of trip?" });
-    const row = section.createDiv({ cls: "tp-kind-row" });
+    const section = parent.createDiv({ cls: "awty-section" });
+    section.createDiv({ cls: "awty-section-label", text: "What kind of trip?" });
+    const row = section.createDiv({ cls: "awty-kind-row" });
 
     for (const def of KINDS) {
-      const btn = row.createEl("button", { cls: "tp-kind" });
+      const btn = row.createEl("button", { cls: "awty-kind" });
       btn.type = "button";
-      setIcon(btn.createSpan({ cls: "tp-kind-icon" }), def.icon);
-      btn.createSpan({ cls: "tp-kind-label", text: def.label });
+      setIcon(btn.createSpan({ cls: "awty-kind-icon" }), def.icon);
+      btn.createSpan({ cls: "awty-kind-label", text: def.label });
       btn.addEventListener("click", () => this.setKind(def.id));
       this.kindButtons.set(def.id, btn);
     }
@@ -369,9 +369,9 @@ export class TripModal extends Modal {
   }
 
   private renderSubNotePicker(parent: HTMLElement): void {
-    const section = parent.createDiv({ cls: "tp-section" });
-    section.createDiv({ cls: "tp-section-label", text: "Create these notes" });
-    this.subNoteSection = section.createDiv({ cls: "tp-subnote-row" });
+    const section = parent.createDiv({ cls: "awty-section" });
+    section.createDiv({ cls: "awty-section-label", text: "Create these notes" });
+    this.subNoteSection = section.createDiv({ cls: "awty-subnote-row" });
     this.renderSubNoteCheckboxes();
   }
 
@@ -380,7 +380,7 @@ export class TripModal extends Modal {
     this.subNoteSection.empty();
     const ids = CREATABLE_SUB_NOTES;
     for (const id of ids) {
-      const label = this.subNoteSection.createEl("label", { cls: "tp-subnote" });
+      const label = this.subNoteSection.createEl("label", { cls: "awty-subnote" });
       const box = label.createEl("input");
       box.type = "checkbox";
       box.checked = this.draft.subNotes.includes(id);
@@ -425,7 +425,7 @@ export class TripModal extends Modal {
       this.close();
     } catch (err) {
       new Notice(err instanceof Error ? err.message : "Could not save the trip.");
-      console.error("[travel-planner]", err);
+      console.error("[awty]", err);
       // Let them fix whatever went wrong and try again.
       this.submitting = false;
       this.submitBtn

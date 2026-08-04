@@ -1,6 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting, setIcon } from "obsidian";
 import { TRAVEL_MODES } from "../travel/types";
-import type TravelPlannerPlugin from "../main";
+import type AwtyPlugin from "../main";
 import type { SubNoteId, TripKind } from "../types";
 import {
   CREATABLE_SUB_NOTES,
@@ -43,14 +43,14 @@ const NAV_SECTIONS: { id: string; label: string; icon: string }[] = [
  * things that never change. Each panel carries a status chip so its state is
  * legible without opening it.
  */
-export class TravelPlannerSettingTab extends PluginSettingTab {
+export class AwtySettingTab extends PluginSettingTab {
   private active = "trips";
   private navEl!: HTMLElement;
   private bodyEl!: HTMLElement;
 
   constructor(
     app: App,
-    private plugin: TravelPlannerPlugin,
+    private plugin: AwtyPlugin,
   ) {
     super(app, plugin);
   }
@@ -64,25 +64,25 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
     parent: HTMLElement,
     o: { icon: string; title: string; subtitle: string; chip?: { text: string; tone: ChipTone } },
   ): GroupHandle {
-    const box = parent.createDiv({ cls: "tp-sgroup" });
-    const head = box.createDiv({ cls: "tp-sgroup-head" });
-    setIcon(head.createDiv({ cls: "tp-sgroup-icon" }), o.icon);
+    const box = parent.createDiv({ cls: "awty-sgroup" });
+    const head = box.createDiv({ cls: "awty-sgroup-head" });
+    setIcon(head.createDiv({ cls: "awty-sgroup-icon" }), o.icon);
 
-    const titles = head.createDiv({ cls: "tp-sgroup-titles" });
-    titles.createDiv({ cls: "tp-sgroup-title", text: o.title });
-    titles.createDiv({ cls: "tp-sgroup-sub", text: o.subtitle });
+    const titles = head.createDiv({ cls: "awty-sgroup-titles" });
+    titles.createDiv({ cls: "awty-sgroup-title", text: o.title });
+    titles.createDiv({ cls: "awty-sgroup-sub", text: o.subtitle });
 
-    const chip = head.createSpan({ cls: "tp-chip" });
+    const chip = head.createSpan({ cls: "awty-chip" });
     chip.hide();
     const setChip = (text: string, tone: ChipTone): void => {
       chip.show();
       chip.setText(text);
-      chip.removeClass("tp-chip-ok", "tp-chip-warn", "tp-chip-pending");
-      chip.addClass(`tp-chip-${tone}`);
+      chip.removeClass("awty-chip-ok", "awty-chip-warn", "awty-chip-pending");
+      chip.addClass(`awty-chip-${tone}`);
     };
     if (o.chip) setChip(o.chip.text, o.chip.tone);
 
-    return { content: box.createDiv({ cls: "tp-sgroup-body" }), setChip };
+    return { content: box.createDiv({ cls: "awty-sgroup-body" }), setChip };
   }
 
   /** A `?` on a row that reveals the longer explanation only when asked. */
@@ -98,14 +98,14 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
             helpEl = null;
             return;
           }
-          helpEl = createDiv({ cls: "tp-setting-help", text });
+          helpEl = createDiv({ cls: "awty-setting-help", text });
           setting.settingEl.insertAdjacentElement("afterend", helpEl);
         }),
     );
   }
 
   private note(parent: HTMLElement, text: string): void {
-    parent.createDiv({ cls: "tp-setting-note", text });
+    parent.createDiv({ cls: "awty-setting-note", text });
   }
 
   // ------------------------------------------------------------------ shell
@@ -113,19 +113,19 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.addClass("tp-settings");
+    containerEl.addClass("awty-settings");
 
-    this.navEl = containerEl.createDiv({ cls: "tp-settings-nav" });
-    this.bodyEl = containerEl.createDiv({ cls: "tp-settings-body" });
+    this.navEl = containerEl.createDiv({ cls: "awty-settings-nav" });
+    this.bodyEl = containerEl.createDiv({ cls: "awty-settings-body" });
 
     for (const section of NAV_SECTIONS) {
-      const btn = this.navEl.createEl("button", { cls: "tp-settings-nav-item" });
-      setIcon(btn.createSpan({ cls: "tp-settings-nav-icon" }), section.icon);
+      const btn = this.navEl.createEl("button", { cls: "awty-settings-nav-item" });
+      setIcon(btn.createSpan({ cls: "awty-settings-nav-icon" }), section.icon);
       btn.createSpan({ text: section.label });
       btn.toggleClass("is-active", section.id === this.active);
       btn.onclick = () => {
         this.active = section.id;
-        this.navEl.findAll(".tp-settings-nav-item").forEach((el) => el.removeClass("is-active"));
+        this.navEl.findAll(".awty-settings-nav-item").forEach((el) => el.removeClass("is-active"));
         btn.addClass("is-active");
         this.renderBody();
       };
@@ -135,7 +135,7 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
   }
 
   hide(): void {
-    this.containerEl.removeClass("tp-settings");
+    this.containerEl.removeClass("awty-settings");
     super.hide();
   }
 
@@ -350,7 +350,7 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
     });
 
     new Setting(people.content)
-      .then((setting) => setting.settingEl.addClass("tp-setting-stack"))
+      .then((setting) => setting.settingEl.addClass("awty-setting-stack"))
       .setName("Household")
       .setDesc("Comma-separated. A new trip starts with these names.")
       .addText((t) =>
@@ -386,12 +386,12 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
       ["Airports", s.starredAirports, "starredAirports"],
     ] as const) {
       if (list.length === 0) continue;
-      starred.content.createDiv({ cls: "tp-sgroup-label", text: label });
-      const row = starred.content.createDiv({ cls: "tp-pill-row" });
+      starred.content.createDiv({ cls: "awty-sgroup-label", text: label });
+      const row = starred.content.createDiv({ cls: "awty-pill-row" });
       for (const value of list) {
-        const pill = row.createSpan({ cls: "tp-pill" });
+        const pill = row.createSpan({ cls: "awty-pill" });
         pill.createSpan({ text: value });
-        const remove = pill.createSpan({ cls: "tp-pill-x" });
+        const remove = pill.createSpan({ cls: "awty-pill-x" });
         setIcon(remove, "x");
         remove.addEventListener("click", async () => {
           s[key] = list.filter((v) => v !== value);
@@ -441,22 +441,22 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
 
     // A grid, not a row per kind: Obsidian's Setting puts the name in a narrow
     // column, which truncated "Holiday" to "Holi…" and wrapped the boxes.
-    const grid = templates.content.createDiv({ cls: "tp-matrix" });
-    grid.style.setProperty("--tp-matrix-cols", String(CREATABLE_SUB_NOTES.length));
+    const grid = templates.content.createDiv({ cls: "awty-matrix" });
+    grid.style.setProperty("--awty-matrix-cols", String(CREATABLE_SUB_NOTES.length));
 
-    grid.createDiv({ cls: "tp-matrix-corner" });
+    grid.createDiv({ cls: "awty-matrix-corner" });
     for (const id of CREATABLE_SUB_NOTES) {
-      grid.createDiv({ cls: "tp-matrix-col", text: SHORT_LABELS[id] ?? SUB_NOTE_LABELS[id] });
+      grid.createDiv({ cls: "awty-matrix-col", text: SHORT_LABELS[id] ?? SUB_NOTE_LABELS[id] });
     }
-    grid.createDiv({ cls: "tp-matrix-corner" });
+    grid.createDiv({ cls: "awty-matrix-corner" });
 
     for (const def of KINDS) {
-      const name = grid.createDiv({ cls: "tp-matrix-row-head" });
-      setIcon(name.createSpan({ cls: "tp-matrix-row-icon" }), def.icon);
+      const name = grid.createDiv({ cls: "awty-matrix-row-head" });
+      setIcon(name.createSpan({ cls: "awty-matrix-row-icon" }), def.icon);
       name.createSpan({ text: def.label });
 
       for (const id of CREATABLE_SUB_NOTES) {
-        const cell = grid.createDiv({ cls: "tp-matrix-cell" });
+        const cell = grid.createDiv({ cls: "awty-matrix-cell" });
         const box = cell.createEl("input");
         box.type = "checkbox";
         box.checked = (s.subNotesByKind[def.id] ?? []).includes(id);
@@ -471,9 +471,9 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
         });
       }
 
-      const reset = grid.createDiv({ cls: "tp-matrix-cell" });
+      const reset = grid.createDiv({ cls: "awty-matrix-cell" });
       const btn = reset.createEl("button", {
-        cls: "tp-matrix-reset",
+        cls: "awty-matrix-reset",
         attr: { "aria-label": `Reset ${def.label}` },
       });
       setIcon(btn, "rotate-ccw");
@@ -504,13 +504,13 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
       this.note(passports.content, "No passports set — no visa check will run.");
     }
 
-    const list = passports.content.createDiv({ cls: "tp-pill-row" });
+    const list = passports.content.createDiv({ cls: "awty-pill-row" });
     for (const [index, passport] of s.passportCountries.entries()) {
-      const pill = list.createSpan({ cls: "tp-pill" });
-      setIcon(pill.createSpan({ cls: "tp-pill-icon" }), "book-user");
+      const pill = list.createSpan({ cls: "awty-pill" });
+      setIcon(pill.createSpan({ cls: "awty-pill-icon" }), "book-user");
       pill.createSpan({ text: passport });
-      if (index === 0) pill.createSpan({ cls: "tp-pill-tag", text: "default" });
-      const remove = pill.createSpan({ cls: "tp-pill-x" });
+      if (index === 0) pill.createSpan({ cls: "awty-pill-tag", text: "default" });
+      const remove = pill.createSpan({ cls: "awty-pill-x" });
       setIcon(remove, "x");
       remove.addEventListener("click", async () => {
         s.passportCountries = s.passportCountries.filter((p) => p !== passport);
@@ -610,10 +610,10 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
         : { text: "no key", tone: "warn" },
     });
 
-    const row = key.content.createDiv({ cls: "tp-keyrow" });
+    const row = key.content.createDiv({ cls: "awty-keyrow" });
 
     const input = row.createEl("input", {
-      cls: "tp-key-input",
+      cls: "awty-key-input",
       type: "password",
       attr: { placeholder: "AIza…", spellcheck: "false", autocomplete: "off" },
     });
@@ -642,7 +642,7 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
     });
 
     const eye = row.createEl("button", {
-      cls: "tp-key-btn",
+      cls: "awty-key-btn",
       attr: { "aria-label": "Show or hide the key" },
     });
     setIcon(eye, "eye");
@@ -653,7 +653,7 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
     };
 
     const importBtn = row.createEl("button", {
-      cls: "tp-key-btn",
+      cls: "awty-key-btn",
       attr: { "aria-label": "Use the key from Food Spot" },
     });
     setIcon(importBtn, "download");
@@ -688,7 +688,7 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
       }
     };
 
-    const links = key.content.createDiv({ cls: "tp-key-links" });
+    const links = key.content.createDiv({ cls: "awty-key-links" });
     links.createEl("a", {
       text: "Get a key",
       href: "https://console.cloud.google.com/apis/credentials",
@@ -702,8 +702,8 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
       href: "https://console.cloud.google.com/apis/library/distance-matrix-backend.googleapis.com",
     });
 
-    const warn = key.content.createDiv({ cls: "tp-key-warning" });
-    setIcon(warn.createSpan({ cls: "tp-key-warning-icon" }), "alert-triangle");
+    const warn = key.content.createDiv({ cls: "awty-key-warning" });
+    setIcon(warn.createSpan({ cls: "awty-key-warning-icon" }), "alert-triangle");
     warn.createSpan({
       text: "The key is stored in plain text in this vault's plugin data.json. Anyone, or anything, with access to your vault files can read it.",
     });
@@ -715,9 +715,9 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
       chip: { text: `${s.travelModes.length} of 3`, tone: "ok" },
     });
 
-    const modeRow = modes.content.createDiv({ cls: "tp-settings-subnotes" });
+    const modeRow = modes.content.createDiv({ cls: "awty-settings-subnotes" });
     for (const mode of TRAVEL_MODES) {
-      const label = modeRow.createEl("label", { cls: "tp-subnote" });
+      const label = modeRow.createEl("label", { cls: "awty-subnote" });
       const box = label.createEl("input");
       box.type = "checkbox";
       box.checked = s.travelModes.includes(mode.id);
@@ -812,7 +812,7 @@ export class TravelPlannerSettingTab extends PluginSettingTab {
   private renderAbout(body: HTMLElement): void {
     const group = this.group(body, {
       icon: "info",
-      title: `Travel Planner ${this.plugin.manifest.version}`,
+      title: `Are We There Yet? ${this.plugin.manifest.version}`,
       subtitle: "Plan holidays, city breaks, day trips, concerts and events.",
       chip: { text: `loaded ${this.plugin.loadedAt}`, tone: "ok" },
     });

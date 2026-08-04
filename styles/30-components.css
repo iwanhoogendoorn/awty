@@ -2,19 +2,19 @@
 
 /* Exactly six kinds, so the columns are fixed rather than auto-fit: letting the
    browser pack by width gave five across and one stranded on its own row. */
-.tp-kind-row {
+.awty-kind-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.4em;
 }
 
 @media (max-width: 420px) {
-  .tp-kind-row {
+  .awty-kind-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-.tp-kind {
+.awty-kind {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -30,31 +30,31 @@
   box-shadow: none;
 }
 
-.tp-kind:hover {
+.awty-kind:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
-.tp-kind.is-active {
+.awty-kind.is-active {
   border-color: var(--interactive-accent);
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
-.tp-kind.is-active .tp-kind-icon {
+.awty-kind.is-active .awty-kind-icon {
   color: var(--interactive-accent);
 }
 
-.tp-kind-icon {
+.awty-kind-icon {
   display: flex;
 }
 
-.tp-kind-icon .svg-icon {
+.awty-kind-icon .svg-icon {
   width: 1.3em;
   height: 1.3em;
 }
 
-.tp-kind-label {
+.awty-kind-label {
   font-size: var(--font-ui-smaller);
   line-height: 1.15;
   text-align: center;
@@ -66,54 +66,54 @@
 
 /* ------------------------------------------------------------ date range */
 
-.tp-daterange {
+.awty-daterange {
   display: flex;
   flex-direction: column;
   gap: 0.5em;
 }
 
-.tp-date-row {
+.awty-date-row {
   display: flex;
   align-items: center;
   gap: 0.6em;
 }
 
-.tp-date-label {
+.awty-date-label {
   width: 3.4em;
   flex: none;
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
 }
 
-.tp-date-input {
+.awty-date-input {
   flex: 1;
   font-family: inherit;
 }
 
 /* The native calendar button is nearly invisible on dark themes otherwise. */
-.theme-dark .tp-date-input::-webkit-calendar-picker-indicator {
+.theme-dark .awty-date-input::-webkit-calendar-picker-indicator {
   filter: invert(1) opacity(0.6);
 }
 
-.theme-dark .tp-date-input::-webkit-calendar-picker-indicator:hover {
+.theme-dark .awty-date-input::-webkit-calendar-picker-indicator:hover {
   filter: invert(1) opacity(1);
 }
 
-.tp-chip-row {
+.awty-chip-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.3em;
 }
 
-.tp-chip-label {
+.awty-chip-label {
   width: 3.4em;
   flex: none;
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
 }
 
-.tp-chip {
+.awty-chip {
   padding: 0.15em 0.55em;
   border: 1px solid var(--background-modifier-border);
   border-radius: 999px;
@@ -124,18 +124,18 @@
   box-shadow: none;
 }
 
-.tp-chip:hover {
+.awty-chip:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
-.tp-chip.is-active {
+.awty-chip.is-active {
   background: var(--interactive-accent);
   border-color: var(--interactive-accent);
   color: var(--text-on-accent);
 }
 
-.tp-date-readout {
+.awty-date-readout {
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);
   padding-left: 4em;
@@ -144,14 +144,14 @@
 
 /* -------------------------------------------------------- sub-note picker */
 
-.tp-subnote-row,
-.tp-settings-subnotes {
+.awty-subnote-row,
+.awty-settings-subnotes {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3em 0.9em;
 }
 
-.tp-subnote {
+.awty-subnote {
   display: flex;
   align-items: center;
   gap: 0.35em;
@@ -159,13 +159,13 @@
   cursor: pointer;
 }
 
-.tp-subnote input {
+.awty-subnote input {
   margin: 0;
 }
 
 /* Checkbox groups read left to right like the text above them; right-aligning
    them made the last item hang alone on a second line. */
-.tp-settings-subnotes {
+.awty-settings-subnotes {
   justify-content: flex-start;
   width: 100%;
 }
@@ -173,11 +173,11 @@
 /* A Setting whose control is a group, not a single field: name and description
    on top, the group full-width beneath, rather than squeezed into the narrow
    right-hand column. */
-.setting-item.tp-setting-stack {
+.setting-item.awty-setting-stack {
   display: block;
 }
 
-.setting-item.tp-setting-stack .setting-item-control {
+.setting-item.awty-setting-stack .setting-item-control {
   justify-content: flex-start;
   width: 100%;
   margin-top: 8px;

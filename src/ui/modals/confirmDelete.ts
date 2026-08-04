@@ -23,14 +23,14 @@ export class ConfirmDeleteModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass("tp-modal");
+    contentEl.addClass("awty-modal");
 
-    contentEl.createEl("h2", { text: "Delete this trip?", cls: "tp-modal-title" });
+    contentEl.createEl("h2", { text: "Delete this trip?", cls: "awty-modal-title" });
 
-    const summary = contentEl.createDiv({ cls: "tp-delete-summary" });
-    summary.createDiv({ cls: "tp-delete-name", text: this.trip.title });
+    const summary = contentEl.createDiv({ cls: "awty-delete-summary" });
+    summary.createDiv({ cls: "awty-delete-name", text: this.trip.title });
     summary.createDiv({
-      cls: "tp-delete-meta",
+      cls: "awty-delete-meta",
       text: formatDateRange(this.trip.startDate, this.trip.endDate),
     });
 
@@ -39,20 +39,20 @@ export class ConfirmDeleteModal extends Modal {
     const wholeFolder = targets.length === 1 && targets[0].path === this.trip.folderPath;
 
     contentEl.createEl("p", {
-      cls: "tp-delete-scope",
+      cls: "awty-delete-scope",
       text: wholeFolder
         ? `The whole folder "${this.trip.folderPath}" will be removed — ${files.length} file${files.length === 1 ? "" : "s"}:`
         : `Another trip shares this folder, so only the trip note will be removed:`,
     });
 
-    const list = contentEl.createEl("ul", { cls: "tp-delete-list" });
+    const list = contentEl.createEl("ul", { cls: "awty-delete-list" });
     for (const path of files.slice(0, 25)) list.createEl("li", { text: path });
     if (files.length > 25) {
-      list.createEl("li", { cls: "tp-delete-more", text: `…and ${files.length - 25} more` });
+      list.createEl("li", { cls: "awty-delete-more", text: `…and ${files.length - 25} more` });
     }
 
     contentEl.createEl("p", {
-      cls: "tp-delete-note",
+      cls: "awty-delete-note",
       text: "Files follow your vault's “Deleted files” setting — normally the trash, where you can still get them back.",
     });
 

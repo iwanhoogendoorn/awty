@@ -1,7 +1,7 @@
 import { App, TFile, TFolder, normalizePath } from "obsidian";
 import type { BookingKind, BookingStatus, CostCategory } from "./types";
 import { BOOKING_KINDS } from "./types";
-import type { TravelPlannerSettings, Trip } from "../types";
+import type { AwtySettings, Trip } from "../types";
 import { joinPath, sanitizeName } from "../util/paths";
 import { airportFromLabel } from "../ui/components/suggest";
 import { legsToFrontmatter, layoverMinutes, formatLayover, type FlightLeg } from "./legs";
@@ -73,11 +73,11 @@ function uniquePath(app: App, folder: string, base: string, ext = ".md"): string
   return candidate;
 }
 
-export function bookingsFolderFor(settings: TravelPlannerSettings, trip: Trip): string {
+export function bookingsFolderFor(settings: AwtySettings, trip: Trip): string {
   return joinPath(trip.folderPath, settings.bookingsFolder);
 }
 
-export function attachmentsFolderFor(settings: TravelPlannerSettings, trip: Trip): string {
+export function attachmentsFolderFor(settings: AwtySettings, trip: Trip): string {
   return joinPath(trip.folderPath, settings.attachmentsFolder);
 }
 
@@ -88,7 +88,7 @@ export function attachmentsFolderFor(settings: TravelPlannerSettings, trip: Trip
  */
 export async function importAttachments(
   app: App,
-  settings: TravelPlannerSettings,
+  settings: AwtySettings,
   trip: Trip,
   files: File[],
 ): Promise<string[]> {
@@ -112,7 +112,7 @@ export async function importAttachments(
 /** How many attachments already start with this name, so numbering continues. */
 export function countAttachmentsNamed(
   app: App,
-  settings: TravelPlannerSettings,
+  settings: AwtySettings,
   trip: Trip,
   baseName: string,
 ): number {
@@ -330,7 +330,7 @@ export async function draftFromBooking(
 
 export async function createBooking(
   app: App,
-  settings: TravelPlannerSettings,
+  settings: AwtySettings,
   trip: Trip,
   draft: BookingDraft,
 ): Promise<TFile> {
@@ -355,7 +355,7 @@ export async function createBooking(
 
 export async function createExpense(
   app: App,
-  settings: TravelPlannerSettings,
+  settings: AwtySettings,
   trip: Trip,
   draft: ExpenseDraft,
 ): Promise<TFile> {

@@ -1,0 +1,3486 @@
+/* === 10-base.css === */
+/* Everything is expressed in Obsidian's own CSS variables so the plugin follows
+   whatever theme is active instead of fighting it. */
+
+/* A form this shape reads badly stretched across a wide window; cap it and let
+   Obsidian's own modal-content handle the scrolling. */
+.awty-modal-shell {
+  width: min(640px, 92vw);
+}
+
+.awty-modal .awty-modal-title {
+  margin: 0 0 1em;
+  font-size: var(--font-ui-larger);
+}
+
+.awty-section {
+  margin: 0 0 1.1em;
+}
+
+.awty-section-label {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.5em;
+}
+
+.is-hidden {
+  display: none !important;
+}
+
+.awty-suggest-hint {
+  margin-left: 0.6em;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+
+/* === 20-sidebar.css === */
+.awty-sidebar {
+  padding: 0.6em 0.5em 2em;
+}
+
+/* ------------------------------------------------------------------ header */
+
+.awty-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  margin-bottom: 0.9em;
+}
+
+.awty-new-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  width: 100%;
+  padding: 0.5em;
+  border-radius: var(--radius-s);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+}
+
+.awty-new-btn:hover {
+  background: var(--interactive-accent-hover);
+}
+
+.awty-new-icon {
+  display: flex;
+}
+
+.awty-new-icon .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.awty-search {
+  width: 100%;
+}
+
+/* ------------------------------------------------------------------ groups */
+
+.awty-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin: 1.1em 0 0.4em;
+  padding: 0 0.2em;
+}
+
+.awty-group-title {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.awty-group-count {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  background: var(--background-modifier-hover);
+  border-radius: 999px;
+  padding: 0 0.5em;
+}
+
+.awty-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+}
+
+/* ------------------------------------------------------------------- trips */
+
+.awty-trip {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6em;
+  padding: 0.55em 0.5em;
+  border-radius: var(--radius-s);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  position: relative;
+}
+
+.awty-trip:hover {
+  background: var(--background-modifier-hover);
+}
+
+.awty-trip.is-current {
+  border-left-color: var(--color-green);
+}
+
+.awty-trip.is-upcoming {
+  border-left-color: var(--color-blue);
+}
+
+.awty-trip.is-past {
+  border-left-color: var(--background-modifier-border);
+}
+
+.awty-trip.is-past .awty-trip-title,
+.awty-trip.is-past .awty-trip-icon {
+  color: var(--text-muted);
+}
+
+.awty-trip-icon {
+  display: flex;
+  padding-top: 0.15em;
+  color: var(--text-accent);
+}
+
+.awty-trip-icon .svg-icon {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+.awty-trip-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-trip-title {
+  font-weight: var(--font-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.awty-trip-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15em 0.5em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-trip-where {
+  color: var(--text-faint);
+}
+
+.awty-badge {
+  display: inline-block;
+  margin-top: 0.3em;
+  padding: 0.05em 0.5em;
+  border-radius: 999px;
+  font-size: var(--font-ui-smaller);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+
+.awty-badge.is-current {
+  background: var(--color-green);
+  color: var(--text-on-accent);
+}
+
+/* Actions stay out of the way until the row is hovered or focused. */
+
+.awty-trip-actions {
+  opacity: 0;
+  transition: opacity 80ms ease-in-out;
+}
+
+.awty-trip:hover .awty-trip-actions,
+.awty-trip:focus-within .awty-trip-actions {
+  opacity: 1;
+}
+
+.awty-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2em;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.awty-icon-btn:hover {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.awty-icon-btn .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+/* ------------------------------------------------------------------- empty */
+
+.awty-empty {
+  text-align: center;
+  padding: 2.5em 1em;
+  color: var(--text-muted);
+}
+
+.awty-empty-icon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.6em;
+  color: var(--text-faint);
+}
+
+.awty-empty-icon .svg-icon {
+  width: 2em;
+  height: 2em;
+}
+
+.awty-empty-title {
+  font-weight: var(--font-medium);
+  color: var(--text-normal);
+}
+
+.awty-empty-detail {
+  font-size: var(--font-ui-smaller);
+  margin-top: 0.2em;
+}
+
+
+/* === 25-subnotes.css === */
+/* Expandable trip rows: the sub-notes are reachable straight from the sidebar
+   rather than only via links inside the trip note. */
+
+.awty-trip-wrap {
+  border-radius: var(--radius-s);
+  border-left: 3px solid transparent;
+}
+
+.awty-trip-wrap.is-current {
+  border-left-color: var(--color-green);
+}
+
+.awty-trip-wrap.is-upcoming {
+  border-left-color: var(--color-blue);
+}
+
+.awty-trip-wrap.is-past {
+  border-left-color: var(--background-modifier-border);
+}
+
+/* The border now lives on the wrapper. */
+.awty-trip-wrap .awty-trip {
+  border-left: none;
+}
+
+.awty-twisty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 0.2em;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: transform 100ms ease-in-out;
+  flex: none;
+}
+
+.awty-twisty:hover {
+  color: var(--text-normal);
+}
+
+.awty-twisty.is-open {
+  transform: rotate(90deg);
+}
+
+.awty-twisty .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+/* ------------------------------------------------------------ roll-up bar */
+
+.awty-trip-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35em;
+  margin-top: 0.3em;
+}
+
+.awty-progress-pill {
+  padding: 0.05em 0.5em;
+  border-radius: 999px;
+  font-size: var(--font-ui-smaller);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+
+.awty-progress-pill.is-complete {
+  color: var(--color-green);
+}
+
+.awty-progress-track {
+  margin-top: 0.35em;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+
+.awty-progress-fill {
+  height: 100%;
+  background: var(--color-blue);
+  border-radius: 999px;
+  transition: width 150ms ease-in-out;
+}
+
+/* ------------------------------------------------------------- sub-notes */
+
+.awty-subnotes {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0.1em 0 0.4em 1.5em;
+}
+
+.awty-subnote-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.3em 0.5em;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.awty-subnote-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* The status dot: hollow means nothing has been written in there yet. */
+
+.awty-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-faint);
+  background: transparent;
+}
+
+.awty-subnote-row.is-started .awty-dot {
+  border-color: var(--color-orange);
+  background: var(--color-orange);
+}
+
+.awty-subnote-row.is-complete .awty-dot {
+  border-color: var(--color-green);
+  background: var(--color-green);
+}
+
+.awty-subnote-icon {
+  display: flex;
+  color: var(--text-muted);
+  flex: none;
+}
+
+.awty-subnote-icon .svg-icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+.awty-subnote-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-subnote-name {
+  font-size: var(--font-ui-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.awty-subnote-row.is-empty .awty-subnote-name {
+  color: var(--text-muted);
+}
+
+.awty-subnote-detail {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.awty-mini-track {
+  width: 34px;
+  height: 3px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+
+.awty-mini-fill {
+  height: 100%;
+  background: var(--color-green);
+  border-radius: 999px;
+}
+
+.awty-subnote-empty {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  padding: 0.3em 0.5em;
+}
+
+
+/* === 30-components.css === */
+/* --------------------------------------------------------- kind selector */
+
+/* Exactly six kinds, so the columns are fixed rather than auto-fit: letting the
+   browser pack by width gave five across and one stranded on its own row. */
+.awty-kind-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4em;
+}
+
+@media (max-width: 420px) {
+  .awty-kind-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.awty-kind {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35em;
+  min-height: 4.4em;
+  padding: 0.7em 0.5em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.awty-kind:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.awty-kind.is-active {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.awty-kind.is-active .awty-kind-icon {
+  color: var(--interactive-accent);
+}
+
+.awty-kind-icon {
+  display: flex;
+}
+
+.awty-kind-icon .svg-icon {
+  width: 1.3em;
+  height: 1.3em;
+}
+
+.awty-kind-label {
+  font-size: var(--font-ui-smaller);
+  line-height: 1.15;
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ date range */
+
+.awty-daterange {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+
+.awty-date-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+}
+
+.awty-date-label {
+  width: 3.4em;
+  flex: none;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-date-input {
+  flex: 1;
+  font-family: inherit;
+}
+
+/* The native calendar button is nearly invisible on dark themes otherwise. */
+.theme-dark .awty-date-input::-webkit-calendar-picker-indicator {
+  filter: invert(1) opacity(0.6);
+}
+
+.theme-dark .awty-date-input::-webkit-calendar-picker-indicator:hover {
+  filter: invert(1) opacity(1);
+}
+
+.awty-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3em;
+}
+
+.awty-chip-label {
+  width: 3.4em;
+  flex: none;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-chip {
+  padding: 0.15em 0.55em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.awty-chip:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.awty-chip.is-active {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.awty-date-readout {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  padding-left: 4em;
+  min-height: 1.2em;
+}
+
+/* -------------------------------------------------------- sub-note picker */
+
+.awty-subnote-row,
+.awty-settings-subnotes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em 0.9em;
+}
+
+.awty-subnote {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.awty-subnote input {
+  margin: 0;
+}
+
+/* Checkbox groups read left to right like the text above them; right-aligning
+   them made the last item hang alone on a second line. */
+.awty-settings-subnotes {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+/* A Setting whose control is a group, not a single field: name and description
+   on top, the group full-width beneath, rather than squeezed into the narrow
+   right-hand column. */
+.setting-item.awty-setting-stack {
+  display: block;
+}
+
+.setting-item.awty-setting-stack .setting-item-control {
+  justify-content: flex-start;
+  width: 100%;
+  margin-top: 8px;
+  padding-left: 0;
+}
+
+
+/* === 40-modals.css === */
+.awty-modal .setting-item {
+  border-top: none;
+  padding: 0.4em 0;
+}
+
+/* ------------------------------------------------------- delete confirm */
+
+.awty-delete-summary {
+  padding: 0.7em 0.9em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  margin-bottom: 0.9em;
+}
+
+.awty-delete-name {
+  font-weight: var(--font-semibold);
+}
+
+.awty-delete-meta {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-delete-scope {
+  margin: 0 0 0.5em;
+  color: var(--text-normal);
+}
+
+.awty-delete-list {
+  margin: 0 0 0.9em;
+  padding-left: 1.2em;
+  max-height: 11em;
+  overflow-y: auto;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+}
+
+.awty-delete-more {
+  font-style: italic;
+  font-family: var(--font-interface);
+}
+
+.awty-delete-note {
+  margin: 0 0 0.4em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+
+/* === 45-wizard.css === */
+/* ------------------------------------------------------------ wizard */
+
+.awty-wizard-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  margin-bottom: 0.9em;
+}
+
+.awty-wizard-icon {
+  display: flex;
+  color: var(--text-accent);
+}
+
+.awty-wizard-icon .svg-icon {
+  width: 1.6em;
+  height: 1.6em;
+}
+
+.awty-wizard-head .awty-modal-title {
+  margin: 0;
+}
+
+.awty-wizard-sub {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-wizard-steps {
+  display: flex;
+  gap: 0.3em;
+  margin-bottom: 1em;
+  flex-wrap: wrap;
+}
+
+.awty-wizard-step {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.25em 0.6em;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.awty-wizard-step:hover {
+  color: var(--text-normal);
+}
+
+.awty-wizard-step.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.awty-wizard-step.is-done .awty-wizard-step-num {
+  color: var(--color-green);
+}
+
+.awty-wizard-step-num {
+  font-weight: var(--font-semibold);
+}
+
+.awty-wizard-body {
+  min-height: 12em;
+}
+
+.awty-wizard-nav {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 0.8em;
+}
+
+.awty-wizard-summary {
+  margin-top: 1em;
+  padding: 0.8em 1em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.awty-wizard-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  padding: 0.15em 0;
+  font-size: var(--font-ui-small);
+}
+
+.awty-wizard-summary-label {
+  color: var(--text-muted);
+}
+
+.awty-wizard-summary-value {
+  text-align: right;
+}
+
+.awty-cost-preview {
+  margin-top: 0.6em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-time-input {
+  width: 7em;
+  flex: none;
+  font-family: inherit;
+}
+
+.theme-dark .awty-time-input::-webkit-calendar-picker-indicator {
+  filter: invert(1) opacity(0.6);
+}
+
+/* -------------------------------------------------------- attachments */
+
+/* ---------------------------------------------------- master plan wizard */
+
+.awty-plan-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  margin: 0.4em 0 0.6em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-plan-note {
+  margin-bottom: 0.9em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.awty-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+
+.awty-plan-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.5em 0.7em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.awty-plan-row.is-done {
+  opacity: 0.75;
+}
+
+.awty-plan-icon {
+  display: flex;
+  color: var(--text-accent);
+  flex: none;
+}
+
+.awty-plan-icon .svg-icon {
+  width: 1.05em;
+  height: 1.05em;
+}
+
+.awty-plan-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-plan-title {
+  font-weight: var(--font-medium);
+}
+
+.awty-plan-summary {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.awty-plan-btn {
+  flex: none;
+  padding: 0.25em 0.7em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.awty-plan-btn.is-cta {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.awty-plan-btn:hover {
+  border-color: var(--interactive-accent);
+}
+
+/* ------------------------------------------------------ airline starring */
+
+.awty-star-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3em;
+  margin-left: 0.3em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-faint);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.awty-star-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+.awty-star-btn.is-starred {
+  color: var(--color-yellow);
+}
+
+.awty-star-btn.is-starred .svg-icon {
+  fill: var(--color-yellow);
+}
+
+.awty-star-btn.is-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.awty-suggest-code {
+  display: inline-block;
+  min-width: 2.6em;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-accent);
+}
+
+.awty-suggest-star {
+  display: inline-flex;
+  margin-right: 0.4em;
+  color: var(--color-yellow);
+}
+
+.awty-suggest-star .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+  fill: var(--color-yellow);
+}
+
+.awty-dash-quick-btn.is-cta {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.awty-attach {
+  margin: 0.6em 0;
+}
+
+.awty-attach-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2em;
+  padding: 1.1em;
+  border: 1.5px dashed var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: center;
+}
+
+.awty-attach-drop:hover,
+.awty-attach-drop.is-over {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.awty-attach-icon .svg-icon {
+  width: 1.3em;
+  height: 1.3em;
+}
+
+.awty-attach-label {
+  font-weight: var(--font-medium);
+}
+
+.awty-attach-hint {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.awty-attach-input {
+  display: none;
+}
+
+.awty-attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 0.5em;
+}
+
+.awty-attach-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.3em 0.55em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  font-size: var(--font-ui-smaller);
+}
+
+.awty-attach-chip-icon {
+  display: flex;
+  color: var(--text-accent);
+}
+
+.awty-attach-chip-icon .svg-icon,
+.awty-attach-chip-remove .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+.awty-attach-chip-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.awty-attach-chip-size {
+  color: var(--text-faint);
+}
+
+.awty-attach-chip-remove {
+  display: flex;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.awty-attach-chip-remove:hover {
+  color: var(--color-red);
+}
+
+/* ------------------------------------------------------------ flight legs */
+
+.awty-legs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+
+.awty-leg-box {
+  padding: 0.6em 0.7em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.awty-leg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4em;
+}
+
+.awty-leg-num {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.awty-leg-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4em;
+}
+
+@media (max-width: 560px) {
+  .awty-leg-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.awty-leg-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  min-width: 0;
+}
+
+.awty-leg-label {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.awty-leg-input {
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+}
+
+.theme-dark .awty-leg-input::-webkit-calendar-picker-indicator {
+  filter: invert(1) opacity(0.6);
+}
+
+.awty-leg-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35em;
+  padding: 0.4em;
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.awty-leg-add:hover {
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.awty-leg-add .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+/* The layover is the number you actually worry about when booking. */
+
+.awty-layover {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.25em 0.7em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-layover-icon {
+  display: flex;
+}
+
+.awty-layover-icon .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+.awty-layover.is-tight {
+  color: var(--color-orange);
+}
+
+.awty-layover-warn {
+  padding: 0 0.45em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-orange) 20%, transparent);
+  color: var(--color-orange);
+}
+
+/* ------------------------------------------------------------ day planner */
+
+.awty-slot {
+  margin-bottom: 1.1em;
+}
+
+.awty-slot-activity {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.25em 0.4em;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.awty-slot-activity:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* Already on another day: offered, but visibly spoken for. */
+.awty-slot-activity.is-elsewhere .awty-slot-activity-name {
+  color: var(--text-muted);
+}
+
+.awty-slot-activity input {
+  margin: 0;
+}
+
+.awty-slot-activity-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.awty-slot-activity-meta {
+  flex: none;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.awty-slot-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  margin: 0.2em 0 0.35em 0.4em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-accent);
+  cursor: pointer;
+}
+
+.awty-slot-add:hover {
+  text-decoration: underline;
+}
+
+.awty-slot-add .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+.awty-slot-notes {
+  width: 100%;
+  font-family: inherit;
+  resize: vertical;
+}
+
+/* ------------------------------------------------------------- lightbox */
+
+.awty-lightbox-shell {
+  width: min(1100px, 94vw);
+  height: min(820px, 88vh);
+}
+
+.awty-lightbox {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  position: relative;
+}
+
+.awty-lightbox-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+  padding-bottom: 0.6em;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.awty-lightbox-caption {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.awty-lightbox-controls {
+  display: flex;
+  gap: 0.2em;
+  flex: none;
+}
+
+.awty-lightbox-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  margin-top: 0.6em;
+}
+
+.awty-lightbox-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transform-origin: center center;
+  transition: transform 60ms linear;
+  cursor: zoom-in;
+}
+
+.awty-lightbox-img.is-zoomed {
+  cursor: grab;
+}
+
+.awty-lightbox-img.is-zoomed:active {
+  cursor: grabbing;
+}
+
+.awty-lightbox-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: var(--radius-s);
+}
+
+.awty-lightbox-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5em;
+  color: var(--text-muted);
+}
+
+.awty-lightbox-fallback .svg-icon {
+  width: 2.4em;
+  height: 2.4em;
+}
+
+.awty-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2em;
+  height: 2em;
+  border-radius: 50%;
+  border: none;
+  background: var(--background-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.awty-lightbox-nav:hover {
+  opacity: 1;
+  color: var(--text-normal);
+}
+
+.awty-lightbox-nav.is-prev {
+  left: 0.2em;
+}
+
+.awty-lightbox-nav.is-next {
+  right: 0.2em;
+}
+
+/* -------------------------------------------------- confirmation intake */
+
+.awty-confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  margin-bottom: 0.7em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-confirm-row-icon {
+  display: flex;
+}
+
+.awty-confirm-row-icon .svg-icon {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+.awty-confirm-row-icon.is-done {
+  color: var(--color-green);
+}
+
+.awty-confirm-row-done {
+  color: var(--color-green);
+}
+
+.awty-confirm-link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-accent);
+  font-size: inherit;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.awty-confirm-link:hover {
+  text-decoration: underline;
+}
+
+.awty-leg-lookup {
+  position: absolute;
+  right: 0.25em;
+  bottom: 0.25em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15em;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.awty-leg-lookup:hover {
+  color: var(--text-accent);
+}
+
+.awty-leg-lookup .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+.awty-leg-cell {
+  position: relative;
+}
+
+/* --------------------------------------------------------- fare offers */
+
+.awty-offer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.awty-offer {
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+  padding: 0.6em 0.8em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.awty-offer-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-offer-route {
+  font-size: var(--font-ui-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.awty-offer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15em 0.7em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-offer-right {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  flex: none;
+}
+
+.awty-offer-price {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* No key configured: still visible, but visibly not wired up yet. */
+.awty-leg-lookup.is-unset {
+  opacity: 0.45;
+}
+
+.awty-leg-lookup.is-busy {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Autosave status, so "no save button" does not read as "nothing happened". */
+.awty-autosave {
+  margin: 0.4em 0 0.2em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  text-align: right;
+}
+
+
+/* === 50-dashboard.css === */
+.awty-dashboard {
+  padding: 0;
+  overflow-y: auto;
+}
+
+/* ------------------------------------------------------------- header */
+
+.awty-dash-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--background-primary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding: 0.8em 1.2em 0;
+}
+
+.awty-dash-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6em;
+  margin-bottom: 0.7em;
+}
+
+.awty-dash-select {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-medium);
+  max-width: 22em;
+}
+
+.awty-dash-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em;
+  margin-left: auto;
+}
+
+.awty-dash-quick-btn,
+.awty-dash-add,
+.awty-dash-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.3em 0.7em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.awty-dash-quick-btn:hover,
+.awty-dash-add:hover,
+.awty-dash-action:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+.awty-dash-quick-btn .svg-icon,
+.awty-dash-add .svg-icon,
+.awty-dash-action .svg-icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+.awty-dash-tripmenu {
+  flex: none;
+  padding: 0.35em;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.awty-card-menu {
+  position: absolute;
+  bottom: 0.6em;
+  right: 0.6em;
+  opacity: 0;
+}
+
+.awty-card:hover .awty-card-menu,
+.awty-card:focus-within .awty-card-menu {
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------- trip notes */
+
+.awty-note-grid {
+  display: grid;
+  /* Wide enough for a primary button, an Edit and an Open on one line. */
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.5em;
+}
+
+.awty-note-cell {
+  padding: 0.6em 0.75em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  cursor: pointer;
+  /* A grid column will not grow past 1fr, so anything wider than the cell
+     spills over the card beside it instead of being contained. */
+  min-width: 0;
+  overflow: hidden;
+}
+
+.awty-note-cell:hover {
+  background: var(--background-modifier-hover);
+}
+
+.awty-note-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+}
+
+.awty-note-cell.is-started .awty-dot {
+  border-color: var(--color-orange);
+  background: var(--color-orange);
+}
+
+.awty-note-cell.is-complete .awty-dot {
+  border-color: var(--color-green);
+  background: var(--color-green);
+}
+
+.awty-note-name {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.awty-note-cell.is-empty .awty-note-name {
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+/* Tick / dash / cross — is this note's wizard done? */
+
+.awty-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 50%;
+  color: var(--text-on-accent);
+  background: var(--text-faint);
+}
+
+.awty-mark.is-small {
+  width: 13px;
+  height: 13px;
+}
+
+.awty-mark .svg-icon {
+  width: 10px;
+  height: 10px;
+  stroke-width: 3.5;
+}
+
+.awty-mark.is-small .svg-icon {
+  width: 8px;
+  height: 8px;
+}
+
+/* Nothing yet: an empty ring. Red discs on every untouched note made a new
+   trip look like a list of failures rather than a list of things to do. */
+.awty-note-cell.is-empty .awty-mark,
+.awty-mark.is-empty {
+  background: transparent;
+  border: 2px solid var(--background-modifier-border);
+}
+
+/* Under way: the same ring, part filled. */
+.awty-note-cell.is-started .awty-mark,
+.awty-mark.is-started {
+  position: relative;
+  background: transparent;
+  border: 2px solid var(--color-orange);
+}
+
+.awty-note-cell.is-started .awty-mark::after,
+.awty-mark.is-started::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--color-orange);
+  clip-path: inset(50% 0 0 0);
+}
+
+.awty-mark.is-small.is-empty,
+.awty-mark.is-small.is-started {
+  border-width: 1.5px;
+}
+
+.awty-note-cell.is-complete .awty-mark,
+.awty-mark.is-complete {
+  background: var(--color-green);
+}
+
+.awty-card-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 0.55em;
+}
+
+.awty-note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+  margin-top: 0.5em;
+}
+
+.awty-note-btn {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  gap: 0.25em;
+  padding: 0.2em 0.55em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.awty-note-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+.awty-note-btn.is-cta {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.awty-note-btn .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+/* -------------------------------------------------------- packing modal */
+
+.awty-packing-summary {
+  margin: 0.5em 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-packing-list {
+  max-height: 45vh;
+  overflow-y: auto;
+  padding-right: 0.3em;
+}
+
+.awty-packing-section {
+  margin: 0.8em 0 0.3em;
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.awty-packing-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.2em 0.3em;
+  border-radius: var(--radius-s);
+}
+
+.awty-packing-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.awty-packing-row.is-excluded {
+  opacity: 0.45;
+}
+
+.awty-packing-label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-small);
+}
+
+.awty-packing-qty {
+  width: 4.5em;
+  flex: none;
+  text-align: right;
+}
+
+.awty-packing-packed {
+  font-size: var(--font-ui-smaller);
+  color: var(--color-green);
+}
+
+.awty-note-detail {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  margin: 0.15em 0 0.35em;
+}
+
+.awty-dash-tabs {
+  display: flex;
+  gap: 0.15em;
+  overflow-x: auto;
+}
+
+.awty-dash-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.5em 0.8em;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: var(--font-ui-small);
+}
+
+.awty-dash-tab:hover {
+  color: var(--text-normal);
+}
+
+.awty-dash-tab.is-active {
+  color: var(--text-normal);
+  border-bottom-color: var(--interactive-accent);
+  font-weight: var(--font-medium);
+}
+
+.awty-dash-tab-icon .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.awty-dash-content {
+  padding: 1.2em 1.2em 4em;
+  max-width: 1100px;
+  /* Without this the column is pinned to the left edge, so anything centred
+     inside it — the empty states in particular — reads as off-centre. */
+  margin-inline: auto;
+}
+
+.awty-dash-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  margin-bottom: 1.2em;
+}
+
+.awty-dash-hint {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+/* --------------------------------------------------------------- hero */
+
+.awty-hero {
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  padding: 1.1em 1.3em;
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  border-left: 4px solid var(--background-modifier-border);
+  margin-bottom: 1.2em;
+}
+
+.awty-hero.is-current {
+  border-left-color: var(--color-green);
+}
+
+.awty-hero.is-upcoming {
+  border-left-color: var(--color-blue);
+}
+
+.awty-hero-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-hero-title {
+  font-size: var(--font-ui-larger);
+  font-weight: var(--font-semibold);
+}
+
+.awty-hero-sub {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  margin-top: 0.15em;
+}
+
+.awty-hero-countdown {
+  text-align: center;
+  flex: none;
+  min-width: 5em;
+}
+
+.awty-hero-big {
+  font-size: 2.1em;
+  line-height: 1;
+  font-weight: var(--font-bold);
+  color: var(--text-accent);
+}
+
+.awty-hero-small {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+/* -------------------------------------------------------------- stats */
+
+.awty-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6em;
+  margin-bottom: 1.4em;
+}
+
+.awty-stat {
+  position: relative;
+  padding: 0.85em 1em;
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  border: 1px solid transparent;
+}
+
+.awty-stat.is-good {
+  border-color: color-mix(in srgb, var(--color-green) 40%, transparent);
+}
+
+.awty-stat.is-warn {
+  border-color: color-mix(in srgb, var(--color-orange) 40%, transparent);
+}
+
+.awty-stat.is-bad {
+  border-color: color-mix(in srgb, var(--color-red) 45%, transparent);
+}
+
+.awty-stat-icon {
+  position: absolute;
+  top: 0.7em;
+  right: 0.8em;
+  color: var(--text-faint);
+}
+
+.awty-stat-icon .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.awty-stat-value {
+  font-size: var(--font-ui-larger);
+  font-weight: var(--font-semibold);
+}
+
+.awty-stat-label {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.awty-stat-detail {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  margin-top: 0.2em;
+}
+
+/* ------------------------------------------------------------ sections */
+
+.awty-dash-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6em;
+  margin: 1.4em 0 0.6em;
+}
+
+.awty-dash-section-title {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------- bars */
+
+.awty-bar-track {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+
+.awty-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-blue);
+  transition: width 150ms ease-in-out;
+}
+
+.awty-bar-fill.is-good {
+  background: var(--color-green);
+}
+
+.awty-bar-fill.is-warn {
+  background: var(--color-orange);
+}
+
+.awty-bar-fill.is-bad {
+  background: var(--color-red);
+}
+
+.awty-budget-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7em;
+}
+
+.awty-budget-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6em;
+  margin-bottom: 0.25em;
+  font-size: var(--font-ui-small);
+}
+
+.awty-budget-cat {
+  color: var(--text-normal);
+}
+
+.awty-budget-amount {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.awty-budget-amount.is-over {
+  color: var(--color-red);
+}
+
+.awty-budget-total {
+  margin: 0.8em 0;
+  font-weight: var(--font-medium);
+}
+
+/* ---------------------------------------------------- next / attention */
+
+.awty-next-list,
+.awty-attention-list,
+.awty-booking-list,
+.awty-cost-lines,
+.awty-doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.awty-next-row,
+.awty-booking,
+.awty-cost-line,
+.awty-doc-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  padding: 0.55em 0.75em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  cursor: pointer;
+}
+
+.awty-next-row:hover,
+.awty-booking:hover,
+.awty-cost-line:hover,
+.awty-doc-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.awty-next-icon,
+.awty-booking-icon,
+.awty-cost-icon,
+.awty-doc-icon {
+  display: flex;
+  color: var(--text-accent);
+  flex: none;
+}
+
+.awty-next-text,
+.awty-booking-body,
+.awty-cost-body,
+.awty-doc-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-next-title,
+.awty-booking-title,
+.awty-cost-desc,
+.awty-doc-name {
+  font-weight: var(--font-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.awty-next-meta,
+.awty-booking-meta,
+.awty-cost-meta,
+.awty-doc-source {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15em 0.7em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-mono {
+  font-family: var(--font-monospace);
+}
+
+.awty-next-cost,
+.awty-cost-amount {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-normal);
+  flex: none;
+}
+
+.awty-cost-line.is-excluded {
+  opacity: 0.55;
+}
+
+.awty-cost-line.is-excluded .awty-cost-amount {
+  text-decoration: line-through;
+}
+
+.awty-attention-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.4em 0.75em;
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.awty-attention-row.is-clickable {
+  cursor: pointer;
+}
+
+.awty-attention-row.is-clickable:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.awty-attention-icon {
+  display: flex;
+  color: var(--color-orange);
+}
+
+.awty-attention-icon .svg-icon,
+.awty-all-clear .svg-icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+.awty-all-clear {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.6em 0.75em;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--color-green) 12%, transparent);
+  color: var(--color-green);
+  font-size: var(--font-ui-small);
+}
+
+/* ----------------------------------------------------------- bookings */
+
+.awty-booking-right {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  flex: none;
+}
+
+.awty-booking-cost {
+  font-variant-numeric: tabular-nums;
+}
+
+.awty-booking-cost.is-struck {
+  text-decoration: line-through;
+  color: var(--text-faint);
+}
+
+.awty-booking-attach {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+}
+
+.awty-booking-attach .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+.awty-status-pill {
+  padding: 0.05em 0.55em;
+  border-radius: 999px;
+  font-size: var(--font-ui-smaller);
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.awty-status-pill.is-booked {
+  background: color-mix(in srgb, var(--color-green) 20%, transparent);
+  color: var(--color-green);
+}
+
+.awty-status-pill.is-reserved {
+  background: color-mix(in srgb, var(--color-orange) 20%, transparent);
+  color: var(--color-orange);
+}
+
+.awty-status-pill.is-cancelled {
+  background: color-mix(in srgb, var(--color-red) 18%, transparent);
+  color: var(--color-red);
+}
+
+/* ---------------------------------------------------------- timeline */
+
+.awty-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+
+.awty-day {
+  display: flex;
+  gap: 0.9em;
+  padding: 0.6em 0.2em;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.awty-day.is-past {
+  opacity: 0.6;
+}
+
+.awty-day-marker {
+  flex: none;
+  width: 2.6em;
+  text-align: center;
+}
+
+.awty-day-num {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  line-height: 1.1;
+}
+
+.awty-day.is-today .awty-day-num {
+  color: var(--interactive-accent);
+}
+
+.awty-day-dow {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+.awty-day-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-day-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-bottom: 0.3em;
+}
+
+.awty-day-today {
+  padding: 0 0.45em;
+  border-radius: 999px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.awty-day-empty {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.awty-day-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.awty-day-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.4em 0.6em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  cursor: pointer;
+}
+
+.awty-day-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.awty-day-item-icon {
+  display: flex;
+  color: var(--text-accent);
+}
+
+.awty-day-item-icon .svg-icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+.awty-day-item-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-day-item-title {
+  font-size: var(--font-ui-small);
+}
+
+.awty-day-item-meta {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-day-item-cost {
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------- cards */
+
+.awty-trip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 0.7em;
+}
+
+.awty-card {
+  position: relative;
+  padding: 0.9em 1em;
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  border-top: 3px solid var(--background-modifier-border);
+  cursor: pointer;
+}
+
+.awty-card:hover {
+  background: var(--background-modifier-hover);
+}
+
+.awty-card.is-current {
+  border-top-color: var(--color-green);
+}
+
+.awty-card.is-upcoming {
+  border-top-color: var(--color-blue);
+}
+
+.awty-card-head {
+  display: flex;
+  gap: 0.5em;
+  align-items: flex-start;
+}
+
+.awty-card-icon {
+  display: flex;
+  color: var(--text-accent);
+  padding-top: 0.15em;
+}
+
+.awty-card-head-text {
+  min-width: 0;
+}
+
+.awty-card-title {
+  font-weight: var(--font-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Leave room for the countdown badge pinned to the top right. */
+  padding-right: 3.2em;
+}
+
+.awty-card-where {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-card-badge {
+  position: absolute;
+  top: 0.8em;
+  right: 0.9em;
+  padding: 0 0.5em;
+  border-radius: 999px;
+  font-size: var(--font-ui-smaller);
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+.awty-card-badge.is-current {
+  background: var(--color-green);
+  color: var(--text-on-accent);
+}
+
+.awty-card-meta {
+  margin-top: 0.6em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-card-duration {
+  color: var(--text-faint);
+}
+
+.awty-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15em 0.8em;
+  margin-top: 0.5em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-card-progress {
+  margin-top: 0.6em;
+}
+
+.awty-card-progress-label {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  margin-bottom: 0.25em;
+}
+
+/* ----------------------------------------------------------- gallery */
+
+.awty-gallery-group {
+  margin-bottom: 1.2em;
+}
+
+.awty-gallery-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.5em 0.7em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  margin-bottom: 0.5em;
+}
+
+.awty-gallery-head.is-clickable {
+  cursor: pointer;
+}
+
+.awty-gallery-head.is-clickable:hover {
+  background: var(--background-modifier-hover);
+}
+
+.awty-gallery-head-icon {
+  display: flex;
+  color: var(--text-accent);
+  flex: none;
+}
+
+.awty-gallery-head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-gallery-head-title {
+  font-weight: var(--font-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.awty-gallery-head-detail {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-gallery-head-count {
+  flex: none;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.awty-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.6em;
+}
+
+.awty-gallery-cell {
+  border-radius: var(--radius-s);
+  overflow: hidden;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+}
+
+.awty-gallery-cell:hover {
+  border-color: var(--interactive-accent);
+}
+
+.awty-gallery-img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  display: block;
+  background: var(--background-primary);
+}
+
+/* Documents get a plate rather than a broken image. */
+.awty-gallery-doc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3em;
+  height: 120px;
+  color: var(--text-muted);
+  background: var(--background-primary);
+}
+
+.awty-gallery-doc .svg-icon {
+  width: 1.8em;
+  height: 1.8em;
+}
+
+.awty-gallery-doc-ext {
+  font-size: var(--font-ui-smaller);
+  font-family: var(--font-monospace);
+}
+
+.awty-gallery-caption {
+  padding: 0.35em 0.5em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- empty */
+
+.awty-dash-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  /* Fills the column and centres in it, rather than sitting at the top-left of
+     whatever space happens to be left over. */
+  min-height: 40vh;
+  padding: 2em 1em;
+  color: var(--text-muted);
+}
+
+.awty-dash-empty-icon {
+  display: flex;
+  justify-content: center;
+  color: var(--text-faint);
+  margin-bottom: 0.6em;
+}
+
+.awty-dash-empty-icon .svg-icon {
+  width: 2.2em;
+  height: 2.2em;
+}
+
+.awty-dash-empty-title {
+  font-weight: var(--font-medium);
+  color: var(--text-normal);
+}
+
+.awty-dash-empty-detail {
+  font-size: var(--font-ui-small);
+  margin: 0.2em auto 0;
+  max-width: 32em;
+}
+
+.awty-dash-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4em;
+  margin-top: 1em;
+}
+
+.awty-dash-empty-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.35em 0.8em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.awty-dash-empty-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+/* The first action is the obvious next step. */
+.awty-dash-empty-btn.is-cta {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.awty-dash-empty-btn.is-cta:hover {
+  background: var(--interactive-accent-hover);
+  color: var(--text-on-accent);
+}
+
+.awty-dash-empty-btn .svg-icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+/* --------------------------------------------------- cost against budget */
+
+.awty-budget-headline {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1em;
+  padding: 0.7em 0.9em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  margin-bottom: 0.5em;
+}
+
+.awty-budget-headline-right {
+  text-align: right;
+}
+
+.awty-budget-headline-label {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.awty-budget-headline-value {
+  font-size: var(--font-ui-larger);
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.awty-budget-headline-delta {
+  font-size: var(--font-ui-smaller);
+  color: var(--color-green);
+}
+
+.awty-budget-headline-delta.is-over {
+  color: var(--color-red);
+}
+
+.awty-budget-note {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-top: 0.2em;
+}
+
+.awty-budget-note.is-over {
+  color: var(--color-orange);
+}
+
+/* Timeline: a stay in progress is a rail, not another card. */
+
+.awty-day-ongoing {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.15em 0.6em;
+  margin-bottom: 0.3em;
+  border-left: 2px solid var(--color-blue);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.awty-day-ongoing:hover {
+  color: var(--text-normal);
+}
+
+.awty-day-ongoing-icon {
+  display: flex;
+}
+
+.awty-day-ongoing-icon .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+.awty-day-item-time {
+  flex: none;
+  width: 3.4em;
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.awty-timeline-open {
+  margin-bottom: 0.6em;
+}
+
+.awty-timeline-open a {
+  cursor: pointer;
+}
+
+
+/* === 55-travel.css === */
+/* ------------------------------------------------------- getting around */
+
+.awty-around-group {
+  margin: 0.7em 0 0.35em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.awty-around-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.awty-around-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  padding: 0.45em 0.75em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.awty-around-row.is-clickable {
+  cursor: pointer;
+}
+
+.awty-around-row.is-clickable:hover {
+  background: var(--background-modifier-hover);
+}
+
+.awty-around-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-around-name {
+  font-size: var(--font-ui-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.awty-around-dist {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.awty-around-times {
+  display: flex;
+  gap: 0.3em;
+  flex: none;
+}
+
+.awty-around-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0.1em 0.5em;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.awty-around-chip.is-transit {
+  background: color-mix(in srgb, var(--color-blue) 18%, transparent);
+  color: var(--color-blue);
+}
+
+.awty-around-chip.is-walking {
+  background: color-mix(in srgb, var(--color-green) 18%, transparent);
+  color: var(--color-green);
+}
+
+.awty-around-chip-icon {
+  display: flex;
+}
+
+.awty-around-chip-icon .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+/* Travel between consecutive items on the itinerary timeline. */
+
+.awty-leg {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.15em 0 0.15em 1.6em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+/* Sits between two timeline items, indented past the time column so it lines
+   up with the titles it joins. */
+.awty-day-items .awty-leg {
+  padding: 0.3em 0 0.3em 4.6em;
+}
+
+.awty-leg-icon {
+  display: flex;
+}
+
+.awty-leg-icon .svg-icon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+
+
+/* ------------------------------------------------- documents & advice */
+
+.awty-doc-list-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.awty-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.55em 0.75em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  border-left: 3px solid var(--background-modifier-border);
+}
+
+.awty-doc-item.is-good,
+.awty-doc-item.is-advice-groen {
+  border-left-color: var(--color-green);
+}
+
+.awty-doc-item.is-warn,
+.awty-doc-item.is-advice-geel {
+  border-left-color: var(--color-yellow);
+}
+
+.awty-doc-item.is-advice-oranje {
+  border-left-color: var(--color-orange);
+}
+
+.awty-doc-item.is-bad,
+.awty-doc-item.is-advice-rood {
+  border-left-color: var(--color-red);
+}
+
+.awty-doc-item-icon {
+  display: flex;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.awty-doc-item.is-good .awty-doc-item-icon,
+.awty-doc-item.is-advice-groen .awty-doc-item-icon {
+  color: var(--color-green);
+}
+
+.awty-doc-item.is-warn .awty-doc-item-icon,
+.awty-doc-item.is-advice-geel .awty-doc-item-icon,
+.awty-doc-item.is-advice-oranje .awty-doc-item-icon {
+  color: var(--color-orange);
+}
+
+.awty-doc-item.is-bad .awty-doc-item-icon,
+.awty-doc-item.is-advice-rood .awty-doc-item-icon {
+  color: var(--color-red);
+}
+
+.awty-doc-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-doc-item-title {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+}
+
+.awty-doc-item-detail {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-doc-item-warn {
+  font-size: var(--font-ui-smaller);
+  color: var(--color-orange);
+  margin-top: 0.15em;
+}
+
+.awty-doc-badge {
+  flex: none;
+  padding: 0.05em 0.55em;
+  border-radius: 999px;
+  font-size: var(--font-ui-smaller);
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.awty-doc-badge.is-good,
+.awty-doc-badge.is-advice-groen {
+  background: color-mix(in srgb, var(--color-green) 20%, transparent);
+  color: var(--color-green);
+}
+
+.awty-doc-badge.is-warn,
+.awty-doc-badge.is-advice-geel {
+  background: color-mix(in srgb, var(--color-yellow) 22%, transparent);
+  color: var(--color-orange);
+}
+
+.awty-doc-badge.is-advice-oranje {
+  background: color-mix(in srgb, var(--color-orange) 20%, transparent);
+  color: var(--color-orange);
+}
+
+.awty-doc-badge.is-bad,
+.awty-doc-badge.is-advice-rood {
+  background: color-mix(in srgb, var(--color-red) 18%, transparent);
+  color: var(--color-red);
+}
+
+.awty-doc-link {
+  display: flex;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.awty-doc-link:hover {
+  color: var(--text-accent);
+}
+
+.awty-doc-link .svg-icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+/* Neither source is authoritative; say so where it is read. */
+.awty-doc-caveat {
+  margin-top: 0.5em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  line-height: 1.45;
+}
+
+
+
+
+.awty-passport-icon .svg-icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+
+
+/* Says what is missing, rather than the section vanishing entirely. */
+.awty-around-notice {
+  display: flex;
+  gap: 0.6em;
+  padding: 0.7em 0.9em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.awty-around-notice-icon {
+  display: flex;
+  flex: none;
+  color: var(--text-faint);
+  padding-top: 0.1em;
+}
+
+.awty-around-notice-icon .svg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.awty-around-notice-title {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+}
+
+.awty-around-notice-detail {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* A mode with no route: visible and struck, not silently absent. */
+.awty-around-chip.is-none {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.awty-around-chip.is-flight {
+  background: color-mix(in srgb, var(--color-purple, var(--color-blue)) 18%, transparent);
+  color: var(--color-purple, var(--color-blue));
+}
+
+/* ------------------------------------------------------------ route modal */
+
+.awty-leg.is-clickable {
+  cursor: pointer;
+  border-radius: var(--radius-s);
+}
+
+.awty-leg.is-clickable:hover {
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+}
+
+.awty-route-result {
+  margin-top: 0.4em;
+}
+
+.awty-route-dist {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-bottom: 0.5em;
+}
+
+.awty-route-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.awty-route-mode {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.45em 0.6em;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.awty-route-mode-icon {
+  display: flex;
+  color: var(--text-muted);
+}
+
+.awty-route-mode-label {
+  flex: 1;
+}
+
+.awty-route-mode-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-normal);
+}
+
+/* A mode with no route says so, rather than vanishing. */
+.awty-route-mode.is-none .awty-route-mode-time {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+
+/* === 60-settings.css === */
+/* ==========================================================================
+   Settings — left nav over grouped panels, following the Food Spot layout.
+   ========================================================================== */
+
+.awty-settings {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.awty-settings-nav {
+  flex: 0 0 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 0;
+}
+
+.awty-settings-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.awty-settings-nav-item:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.awty-settings-nav-item.is-active {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.awty-settings-nav-item.is-active .awty-settings-nav-icon svg {
+  color: var(--interactive-accent);
+}
+
+.awty-settings-nav-icon {
+  display: flex;
+}
+
+.awty-settings-nav-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.awty-settings-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 700px) {
+  .awty-settings {
+    flex-direction: column;
+  }
+  .awty-settings-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    position: static;
+    width: 100%;
+  }
+}
+
+/* --- panel ---------------------------------------------------------------- */
+
+.awty-sgroup {
+  background: var(--background-secondary);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.awty-sgroup-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.awty-sgroup-icon {
+  display: flex;
+  color: var(--interactive-accent);
+}
+
+.awty-sgroup-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.awty-sgroup-titles {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.awty-sgroup-title {
+  font-weight: 600;
+}
+
+.awty-sgroup-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.awty-sgroup-body .setting-item {
+  border-top: none;
+  padding: 10px 0;
+}
+
+.awty-sgroup-label {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+/* --- status chip ---------------------------------------------------------- */
+
+.awty-sgroup-head .awty-chip {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  /* Was 45%, which clipped "key set" to "key …" in a narrow panel head. */
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.awty-sgroup-head .awty-chip-ok {
+  color: var(--color-green);
+}
+
+.awty-sgroup-head .awty-chip-warn {
+  color: var(--color-orange);
+}
+
+.awty-sgroup-head .awty-chip-pending {
+  color: var(--text-muted);
+}
+
+/* --- inline help and notes ------------------------------------------------ */
+
+.awty-setting-help {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--background-modifier-hover);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.awty-setting-note {
+  margin: 6px 0 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* --- removable pills ------------------------------------------------------ */
+
+.awty-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+
+.awty-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  font-size: 12px;
+}
+
+.awty-pill-icon {
+  display: flex;
+  color: var(--text-accent);
+}
+
+.awty-pill-icon svg,
+.awty-pill-x svg {
+  width: 12px;
+  height: 12px;
+}
+
+.awty-pill-tag {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.awty-pill-x {
+  display: flex;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.awty-pill-x:hover {
+  color: var(--color-red);
+}
+
+/* --- kind × note matrix ---------------------------------------------------- */
+
+.awty-matrix {
+  display: grid;
+  /* Each column is at least as wide as its heading, so "Transport" is not
+     clipped and neighbouring headings cannot run into each other. */
+  grid-template-columns: minmax(7em, auto) repeat(var(--awty-matrix-cols), minmax(5em, 1fr)) 2.2em;
+  align-items: center;
+  /* No column gap: the header rule is drawn per cell, and a gap breaks it into
+     dashes. Spacing comes from padding inside the cells. */
+  column-gap: 0;
+  row-gap: 0;
+  margin-top: 4px;
+  overflow-x: auto;
+}
+
+.awty-matrix-col,
+.awty-matrix-corner {
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.awty-matrix-col {
+  padding: 0 4px 6px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--text-muted);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.awty-matrix-corner {
+  height: 100%;
+}
+
+.awty-matrix-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px 7px 0;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.awty-matrix-row-icon {
+  display: flex;
+  color: var(--text-accent);
+}
+
+.awty-matrix-row-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.awty-matrix-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 0;
+}
+
+.awty-matrix-cell:hover {
+  background: var(--background-modifier-hover);
+}
+
+.awty-matrix-cell input {
+  margin: 0;
+}
+
+.awty-matrix-reset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.awty-matrix-reset:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.awty-matrix-reset svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* --- API key row ----------------------------------------------------------- */
+
+.awty-keyrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+
+.awty-key-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+}
+
+.awty-key-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 5px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.awty-key-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+.awty-key-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.awty-key-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.awty-key-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-orange) 10%, transparent);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.awty-key-warning-icon {
+  display: flex;
+  flex: none;
+  color: var(--color-orange);
+  padding-top: 1px;
+}
+
+.awty-key-warning-icon svg {
+  width: 13px;
+  height: 13px;
+}

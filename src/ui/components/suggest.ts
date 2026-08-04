@@ -22,7 +22,7 @@ export class CountrySuggest extends AbstractInputSuggest<string> {
     el.setText(value);
     const count = CITIES[value]?.length ?? 0;
     if (count) {
-      el.createSpan({ cls: "tp-suggest-hint", text: `${count} cities` });
+      el.createSpan({ cls: "awty-suggest-hint", text: `${count} cities` });
     }
   }
 
@@ -77,7 +77,7 @@ export class CitySuggest extends AbstractInputSuggest<string> {
     el.setText(value);
     if (!this.getCountry()) {
       const owner = countryForCity(value);
-      if (owner) el.createSpan({ cls: "tp-suggest-hint", text: owner });
+      if (owner) el.createSpan({ cls: "awty-suggest-hint", text: owner });
     }
   }
 
@@ -114,7 +114,7 @@ export class AirlineSuggest extends AbstractInputSuggest<string> {
 
   renderSuggestion(value: string, el: HTMLElement): void {
     if (this.isStarred(value)) {
-      const star = el.createSpan({ cls: "tp-suggest-star" });
+      const star = el.createSpan({ cls: "awty-suggest-star" });
       setIcon(star, "star");
     }
     el.createSpan({ text: value });
@@ -224,11 +224,11 @@ export class AirportSuggest extends AbstractInputSuggest<AirportRecord> {
 
   renderSuggestion(airport: AirportRecord, el: HTMLElement): void {
     if (this.isStarred(airportLabel(airport))) {
-      setIcon(el.createSpan({ cls: "tp-suggest-star" }), "star");
+      setIcon(el.createSpan({ cls: "awty-suggest-star" }), "star");
     }
-    el.createSpan({ cls: "tp-suggest-code", text: airport.i });
+    el.createSpan({ cls: "awty-suggest-code", text: airport.i });
     el.createSpan({ text: ` ${airport.c}` });
-    el.createSpan({ cls: "tp-suggest-hint", text: [airport.n, airport.y].filter(Boolean).join(" · ") });
+    el.createSpan({ cls: "awty-suggest-hint", text: [airport.n, airport.y].filter(Boolean).join(" · ") });
   }
 
   selectSuggestion(airport: AirportRecord): void {
