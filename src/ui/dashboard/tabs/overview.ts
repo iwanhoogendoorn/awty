@@ -24,15 +24,11 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
   if (!trip) return;
 
   const subNotes = plugin.store.getSubNotes(trip);
-  const head = sectionTitle(parent, "Trip notes", {
+  sectionTitle(parent, "Trip notes", {
     label: "Open trip note",
     icon: "file-text",
     onClick: () => ctx.openFile(trip.file),
   });
-  const exportBtn = head.createEl("button", { cls: "tp-dash-action" });
-  setIcon(exportBtn.createSpan(), "file-down");
-  exportBtn.createSpan({ text: "Export to PDF" });
-  exportBtn.addEventListener("click", () => plugin.exportTrip(trip));
 
   if (subNotes.length === 0) {
     parent.createDiv({ cls: "tp-dash-hint", text: "This trip has no sub-notes." });

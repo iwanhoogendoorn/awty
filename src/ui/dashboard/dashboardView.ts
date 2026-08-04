@@ -215,6 +215,14 @@ export class TravelDashboardView extends ItemView {
         );
         menu.showAtMouseEvent(evt);
       });
+
+      // Exporting is a whole-trip action, so it belongs beside the other
+      // whole-trip actions rather than inside the Trip notes card on one tab.
+      const exportBtn = actions.createEl("button", { cls: "tp-dash-quick-btn" });
+      setIcon(exportBtn.createSpan(), "file-down");
+      exportBtn.createSpan({ text: "Export PDF" });
+      exportBtn.setAttribute("aria-label", "Export the whole trip to a PDF on disk");
+      exportBtn.addEventListener("click", () => this.plugin.exportTrip(trip));
     }
 
     const tabs = header.createDiv({ cls: "tp-dash-tabs" });

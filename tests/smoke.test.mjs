@@ -44,6 +44,7 @@ export { CITIES } from "./src/data/cities.ts";
 export { dayEvents, ongoingOn, BAND } from "./src/store/dayPlan.ts";
 export { itineraryPairs, groupByOrigin } from "./src/travel/routePlan.ts";
 export { readLegs, summariseFlight } from "./src/bookings/flightSummary.ts";
+export { renderMarkdown, stripFrontmatter } from "./src/export/markdown.ts";
 `;
 
 const outfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tp-test-")), "bundle.mjs");
@@ -891,6 +892,9 @@ const emptyDoc = {
   days: [],
   costs: { lines: [], total: "", budget: "", byCategory: [] },
   packing: [],
+  travel: { origin: "", groups: [] },
+  restaurants: [],
+  notes: [],
   images: [],
   generatedOn: "4 Aug 2026",
 };
@@ -906,6 +910,8 @@ test("the exported document is self-contained and complete", () => {
         from: "AMS", to: "DBV", address: "", reference: "XY7K2Q", seat: "14A", cost: "€827", notes: "",
         legs: [{ operator: "KL", number: "KL1885", from: "AMS", to: "DBV", date: "2026-08-17", depTime: "10:15", arrDate: "2026-08-17", arrTime: "12:35" }],
         returnLegs: [],
+        journey: "2 h 20 min · direct · lands 12:35",
+        returnJourney: "",
       },
     ],
     days: [{ date: "2026-08-17", label: "Day 1", weekday: "Mon 17 August", items: [{ time: "10:15", title: "AMS ⇄ DBV", detail: "AMS → DBV" }], staying: "" }],
@@ -1115,6 +1121,100 @@ test("a journey longer than a day is misread data, not a flight", () => {
     { airline: "KL", flight: "1985", from: "AMS", to: "DBV", date: "2026-08-17", departs: "10:15", arrives_on: "2026-08-24", arrives: "13:25" },
   ]);
   assert.equal(m.summariseFlight(legs).totalMinutes, null);
+});
+
+test("the export carries the parts of a trip that live outside the plugin's fields", () => {
+  const html = m.renderTripDocument({
+    ...emptyDoc,
+    travel: {
+      origin: "Rausion Luxury Apartments",
+      groups: [
+        {
+          heading: "Airport transfer · to Rausion Luxury Apartments",
+          places: [
+            { name: "Dubrovnik (DBV)", detail: "2026-08-17", distance: "21 km", times: "Car 30 min · Public transport 1 h 8 min" },
+          ],
+        },
+      ],
+    },
+    restaurants: [
+      {
+        name: "Nautika", cuisines: "Seafood", price: "€€€€", rating: "4.6 (2100)",
+        address: "Brsalje ul. 3", contact: "+385 20 442 526", travel: "1.9 km · Car 7 min",
+        status: "favourite",
+      },
+    ],
+    notes: [{ title: "Itinerary", html: "<p>Walls at sunrise.</p>" }],
+    days: [
+      {
+        date: "2026-08-17", label: "Day 1", weekday: "Mon 17 August", staying: "",
+        items: [{ time: "10:15", title: "AMS ⇄ DBV", detail: "direct", travel: "21 km · Car 30 min" }],
+      },
+    ],
+  });
+  assert.match(html, /Getting around/);
+  assert.match(html, /Public transport 1 h 8 min/);
+  assert.match(html, /Places to eat/);
+  assert.match(html, /Nautika · favourite/);
+  assert.match(html, /Walls at sunrise\./);
+  assert.match(html, /→ 21 km · Car 30 min/, "the timeline carries its hops into print");
+  // Still no way for the file to reach the network.
+  assert.ok(!/<script|<link|src="http/.test(html), "the export stays self-contained");
+});
+
+// ------------------------------------------------------- notes in the PDF
+
+test("frontmatter is not prose", () => {
+  assert.equal(m.stripFrontmatter("---\ntype: trip\n---\nHello"), "Hello");
+  assert.equal(m.stripFrontmatter("No frontmatter"), "No frontmatter");
+});
+
+test("a hand-written note survives the trip to HTML", () => {
+  const html = m.renderMarkdown(
+    [
+      "## Old Town",
+      "Walk the **walls** at *sunrise*.",
+      "",
+      "- [x] Book tickets",
+      "- [ ] Cash for the cable car",
+      "",
+      "See [the site](https://www.wallsofdubrovnik.com) first.",
+    ].join("\n"),
+  );
+  assert.match(html, /<h4>Old Town<\/h4>/, "note headings sit under the section heading");
+  assert.match(html, /<strong>walls<\/strong>/);
+  assert.match(html, /<em>sunrise<\/em>/);
+  assert.match(html, /<span class="box on"><\/span>Book tickets/);
+  assert.match(html, /<span class="box"><\/span>Cash for the cable car/);
+  // The address has to be readable on paper, away from the vault.
+  assert.match(html, /the site <span class="url">https:\/\/www\.wallsofdubrovnik\.com<\/span>/);
+});
+
+test("a note cannot inject HTML into the export", () => {
+  const html = m.renderMarkdown('<script>alert("x")</script> **bold**');
+  assert.ok(!html.includes("<script>"), html);
+  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /<strong>bold<\/strong>/);
+});
+
+test("plugin blocks and vault-only links are dropped, their words kept", () => {
+  const html = m.renderMarkdown(
+    ["```foodspot", "view: cards", "```", "", "Go to [[Dubrovnik Old Town|the walls]]."].join("\n"),
+  );
+  assert.ok(!html.includes("foodspot"), html);
+  assert.match(html, /Go to the walls\./);
+});
+
+test("a markdown table becomes a table", () => {
+  const html = m.renderMarkdown("| Day | Plan |\n|---|---|\n| Mon | Walls |");
+  assert.match(html, /<th>Day<\/th>/);
+  assert.match(html, /<td>Walls<\/td>/);
+});
+
+test("inline code is not re-read as markup, and numbers survive", () => {
+  const html = m.renderMarkdown("Meet in 5 minutes at `**the gate**`");
+  assert.match(html, /Meet in 5 minutes/);
+  assert.match(html, /<code>\*\*the gate\*\*<\/code>/);
 });
 
 console.log(`\n${passed} tests passed`);

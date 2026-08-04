@@ -14,7 +14,20 @@ import {
   monthName,
   parseISO,
 } from "../util/dates";
-import { renderTripDocument, type DocBooking, type DocDay, type TripDocument } from "./tripDocument";
+import {
+  renderTripDocument,
+  type DocBooking,
+  type DocDay,
+  type DocNote,
+  type DocPlace,
+  type DocRestaurant,
+  type TripDocument,
+} from "./tripDocument";
+import { renderMarkdown, stripFrontmatter } from "./markdown";
+import { BAND, dayEvents, ongoingOn } from "../store/dayPlan";
+import { readLegs as readFlightLegs, summariseFlight } from "../bookings/flightSummary";
+import { TRAVEL_MODES, formatDistance, formatDuration as formatTravelTime } from "../travel/types";
+import type { Place } from "../travel/types";
 import { joinPath, sanitizeName } from "../util/paths";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -26,6 +39,23 @@ function mimeFor(extension: string): string {
   const ext = extension.toLowerCase();
   if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
   return `image/${ext}`;
+}
+
+/** "2 h 20 min · direct · lands 12:35" for a set of frontmatter legs. */
+function journeyOf(value: unknown): string {
+  const legs = readFlightLegs(value);
+  if (legs.length === 0) return "";
+  const summary = summariseFlight(legs);
+  return [summary.label, ...summary.layovers, summary.arrival ? `lands ${summary.arrival}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** The same, for whichever end of a return ticket this day belongs to. */
+function flightJourney(app: App, file: TFile, band: number): string {
+  const fm = app.metadataCache.getFileCache(file)?.frontmatter;
+  if (!fm?.legs && !fm?.return_legs) return "";
+  return journeyOf(band === BAND.Depart ? fm?.return_legs : fm?.legs);
 }
 
 /** Gathers everything the plugin knows about a trip into one printable shape. */
@@ -116,46 +146,57 @@ export async function buildTripDocument(
       notes: booking.notes,
       legs: readLegs(fm?.legs),
       returnLegs: readLegs(fm?.return_legs),
+      journey: journeyOf(fm?.legs),
+      returnJourney: journeyOf(fm?.return_legs),
     };
   });
 
   // ------------------------------------------------------- day by day
+  const places = plugin.travelPlaces.get(trip.folderPath);
+  const origin = places?.hotels[0];
+  const allPlaces: Place[] = places
+    ? [...places.hotels, ...places.airports, ...places.activities, ...places.restaurants]
+    : [];
+  const placeByPath = new Map(allPlaces.filter((p) => p.file).map((p) => [p.file!.path, p]));
+  const modes = plugin.settings.travelModes;
+
+  /** Cached travel time between two places, or "" when it was never measured. */
+  const hopText = (from: Place | undefined, to: Place | undefined): string => {
+    if (!from || !to || from.id === to.id) return "";
+    const legs = plugin.travel.peekLegs(from, [to], modes).get(to.id);
+    if (!legs || legs.length === 0) return "";
+    const reference = legs.find((l) => l.mode === "walking") ?? legs[0];
+    return [
+      formatDistance(reference.distanceMeters),
+      ...legs.map(
+        (leg) =>
+          `${TRAVEL_MODES.find((m) => m.id === leg.mode)?.label ?? leg.mode} ${formatTravelTime(leg.durationSeconds)}`,
+      ),
+    ].join(" · ");
+  };
+
+  const live = bookings.filter((b) => b.status !== "cancelled");
   const days: DocDay[] = datesInRange(trip.startDate, trip.endDate, 90).map((date, index) => {
     const parsed = parseISO(date);
-    const items = bookings
-      .filter((b) => b.status !== "cancelled")
-      .flatMap((booking) => {
-        const out: { time: string; title: string; detail: string }[] = [];
-        if (booking.kind === "stay") {
-          if (date === booking.date) out.push({ time: booking.time, title: booking.title, detail: "Check in" });
-          if (booking.endDate !== booking.date && date === booking.endDate) {
-            out.push({ time: booking.endTime, title: booking.title, detail: "Check out" });
-          }
-          return out;
-        }
-        if (booking.kind === "flight") {
-          if (date === booking.date) {
-            out.push({
-              time: booking.time,
-              title: booking.title,
-              detail: [booking.from, booking.to].filter(Boolean).join(" → "),
-            });
-          }
-          if (booking.returnDate && date === booking.returnDate) {
-            out.push({ time: booking.returnTime, title: booking.title, detail: "Return" });
-          }
-          return out;
-        }
-        if (date === booking.date) {
-          out.push({ time: booking.time, title: booking.title, detail: booking.slot });
-        }
-        return out;
-      })
-      .sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+    const events = dayEvents(live, date);
+    const staying = ongoingOn(live, date)[0];
 
-    const staying = bookings.find(
-      (b) => b.kind === "stay" && date > b.date && date < b.endDate,
-    );
+    const items = events.map((event, position) => {
+      const previous =
+        position === 0
+          ? staying
+            ? origin
+            : undefined
+          : placeByPath.get(events[position - 1].file.path);
+      return {
+        time: event.time,
+        title: event.title,
+        detail: [event.detail, flightJourney(app, event.file, event.band)]
+          .filter(Boolean)
+          .join(" · "),
+        travel: hopText(previous, placeByPath.get(event.file.path)),
+      };
+    });
 
     return {
       date,
@@ -230,6 +271,83 @@ export async function buildTripDocument(
     await collect(expense.attachments, expense.file.path, expense.description);
   }
 
+  // ---------------------------------------------------- getting around
+  const travel: TripDocument["travel"] = { origin: origin?.label ?? "", groups: [] };
+  if (origin && places) {
+    const groups: { heading: string; items: Place[] }[] = [
+      { heading: `Airport transfer · to ${origin.label}`, items: places.airports },
+      { heading: `Activities · from ${origin.label}`, items: places.activities },
+      { heading: `Restaurants · from ${origin.label}`, items: places.restaurants },
+    ];
+    for (const group of groups) {
+      const rows: DocPlace[] = [];
+      for (const place of group.items) {
+        const legs = plugin.travel.peekLegs(origin, [place], modes).get(place.id);
+        if (!legs || legs.length === 0) continue;
+        const reference = legs.find((l) => l.mode === "walking") ?? legs[0];
+        rows.push({
+          name: place.label,
+          detail: [place.date, place.time].filter(Boolean).join(" "),
+          distance: formatDistance(reference.distanceMeters),
+          times: modes
+            .map((mode) => {
+              const leg = legs.find((l) => l.mode === mode);
+              const label = TRAVEL_MODES.find((m) => m.id === mode)?.label ?? mode;
+              return `${label} ${leg ? formatTravelTime(leg.durationSeconds) : "no route"}`;
+            })
+            .join(" · "),
+        });
+      }
+      if (rows.length > 0) travel.groups.push({ heading: group.heading, places: rows });
+    }
+  }
+
+  // --------------------------------------------------------- restaurants
+  const restaurants: DocRestaurant[] = [];
+  for (const place of plugin.travel.restaurantsFor(trip)) {
+    const fm = place.file ? app.metadataCache.getFileCache(place.file)?.frontmatter : undefined;
+    if (!fm) continue;
+    const price = Number(fm.price);
+    const legs = origin ? plugin.travel.peekLegs(origin, [place], modes).get(place.id) : undefined;
+    const reference = legs?.find((l) => l.mode === "walking") ?? legs?.[0];
+    restaurants.push({
+      name: String(fm.name ?? place.label),
+      cuisines: Array.isArray(fm.cuisines) ? fm.cuisines.join(", ") : String(fm.cuisines ?? ""),
+      price: Number.isFinite(price) && price > 0 ? "\u20ac".repeat(Math.min(price, 4)) : "",
+      rating: fm.google_rating
+        ? `${fm.google_rating}${fm.google_rating_count ? ` (${fm.google_rating_count})` : ""}`
+        : "",
+      address: String(fm.address ?? ""),
+      contact: [fm.phone, fm.url].filter(Boolean).map(String).join(" · "),
+      travel:
+        legs && reference
+          ? `${formatDistance(reference.distanceMeters)} · ${legs
+              .map(
+                (leg) =>
+                  `${TRAVEL_MODES.find((m) => m.id === leg.mode)?.label ?? leg.mode} ${formatTravelTime(leg.durationSeconds)}`,
+              )
+              .join(" · ")}`
+          : "",
+      status: [fm.favorite ? "favourite" : "", fm.status === "visited" ? "visited" : ""]
+        .filter(Boolean)
+        .join(" · "),
+    });
+  }
+  restaurants.sort((a, b) => a.name.localeCompare(b.name));
+
+  // --------------------------------------------------------------- notes
+  // What you wrote by hand is trip information too. The packing list has its
+  // own section already, and Budget is the Costs table in prose form.
+  const notes: DocNote[] = [];
+  const skip = new Set<string>(["packing", "budget"]);
+  const tripBody = renderMarkdown(stripFrontmatter(await app.vault.cachedRead(trip.file)));
+  if (tripBody.trim()) notes.push({ title: "Trip note", html: tripBody });
+  for (const sub of plugin.store.getSubNotes(trip)) {
+    if (sub.id && skip.has(sub.id)) continue;
+    const html = renderMarkdown(stripFrontmatter(await app.vault.cachedRead(sub.file)));
+    if (html.trim()) notes.push({ title: sub.label, html });
+  }
+
   return {
     title: trip.title,
     dates: formatDateRange(trip.startDate, trip.endDate),
@@ -243,6 +361,9 @@ export async function buildTripDocument(
     days,
     costs,
     packing,
+    travel,
+    restaurants,
+    notes,
     images,
     generatedOn: new Date().toLocaleDateString(),
   };

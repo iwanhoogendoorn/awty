@@ -3122,15 +3122,11 @@ function renderTripNotes(parent, ctx) {
   const { trip, plugin } = ctx;
   if (!trip) return;
   const subNotes = plugin.store.getSubNotes(trip);
-  const head = sectionTitle(parent, "Trip notes", {
+  sectionTitle(parent, "Trip notes", {
     label: "Open trip note",
     icon: "file-text",
     onClick: () => ctx.openFile(trip.file)
   });
-  const exportBtn = head.createEl("button", { cls: "tp-dash-action" });
-  (0, import_obsidian12.setIcon)(exportBtn.createSpan(), "file-down");
-  exportBtn.createSpan({ text: "Export to PDF" });
-  exportBtn.addEventListener("click", () => plugin.exportTrip(trip));
   if (subNotes.length === 0) {
     parent.createDiv({ cls: "tp-dash-hint", text: "This trip has no sub-notes." });
     return;
@@ -3141,12 +3137,12 @@ function renderTripNotes(parent, ctx) {
     const state = progress?.state ?? "empty";
     const mark = stateMark(state);
     const cell = grid.createDiv({ cls: `tp-note-cell is-${state}` });
-    const head2 = cell.createDiv({ cls: "tp-note-head" });
-    const markEl = head2.createDiv({ cls: "tp-mark" });
+    const head = cell.createDiv({ cls: "tp-note-head" });
+    const markEl = head.createDiv({ cls: "tp-mark" });
     (0, import_obsidian12.setIcon)(markEl, mark.icon);
     markEl.setAttribute("aria-label", mark.label);
     markEl.setAttribute("title", mark.label);
-    head2.createDiv({ cls: "tp-note-name", text: sub.label });
+    head.createDiv({ cls: "tp-note-name", text: sub.label });
     cell.createDiv({ cls: "tp-note-detail", text: progress?.detail ?? "Reading\u2026" });
     if (progress?.ratio !== null && progress?.ratio !== void 0) {
       bar(cell, progress.ratio, progress.ratio >= 1 ? "good" : "warn");
@@ -4374,6 +4370,11 @@ var TravelDashboardView = class extends import_obsidian20.ItemView {
         );
         menu.showAtMouseEvent(evt);
       });
+      const exportBtn = actions.createEl("button", { cls: "tp-dash-quick-btn" });
+      (0, import_obsidian20.setIcon)(exportBtn.createSpan(), "file-down");
+      exportBtn.createSpan({ text: "Export PDF" });
+      exportBtn.setAttribute("aria-label", "Export the whole trip to a PDF on disk");
+      exportBtn.addEventListener("click", () => this.plugin.exportTrip(trip));
     }
     const tabs = header.createDiv({ cls: "tp-dash-tabs" });
     for (const tab of TABS) {
@@ -6871,12 +6872,15 @@ function bookingBlock(booking) {
   ];
   if (booking.legs.length > 0) {
     parts.push(
-      `<h4>${booking.returnLegs.length > 0 ? "Outbound" : "Itinerary"}</h4>`,
+      `<h4>${booking.returnLegs.length > 0 ? "Outbound" : "Itinerary"}${booking.journey ? ` <span class="kind">${escapeHtml(booking.journey)}</span>` : ""}</h4>`,
       table(["Flight", "From", "To", "Departs", "Arrives"], legRows(booking.legs))
     );
   }
   if (booking.returnLegs.length > 0) {
-    parts.push("<h4>Return</h4>", table(["Flight", "From", "To", "Departs", "Arrives"], legRows(booking.returnLegs)));
+    parts.push(
+      `<h4>Return${booking.returnJourney ? ` <span class="kind">${escapeHtml(booking.returnJourney)}</span>` : ""}</h4>`,
+      table(["Flight", "From", "To", "Departs", "Arrives"], legRows(booking.returnLegs))
+    );
   }
   if (booking.notes.trim()) {
     parts.push(`<p class="notes">${escapeHtml(booking.notes.trim())}</p>`);
@@ -6939,6 +6943,20 @@ var STYLES = `
   .totals { display: flex; gap: 10mm; margin: 2mm 0 3mm; }
   .totals div span { display: block; color: #55606b; font-size: 8.5pt; text-transform: uppercase; }
   .totals div strong { font-size: 13pt; }
+  .day .hop { color: #55606b; font-size: 8.5pt; padding-left: 1mm; }
+  .note { font-size: 9.5pt; }
+  .note h3, .note h4, .note h5, .note h6 { margin: 3mm 0 1.5mm; }
+  .note p { margin: 0 0 2mm; }
+  .note ul, .note ol { margin: 0 0 2mm; padding-left: 5mm; }
+  .note ul.tasks { list-style: none; padding-left: 0; }
+  .note li { margin-bottom: .6mm; }
+  .note blockquote {
+    margin: 0 0 2mm; padding-left: 3mm; border-left: 2px solid #d7dbe0; color: #37414a;
+  }
+  .note code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 9pt; }
+  .note hr { border: none; border-top: 1px solid #e4e7eb; margin: 3mm 0; }
+  .note mark { background: #fdf3d0; }
+  .url { color: #2b6cb0; word-break: break-all; }
   footer { margin-top: 8mm; color: #8a939c; font-size: 8.5pt; border-top: 1px solid #e4e7eb; padding-top: 2mm; }
 `;
 function renderTripDocument(doc) {
@@ -6974,7 +6992,7 @@ function renderTripDocument(doc) {
     parts.push("<h2>Day by day</h2>");
     for (const day of doc.days) {
       const items = day.items.length > 0 ? day.items.map(
-        (item) => `<div class="item"><div class="t">${escapeHtml(item.time || "")}</div><div><strong>${escapeHtml(item.title)}</strong>${item.detail ? ` <span class="t">${escapeHtml(item.detail)}</span>` : ""}</div></div>`
+        (item) => `<div class="item"><div class="t">${escapeHtml(item.time || "")}</div><div><strong>${escapeHtml(item.title)}</strong>${item.detail ? ` <span class="t">${escapeHtml(item.detail)}</span>` : ""}${item.travel ? `<div class="hop">\u2192 ${escapeHtml(item.travel)}</div>` : ""}</div></div>`
       ).join("") : '<div class="empty">Nothing planned</div>';
       parts.push(
         '<div class="day">',
@@ -7004,6 +7022,36 @@ function renderTripDocument(doc) {
       );
     }
   }
+  if (doc.travel.groups.length > 0) {
+    parts.push(
+      "<h2>Getting around</h2>",
+      `<p class="notes">Travel times measured from ${escapeHtml(doc.travel.origin)}.</p>`
+    );
+    for (const group of doc.travel.groups) {
+      parts.push(
+        `<h3>${escapeHtml(group.heading)}</h3>`,
+        table(
+          ["Place", "When", "Distance", "Travel time"],
+          group.places.map((p) => [p.name, p.detail, p.distance, p.times])
+        )
+      );
+    }
+  }
+  if (doc.restaurants.length > 0) {
+    parts.push(
+      "<h2>Places to eat</h2>",
+      table(
+        ["Restaurant", "Cuisine", "Rating", "Where", "Getting there"],
+        doc.restaurants.map((r) => [
+          [r.name, r.status].filter(Boolean).join(" \xB7 "),
+          [r.cuisines, r.price].filter(Boolean).join(" \xB7 "),
+          r.rating,
+          [r.address, r.contact].filter(Boolean).join(" \xB7 "),
+          r.travel
+        ])
+      )
+    );
+  }
   if (doc.packing.length > 0) {
     parts.push('<h2>Packing list</h2><div class="packing">');
     for (const section of doc.packing) {
@@ -7016,6 +7064,9 @@ function renderTripDocument(doc) {
       );
     }
     parts.push("</div>");
+  }
+  for (const note of doc.notes) {
+    parts.push(`<h2>${escapeHtml(note.title)}</h2>`, `<div class="note">${note.html}</div>`);
   }
   if (doc.images.length > 0) {
     parts.push('<h2>Attachments</h2><div class="gallery">');
@@ -7034,6 +7085,158 @@ function renderTripDocument(doc) {
   return parts.join("\n");
 }
 
+// src/export/markdown.ts
+var FENCE = /^\s*(```|~~~)/;
+function inline(text) {
+  let out = escapeHtml(text);
+  const code = [];
+  out = out.replace(/`([^`]+)`/g, (_, body) => {
+    code.push(body);
+    return `\0${code.length - 1}\0`;
+  });
+  out = out.replace(/!\[\[[^\]]+\]\]/g, "");
+  out = out.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
+  out = out.replace(/\[\[([^\]]+)\]\]/g, "$1");
+  out = out.replace(
+    /\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
+    (_, label, href) => `${label} <span class="url">${href}</span>`
+  );
+  out = out.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<span class="url">$2</span>');
+  out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  out = out.replace(/~~([^~]+)~~/g, "<s>$1</s>");
+  out = out.replace(/==([^=]+)==/g, "<mark>$1</mark>");
+  return out.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${escapeHtml(code[Number(i)])}</code>`);
+}
+function tableRow(line) {
+  return line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+}
+var SEPARATOR = /^\s*\|?[\s:-]*-[\s|:-]*\|?\s*$/;
+function renderMarkdown(source) {
+  const lines2 = source.split("\n");
+  const out = [];
+  let listTag = null;
+  let paragraph = [];
+  let quote = [];
+  let inFence = false;
+  const closeList = () => {
+    if (listTag) out.push(`</${listTag}>`);
+    listTag = null;
+  };
+  const closeParagraph = () => {
+    if (paragraph.length > 0) out.push(`<p>${inline(paragraph.join(" "))}</p>`);
+    paragraph = [];
+  };
+  const closeQuote = () => {
+    if (quote.length > 0) out.push(`<blockquote>${inline(quote.join(" "))}</blockquote>`);
+    quote = [];
+  };
+  const closeAll = () => {
+    closeParagraph();
+    closeQuote();
+    closeList();
+  };
+  for (let i = 0; i < lines2.length; i += 1) {
+    const raw = lines2[i];
+    const line = raw.trim();
+    if (FENCE.test(raw)) {
+      closeAll();
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (line === "") {
+      closeAll();
+      continue;
+    }
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) {
+      closeAll();
+      out.push("<hr>");
+      continue;
+    }
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) {
+      closeAll();
+      const level = Math.min(heading[1].length + 2, 6);
+      out.push(`<h${level}>${inline(heading[2])}</h${level}>`);
+      continue;
+    }
+    if (line.startsWith(">")) {
+      closeParagraph();
+      closeList();
+      quote.push(line.replace(/^>\s?/, ""));
+      continue;
+    }
+    if (line.startsWith("|") && SEPARATOR.test(lines2[i + 1] ?? "")) {
+      closeAll();
+      const headers = tableRow(line);
+      const rows = [];
+      i += 1;
+      while (i + 1 < lines2.length && lines2[i + 1].trim().startsWith("|")) {
+        i += 1;
+        rows.push(tableRow(lines2[i]));
+      }
+      out.push(
+        "<table><thead><tr>",
+        ...headers.map((h) => `<th>${inline(h)}</th>`),
+        "</tr></thead><tbody>",
+        ...rows.map((row2) => `<tr>${row2.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`),
+        "</tbody></table>"
+      );
+      continue;
+    }
+    const task = /^[-*+]\s+\[( |x|X)\]\s+(.*)$/.exec(line);
+    if (task) {
+      closeParagraph();
+      closeQuote();
+      if (listTag !== "ul") {
+        closeList();
+        out.push('<ul class="tasks">');
+        listTag = "ul";
+      }
+      out.push(
+        `<li><span class="box${task[1].toLowerCase() === "x" ? " on" : ""}"></span>${inline(task[2])}</li>`
+      );
+      continue;
+    }
+    const bullet = /^[-*+]\s+(.*)$/.exec(line);
+    if (bullet) {
+      closeParagraph();
+      closeQuote();
+      if (listTag !== "ul") {
+        closeList();
+        out.push("<ul>");
+        listTag = "ul";
+      }
+      out.push(`<li>${inline(bullet[1])}</li>`);
+      continue;
+    }
+    const numbered = /^\d+[.)]\s+(.*)$/.exec(line);
+    if (numbered) {
+      closeParagraph();
+      closeQuote();
+      if (listTag !== "ol") {
+        closeList();
+        out.push("<ol>");
+        listTag = "ol";
+      }
+      out.push(`<li>${inline(numbered[1])}</li>`);
+      continue;
+    }
+    closeQuote();
+    closeList();
+    paragraph.push(line);
+  }
+  closeAll();
+  return out.join("\n");
+}
+function stripFrontmatter2(source) {
+  if (!source.startsWith("---")) return source;
+  const end = source.indexOf("\n---", 3);
+  if (end === -1) return source;
+  return source.slice(source.indexOf("\n", end + 1) + 1);
+}
+
 // src/export/pdfExport.ts
 var WEEKDAYS3 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 var IMAGE_RE2 = /\.(png|jpe?g|gif|webp)$/i;
@@ -7042,6 +7245,17 @@ function mimeFor(extension) {
   const ext = extension.toLowerCase();
   if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
   return `image/${ext}`;
+}
+function journeyOf(value) {
+  const legs = readLegs(value);
+  if (legs.length === 0) return "";
+  const summary = summariseFlight(legs);
+  return [summary.label, ...summary.layovers, summary.arrival ? `lands ${summary.arrival}` : ""].filter(Boolean).join(" \xB7 ");
+}
+function flightJourney(app, file, band) {
+  const fm = app.metadataCache.getFileCache(file)?.frontmatter;
+  if (!fm?.legs && !fm?.return_legs) return "";
+  return journeyOf(band === BAND.Depart ? fm?.return_legs : fm?.legs);
 }
 async function buildTripDocument(plugin, trip) {
   const app = plugin.app;
@@ -7109,41 +7323,42 @@ async function buildTripDocument(plugin, trip) {
       cost: booking.cost ? formatMoney(booking.cost) : "",
       notes: booking.notes,
       legs: readLegs2(fm?.legs),
-      returnLegs: readLegs2(fm?.return_legs)
+      returnLegs: readLegs2(fm?.return_legs),
+      journey: journeyOf(fm?.legs),
+      returnJourney: journeyOf(fm?.return_legs)
     };
   });
+  const places = plugin.travelPlaces.get(trip.folderPath);
+  const origin = places?.hotels[0];
+  const allPlaces = places ? [...places.hotels, ...places.airports, ...places.activities, ...places.restaurants] : [];
+  const placeByPath = new Map(allPlaces.filter((p) => p.file).map((p) => [p.file.path, p]));
+  const modes = plugin.settings.travelModes;
+  const hopText = (from, to) => {
+    if (!from || !to || from.id === to.id) return "";
+    const legs = plugin.travel.peekLegs(from, [to], modes).get(to.id);
+    if (!legs || legs.length === 0) return "";
+    const reference = legs.find((l) => l.mode === "walking") ?? legs[0];
+    return [
+      formatDistance(reference.distanceMeters),
+      ...legs.map(
+        (leg) => `${TRAVEL_MODES.find((m) => m.id === leg.mode)?.label ?? leg.mode} ${formatDuration2(leg.durationSeconds)}`
+      )
+    ].join(" \xB7 ");
+  };
+  const live = bookings.filter((b) => b.status !== "cancelled");
   const days = datesInRange(trip.startDate, trip.endDate, 90).map((date, index) => {
     const parsed = parseISO(date);
-    const items = bookings.filter((b) => b.status !== "cancelled").flatMap((booking) => {
-      const out = [];
-      if (booking.kind === "stay") {
-        if (date === booking.date) out.push({ time: booking.time, title: booking.title, detail: "Check in" });
-        if (booking.endDate !== booking.date && date === booking.endDate) {
-          out.push({ time: booking.endTime, title: booking.title, detail: "Check out" });
-        }
-        return out;
-      }
-      if (booking.kind === "flight") {
-        if (date === booking.date) {
-          out.push({
-            time: booking.time,
-            title: booking.title,
-            detail: [booking.from, booking.to].filter(Boolean).join(" \u2192 ")
-          });
-        }
-        if (booking.returnDate && date === booking.returnDate) {
-          out.push({ time: booking.returnTime, title: booking.title, detail: "Return" });
-        }
-        return out;
-      }
-      if (date === booking.date) {
-        out.push({ time: booking.time, title: booking.title, detail: booking.slot });
-      }
-      return out;
-    }).sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
-    const staying = bookings.find(
-      (b) => b.kind === "stay" && date > b.date && date < b.endDate
-    );
+    const events = dayEvents(live, date);
+    const staying = ongoingOn(live, date)[0];
+    const items = events.map((event, position) => {
+      const previous = position === 0 ? staying ? origin : void 0 : placeByPath.get(events[position - 1].file.path);
+      return {
+        time: event.time,
+        title: event.title,
+        detail: [event.detail, flightJourney(app, event.file, event.band)].filter(Boolean).join(" \xB7 "),
+        travel: hopText(previous, placeByPath.get(event.file.path))
+      };
+    });
     return {
       date,
       label: `Day ${index + 1}`,
@@ -7210,6 +7425,63 @@ async function buildTripDocument(plugin, trip) {
   for (const expense of plugin.bookings.getExpenses(trip)) {
     await collect(expense.attachments, expense.file.path, expense.description);
   }
+  const travel = { origin: origin?.label ?? "", groups: [] };
+  if (origin && places) {
+    const groups = [
+      { heading: `Airport transfer \xB7 to ${origin.label}`, items: places.airports },
+      { heading: `Activities \xB7 from ${origin.label}`, items: places.activities },
+      { heading: `Restaurants \xB7 from ${origin.label}`, items: places.restaurants }
+    ];
+    for (const group of groups) {
+      const rows = [];
+      for (const place of group.items) {
+        const legs = plugin.travel.peekLegs(origin, [place], modes).get(place.id);
+        if (!legs || legs.length === 0) continue;
+        const reference = legs.find((l) => l.mode === "walking") ?? legs[0];
+        rows.push({
+          name: place.label,
+          detail: [place.date, place.time].filter(Boolean).join(" "),
+          distance: formatDistance(reference.distanceMeters),
+          times: modes.map((mode) => {
+            const leg = legs.find((l) => l.mode === mode);
+            const label = TRAVEL_MODES.find((m) => m.id === mode)?.label ?? mode;
+            return `${label} ${leg ? formatDuration2(leg.durationSeconds) : "no route"}`;
+          }).join(" \xB7 ")
+        });
+      }
+      if (rows.length > 0) travel.groups.push({ heading: group.heading, places: rows });
+    }
+  }
+  const restaurants = [];
+  for (const place of plugin.travel.restaurantsFor(trip)) {
+    const fm = place.file ? app.metadataCache.getFileCache(place.file)?.frontmatter : void 0;
+    if (!fm) continue;
+    const price = Number(fm.price);
+    const legs = origin ? plugin.travel.peekLegs(origin, [place], modes).get(place.id) : void 0;
+    const reference = legs?.find((l) => l.mode === "walking") ?? legs?.[0];
+    restaurants.push({
+      name: String(fm.name ?? place.label),
+      cuisines: Array.isArray(fm.cuisines) ? fm.cuisines.join(", ") : String(fm.cuisines ?? ""),
+      price: Number.isFinite(price) && price > 0 ? "\u20AC".repeat(Math.min(price, 4)) : "",
+      rating: fm.google_rating ? `${fm.google_rating}${fm.google_rating_count ? ` (${fm.google_rating_count})` : ""}` : "",
+      address: String(fm.address ?? ""),
+      contact: [fm.phone, fm.url].filter(Boolean).map(String).join(" \xB7 "),
+      travel: legs && reference ? `${formatDistance(reference.distanceMeters)} \xB7 ${legs.map(
+        (leg) => `${TRAVEL_MODES.find((m) => m.id === leg.mode)?.label ?? leg.mode} ${formatDuration2(leg.durationSeconds)}`
+      ).join(" \xB7 ")}` : "",
+      status: [fm.favorite ? "favourite" : "", fm.status === "visited" ? "visited" : ""].filter(Boolean).join(" \xB7 ")
+    });
+  }
+  restaurants.sort((a, b) => a.name.localeCompare(b.name));
+  const notes = [];
+  const skip = /* @__PURE__ */ new Set(["packing", "budget"]);
+  const tripBody = renderMarkdown(stripFrontmatter2(await app.vault.cachedRead(trip.file)));
+  if (tripBody.trim()) notes.push({ title: "Trip note", html: tripBody });
+  for (const sub of plugin.store.getSubNotes(trip)) {
+    if (sub.id && skip.has(sub.id)) continue;
+    const html = renderMarkdown(stripFrontmatter2(await app.vault.cachedRead(sub.file)));
+    if (html.trim()) notes.push({ title: sub.label, html });
+  }
   return {
     title: trip.title,
     dates: formatDateRange(trip.startDate, trip.endDate),
@@ -7223,6 +7495,9 @@ async function buildTripDocument(plugin, trip) {
     days,
     costs,
     packing,
+    travel,
+    restaurants,
+    notes,
     images,
     generatedOn: (/* @__PURE__ */ new Date()).toLocaleDateString()
   };

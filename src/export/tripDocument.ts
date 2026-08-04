@@ -35,13 +35,16 @@ export interface DocBooking {
   notes: string;
   legs: DocLeg[];
   returnLegs: DocLeg[];
+  /** "2 h 20 min · direct · lands 12:35", when the legs say enough. */
+  journey: string;
+  returnJourney: string;
 }
 
 export interface DocDay {
   date: string;
   label: string;
   weekday: string;
-  items: { time: string; title: string; detail: string }[];
+  items: { time: string; title: string; detail: string; travel: string }[];
   staying: string;
 }
 
@@ -52,9 +55,29 @@ export interface DocCostLine {
   amount: string;
 }
 
-export interface DocSection {
-  heading: string;
-  rows: [string, string][];
+/** A place you travel to, with how long it takes to get there. */
+export interface DocPlace {
+  name: string;
+  detail: string;
+  distance: string;
+  times: string;
+}
+
+export interface DocRestaurant {
+  name: string;
+  cuisines: string;
+  price: string;
+  rating: string;
+  address: string;
+  contact: string;
+  travel: string;
+  status: string;
+}
+
+/** A note written by hand, rendered as printable HTML. */
+export interface DocNote {
+  title: string;
+  html: string;
 }
 
 export interface TripDocument {
@@ -70,6 +93,10 @@ export interface TripDocument {
   days: DocDay[];
   costs: { lines: DocCostLine[]; total: string; budget: string; byCategory: [string, string][] };
   packing: { section: string; items: { label: string; packed: boolean }[] }[];
+  /** Travel times outward from where you are staying. */
+  travel: { origin: string; groups: { heading: string; places: DocPlace[] }[] };
+  restaurants: DocRestaurant[];
+  notes: DocNote[];
   /** Images embedded as data URIs, so the file stands alone. */
   images: { caption: string; dataUri: string }[];
   generatedOn: string;
@@ -132,12 +159,19 @@ function bookingBlock(booking: DocBooking): string {
 
   if (booking.legs.length > 0) {
     parts.push(
-      `<h4>${booking.returnLegs.length > 0 ? "Outbound" : "Itinerary"}</h4>`,
+      `<h4>${booking.returnLegs.length > 0 ? "Outbound" : "Itinerary"}${
+        booking.journey ? ` <span class="kind">${escapeHtml(booking.journey)}</span>` : ""
+      }</h4>`,
       table(["Flight", "From", "To", "Departs", "Arrives"], legRows(booking.legs)),
     );
   }
   if (booking.returnLegs.length > 0) {
-    parts.push("<h4>Return</h4>", table(["Flight", "From", "To", "Departs", "Arrives"], legRows(booking.returnLegs)));
+    parts.push(
+      `<h4>Return${
+        booking.returnJourney ? ` <span class="kind">${escapeHtml(booking.returnJourney)}</span>` : ""
+      }</h4>`,
+      table(["Flight", "From", "To", "Departs", "Arrives"], legRows(booking.returnLegs)),
+    );
   }
   if (booking.notes.trim()) {
     parts.push(`<p class="notes">${escapeHtml(booking.notes.trim())}</p>`);
@@ -201,6 +235,20 @@ const STYLES = `
   .totals { display: flex; gap: 10mm; margin: 2mm 0 3mm; }
   .totals div span { display: block; color: #55606b; font-size: 8.5pt; text-transform: uppercase; }
   .totals div strong { font-size: 13pt; }
+  .day .hop { color: #55606b; font-size: 8.5pt; padding-left: 1mm; }
+  .note { font-size: 9.5pt; }
+  .note h3, .note h4, .note h5, .note h6 { margin: 3mm 0 1.5mm; }
+  .note p { margin: 0 0 2mm; }
+  .note ul, .note ol { margin: 0 0 2mm; padding-left: 5mm; }
+  .note ul.tasks { list-style: none; padding-left: 0; }
+  .note li { margin-bottom: .6mm; }
+  .note blockquote {
+    margin: 0 0 2mm; padding-left: 3mm; border-left: 2px solid #d7dbe0; color: #37414a;
+  }
+  .note code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 9pt; }
+  .note hr { border: none; border-top: 1px solid #e4e7eb; margin: 3mm 0; }
+  .note mark { background: #fdf3d0; }
+  .url { color: #2b6cb0; word-break: break-all; }
   footer { margin-top: 8mm; color: #8a939c; font-size: 8.5pt; border-top: 1px solid #e4e7eb; padding-top: 2mm; }
 `;
 
@@ -249,7 +297,7 @@ export function renderTripDocument(doc: TripDocument): string {
                 (item) =>
                   `<div class="item"><div class="t">${escapeHtml(item.time || "")}</div><div><strong>${escapeHtml(item.title)}</strong>${
                     item.detail ? ` <span class="t">${escapeHtml(item.detail)}</span>` : ""
-                  }</div></div>`,
+                  }${item.travel ? `<div class="hop">→ ${escapeHtml(item.travel)}</div>` : ""}</div></div>`,
               )
               .join("")
           : '<div class="empty">Nothing planned</div>';
@@ -283,6 +331,38 @@ export function renderTripDocument(doc: TripDocument): string {
     }
   }
 
+  if (doc.travel.groups.length > 0) {
+    parts.push(
+      "<h2>Getting around</h2>",
+      `<p class="notes">Travel times measured from ${escapeHtml(doc.travel.origin)}.</p>`,
+    );
+    for (const group of doc.travel.groups) {
+      parts.push(
+        `<h3>${escapeHtml(group.heading)}</h3>`,
+        table(
+          ["Place", "When", "Distance", "Travel time"],
+          group.places.map((p) => [p.name, p.detail, p.distance, p.times]),
+        ),
+      );
+    }
+  }
+
+  if (doc.restaurants.length > 0) {
+    parts.push(
+      "<h2>Places to eat</h2>",
+      table(
+        ["Restaurant", "Cuisine", "Rating", "Where", "Getting there"],
+        doc.restaurants.map((r) => [
+          [r.name, r.status].filter(Boolean).join(" · "),
+          [r.cuisines, r.price].filter(Boolean).join(" · "),
+          r.rating,
+          [r.address, r.contact].filter(Boolean).join(" · "),
+          r.travel,
+        ]),
+      ),
+    );
+  }
+
   if (doc.packing.length > 0) {
     parts.push('<h2>Packing list</h2><div class="packing">');
     for (const section of doc.packing) {
@@ -296,6 +376,11 @@ export function renderTripDocument(doc: TripDocument): string {
       );
     }
     parts.push("</div>");
+  }
+
+  // The notes written by hand, last, because they are the long-form part.
+  for (const note of doc.notes) {
+    parts.push(`<h2>${escapeHtml(note.title)}</h2>`, `<div class="note">${note.html}</div>`);
   }
 
   if (doc.images.length > 0) {
