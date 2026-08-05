@@ -3,6 +3,7 @@ import { BOOKING_KINDS } from "../../bookings/types";
 import type AwtyPlugin from "../../main";
 import type { Trip } from "../../types";
 import { AWTY_DASHBOARD_TYPE } from "../../types";
+import { isMobile } from "../../util/platform";
 import type { DashboardContext } from "./common";
 import { renderOverview } from "./tabs/overview";
 import { renderTrips } from "./tabs/trips";
@@ -232,16 +233,26 @@ export class AwtyDashboardView extends ItemView {
     }
 
     const tabs = header.createDiv({ cls: "awty-dash-tabs" });
+    let activeTab: HTMLElement | null = null;
     for (const tab of TABS) {
       const el = tabs.createDiv({
         cls: `awty-dash-tab${tab.id === this.tab ? " is-active" : ""}`,
       });
+      if (tab.id === this.tab) activeTab = el;
       setIcon(el.createSpan({ cls: "awty-dash-tab-icon" }), tab.icon);
       el.createSpan({ text: tab.label });
       el.addEventListener("click", () => {
         this.tab = tab.id;
         this.render();
       });
+    }
+
+    // Six tabs do not fit a phone, so the strip scrolls — but every render
+    // rebuilds it scrolled back to the left, which put the last tabs off screen
+    // with nothing to suggest they were there. Only the tab strip moves;
+    // `block: "nearest"` keeps the page itself where it is.
+    if (isMobile() && activeTab) {
+      activeTab.scrollIntoView({ inline: "center", block: "nearest" });
     }
   }
 }

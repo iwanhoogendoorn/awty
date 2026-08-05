@@ -25,16 +25,12 @@ export function isTablet(): boolean {
   return Platform.isTablet;
 }
 
-/**
- * True where Electron and node are available — the desktop app.
- *
- * The save dialogue, the temp file and printToPDF all need this. Kept separate
- * from `isMobile()` because "not mobile" and "has Electron" are different
- * claims, and only the second one licenses `require("electron")`.
+/*
+ * There is deliberately no `isDesktopApp()` wrapper here. "Has Electron" is a
+ * different claim from "is not mobile", and the export code already answers it
+ * the only way that matters — `canExportPdf()` in export/pdfExport.ts probes
+ * `require("electron")` for real rather than asking Platform and hoping.
  */
-export function isDesktopApp(): boolean {
-  return Platform.isDesktopApp;
-}
 
 /**
  * Marks the document so CSS can target mobile without a media query.

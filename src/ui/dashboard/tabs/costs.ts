@@ -1,6 +1,7 @@
 import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
 import { bar, editItem, emptyState, itemMenu, renderToolbar, sectionTitle, statTiles, noTripState, touchMenuButton } from "../common";
+import { isMobile } from "../../../util/platform";
 import { totalsByCategory } from "../../../bookings/bookingStore";
 import { allCategories } from "../../../bookings/types";
 import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/money";
@@ -125,7 +126,13 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
       row.addEventListener("click", () => {
         if (!editItem(ctx, line.file)) ctx.openFile(line.file);
       });
-      row.setAttribute("title", "Click to edit, right-click for more");
+      // Neither half of that sentence is true on a phone — a title tooltip
+      // never renders on touch and there is no right-click. overview.ts:222
+      // already branches its equivalent string; this one had been missed.
+      row.setAttribute(
+        "title",
+        isMobile() ? "Tap to edit, or the ⋮ button for more" : "Click to edit, right-click for more",
+      );
       row.addEventListener("contextmenu", (evt) => {
         evt.preventDefault();
         itemMenu(evt, ctx, line.file, line.description);

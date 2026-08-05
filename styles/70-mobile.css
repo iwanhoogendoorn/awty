@@ -30,10 +30,19 @@ body.awty-mobile {
    into a horizontal page scroll. Anything that genuinely needs to scroll wide —
    the tab strip, the settings matrix — gets its own scroll container below. */
 body.awty-mobile .awty-dashboard,
-body.awty-mobile .awty-sidebar,
-body.awty-mobile .modal-content.awty-modal {
+body.awty-mobile .modal-content.awty-modal,
+/* routeModal.ts:52 carries the class on modalEl, so reach its content too. */
+body.awty-mobile .modal.awty-modal > .modal-content {
   max-width: 100%;
   overflow-x: hidden;
+}
+
+/* The sidebar gets max-width without overflow-x. Pairing `overflow-x: hidden`
+   with the default `overflow-y: visible` forces the y axis to compute to auto,
+   which would quietly turn a pane that has never been a scroll container
+   (20-sidebar.css sets no overflow at all) into one. */
+body.awty-mobile .awty-sidebar {
+  max-width: 100%;
 }
 
 /* ==========================================================================
@@ -77,7 +86,10 @@ body.awty-mobile .awty-doc-row:active,
 body.awty-mobile .awty-day-item:active,
 body.awty-mobile .awty-around-row.is-clickable:active,
 body.awty-mobile .awty-gallery-head.is-clickable:active,
-body.awty-mobile .awty-attention-row.is-clickable:active {
+body.awty-mobile .awty-attention-row.is-clickable:active,
+/* itinerary.ts:174 — the travel leg between two events, and the itinerary's
+   only way into the route editor. */
+body.awty-mobile .awty-leg.is-clickable:active {
   background: var(--background-modifier-hover);
 }
 
@@ -85,7 +97,8 @@ body.awty-mobile .awty-attention-row.is-clickable:active {
    states above and lands on the wrong element in nested rows. */
 body.awty-mobile .awty-dashboard,
 body.awty-mobile .awty-sidebar,
-body.awty-mobile .modal-content.awty-modal {
+body.awty-mobile .modal-content.awty-modal,
+body.awty-mobile .modal.awty-modal > .modal-content {
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -165,6 +178,13 @@ body.awty-mobile .awty-packing-row,
 body.awty-mobile .awty-slot-activity,
 body.awty-mobile .awty-attention-row,
 body.awty-mobile .awty-matrix-cell,
+/* 55-travel.css:87 leaves the travel leg about 23px tall, so a tap between two
+   itinerary events landed on the .awty-day-item above or below and opened the
+   wrong booking. It is the only route into the route editor from here. */
+body.awty-mobile .awty-leg.is-clickable,
+/* 50-dashboard.css:985 — a 34px clickable bar. Full width, so easy to hit
+   already, but there is no reason for it to be the one row under 44px. */
+body.awty-mobile .awty-gallery-head.is-clickable,
 body.awty-mobile .awty-day-ongoing {
   min-height: var(--awty-tap);
 }
@@ -231,6 +251,14 @@ body.awty-mobile .awty-timeline-open a {
 body.awty-phone .modal-content.awty-modal input,
 body.awty-phone .modal-content.awty-modal select,
 body.awty-phone .modal-content.awty-modal textarea,
+/* routeModal.ts:52 is the one modal that puts `awty-modal` on modalEl rather
+   than contentEl, so the `.modal-content.awty-modal` selectors above miss it
+   entirely and its two dropdowns keep the iOS focus-zoom trap. A bare
+   `.awty-modal` descendant matches whichever element carries the class, so it
+   covers that modal and the other twelve alike. */
+body.awty-phone .awty-modal input,
+body.awty-phone .awty-modal select,
+body.awty-phone .awty-modal textarea,
 body.awty-phone .awty-settings input,
 body.awty-phone .awty-settings select,
 body.awty-phone .awty-settings textarea,
@@ -242,6 +270,9 @@ body.awty-phone .awty-sidebar input {
 
 body.awty-mobile .modal-content.awty-modal input,
 body.awty-mobile .modal-content.awty-modal select,
+/* Same reason as above — routeModal's dropdowns are otherwise under 44px. */
+body.awty-mobile .awty-modal input:not([type="checkbox"]),
+body.awty-mobile .awty-modal select,
 body.awty-mobile .awty-settings input:not([type="checkbox"]),
 body.awty-mobile .awty-settings select,
 body.awty-mobile .awty-sidebar input {
@@ -479,19 +510,20 @@ body.awty-mobile .awty-day-item .awty-touch-menu {
   margin-left: 0.2em;
 }
 
-/* The sidebar sub-note rows (view.ts:309) are tighter than the dashboard list
-   rows — 25-subnotes.css:99 gives them 0.3em of vertical padding, so the -0.4em
-   the generic rule pulls back would eat into the row above. The progress ring
-   is the row's other trailing item, hence the gap rather than an auto margin. */
-body.awty-mobile .awty-subnote-row .awty-touch-menu {
-  margin-block: -0.3em;
-  margin-left: 0.15em;
-}
+/* No rule for .awty-subnote-row here on purpose: those rows carry no touch
+   button. Their right-click menu is "Open" and "Open in new tab", and
+   openInWorkspace (main.ts:414) never reads its _newTab argument — so both
+   items, and a plain tap on the row, are the same call. A button per sub-note
+   row would be clutter in the narrowest column of the app for no new action. */
 
 /* Inline variant: overview.ts:217 puts this inside .awty-note-actions beside
    the Edit and Open buttons, so it should read as one of them — bordered box,
    square, same height — rather than as a floating overlay. */
-body.awty-mobile .awty-touch-menu-inline {
+/* Both classes are always applied together, so this must outrank the base rule
+   above on specificity rather than on source order — otherwise reordering the
+   file would silently hand the inline button back its `margin-left: auto` and
+   push it away from the buttons it is meant to sit beside. */
+body.awty-mobile .awty-touch-menu.awty-touch-menu-inline {
   margin: 0;
   width: var(--awty-tap);
   min-width: var(--awty-tap);
@@ -503,7 +535,7 @@ body.awty-mobile .awty-touch-menu-inline {
   color: var(--text-muted);
 }
 
-body.awty-mobile .awty-touch-menu-inline:active {
+body.awty-mobile .awty-touch-menu.awty-touch-menu-inline:active {
   background: var(--background-modifier-hover);
   border-color: var(--interactive-accent);
   color: var(--text-normal);

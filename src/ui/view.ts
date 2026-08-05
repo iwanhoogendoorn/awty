@@ -6,7 +6,6 @@ import type { SubNote } from "../store/tripStore";
 import type { NoteProgress } from "../store/noteProgress";
 import { joinPlaces, tripCities, tripCountries } from "../types";
 import { daysUntil, formatDateRange, formatDuration } from "../util/dates";
-import { touchMenuButton } from "./dashboard/common";
 
 const GROUPS: { status: TripStatus; label: string }[] = [
   { status: "current", label: "Happening now" },
@@ -288,10 +287,9 @@ export class AwtySidebarView extends ItemView {
         evt.stopPropagation();
         void this.openFile(sub.file, evt.metaKey || evt.ctrlKey);
       });
-      // Named rather than inlined so the touch button below opens this same
-      // menu. Tapping the row opens the note, but "Open in new tab" needed
-      // either a right-click or a ctrl/meta-click, and a phone has neither.
-      const subMenu = (evt: MouseEvent): void => {
+      row.addEventListener("contextmenu", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
         const menu = new Menu();
         menu.addItem((i) =>
           i
@@ -306,14 +304,7 @@ export class AwtySidebarView extends ItemView {
             .onClick(() => void this.openFile(sub.file, true)),
         );
         menu.showAtMouseEvent(evt);
-      };
-
-      row.addEventListener("contextmenu", (evt) => {
-        evt.preventDefault();
-        evt.stopPropagation();
-        subMenu(evt);
       });
-      touchMenuButton(row, `More actions for ${sub.label}`, subMenu);
     }
   }
 
