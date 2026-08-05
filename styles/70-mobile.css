@@ -29,19 +29,22 @@ body.awty-mobile {
 /* Belt and braces: if any row does overflow, it is clipped rather than turned
    into a horizontal page scroll. Anything that genuinely needs to scroll wide —
    the tab strip, the settings matrix — gets its own scroll container below. */
-body.awty-mobile .awty-dashboard,
-body.awty-mobile .modal-content.awty-modal,
-/* routeModal.ts:52 carries the class on modalEl, so reach its content too. */
-body.awty-mobile .modal.awty-modal > .modal-content {
+body.awty-mobile .awty-dashboard {
   max-width: 100%;
   overflow-x: hidden;
 }
 
-/* The sidebar gets max-width without overflow-x. Pairing `overflow-x: hidden`
-   with the default `overflow-y: visible` forces the y axis to compute to auto,
-   which would quietly turn a pane that has never been a scroll container
-   (20-sidebar.css sets no overflow at all) into one. */
-body.awty-mobile .awty-sidebar {
+/* The sidebar and the modals get max-width WITHOUT overflow-x. Pairing
+   `overflow-x: hidden` with the default `overflow-y: visible` forces the y axis
+   to compute to `auto`, which turns the element into a scroll container. The
+   sidebar has never been one (20-sidebar.css sets no overflow at all), and on a
+   modal it nests a second scroller inside Obsidian's own and strands the
+   content below the fold — see section 9. `.awty-dashboard` above is safe
+   because 50-dashboard.css:1 already declares `overflow-y: auto` on it. */
+body.awty-mobile .awty-sidebar,
+body.awty-mobile .modal-content.awty-modal,
+/* routeModal.ts:52 carries the class on modalEl, so reach its content too. */
+body.awty-mobile .modal.awty-modal > .modal-content {
   max-width: 100%;
 }
 
@@ -346,10 +349,24 @@ body.awty-phone .awty-dash-select {
 }
 
 /* 50-dashboard.css:36 pushes the quick actions right with `margin-left: auto`.
-   Once the picker takes its own row that only strands them against the edge. */
+   Once the picker takes its own row that only strands them against the edge.
+
+   `width: 100%` here was a mistake: it forced the quick actions onto a row of
+   their own, which left the trip-menu ⋯ — its sibling, earlier in the DOM —
+   sitting alone on the row above with a screen of empty space beside it.
+   `flex: 1 1 auto` lets the ⋯ and "Plan trip / Add / Export PDF" share one row
+   and wrap together as one group. */
 body.awty-phone .awty-dash-quick {
   margin-left: 0;
-  width: 100%;
+  width: auto;
+  flex: 1 1 auto;
+}
+
+/* Compact, so it never wins the space the labelled buttons need beside it. */
+body.awty-phone .awty-dash-tripmenu {
+  flex: 0 0 auto;
+  min-width: var(--awty-tap);
+  min-height: var(--awty-tap);
 }
 
 /* Six tabs come to roughly 510px, so the strip has to scroll. 50-dashboard.css
@@ -525,10 +542,14 @@ body.awty-mobile .awty-day-item .awty-touch-menu {
    push it away from the buttons it is meant to sit beside. */
 body.awty-mobile .awty-touch-menu.awty-touch-menu-inline {
   margin: 0;
-  width: var(--awty-tap);
   min-width: var(--awty-tap);
-  height: var(--awty-tap);
+  /* `height: 44px` was the bug: a fixed height opts the button out of the row's
+     stretch, so it stood a few pixels taller than the Add / Edit / Open buttons
+     beside it and the row looked ragged. `auto` lets it take the row's height
+     like every other button, with 44px only as the floor. */
+  height: auto;
   min-height: var(--awty-tap);
+  padding: 0;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
@@ -541,10 +562,48 @@ body.awty-mobile .awty-touch-menu.awty-touch-menu-inline:active {
   color: var(--text-normal);
 }
 
-/* .awty-note-btn grows to 44px in section 3; the row holding both needs to
-   align them rather than stretch the shorter one. */
-body.awty-mobile .awty-note-actions {
+/* `align-items: center` was wrong here: it cancels the default `stretch`, so
+   every button in the row sized itself independently and the ⋮ ended up a
+   different height from Add / Edit / Open sitting right next to it. Stretch
+   makes one row of buttons one height, whatever each one contains. */
+body.awty-mobile .awty-note-actions,
+body.awty-mobile .awty-dash-quick,
+body.awty-mobile .awty-dash-toolbar {
+  align-items: stretch;
+}
+
+/* One shape for every button that sits in a row of buttons: same height, same
+   centring, text never wrapping mid-row. Without the explicit centring a
+   stretched button leaves its label glued to the top. */
+body.awty-mobile .awty-note-actions button,
+body.awty-mobile .awty-dash-quick button,
+body.awty-mobile .awty-note-btn,
+body.awty-mobile .awty-dash-quick-btn,
+body.awty-mobile .awty-dash-add,
+body.awty-mobile .awty-dash-action,
+body.awty-mobile .awty-plan-btn {
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-height: var(--awty-tap);
+  height: auto;
+  white-space: nowrap;
+}
+
+/* The plan wizard stacks nine rows each ending in one button — "Edit", "Check",
+   "Add", "Add a day", "Book a table". Left to their labels they came out seven
+   different widths down the right-hand edge, which reads as sloppy rather than
+   as a list. A shared floor lines them up into a column; the longer labels
+   still grow past it rather than being cut. */
+body.awty-mobile .awty-plan-btn {
+  min-width: 6.5em;
+}
+
+/* Same idea for the per-note action rows on the Overview tab: Add / Edit /
+   Open / ⋮ read as one set of controls, so they get one size. Four at 4.5em
+   plus gaps still fits inside 390px. */
+body.awty-mobile .awty-note-btn {
+  min-width: 4.5em;
 }
 
 /* ==========================================================================
@@ -560,16 +619,19 @@ body.awty-mobile .awty-note-actions {
    leaves the screen — no scrolling past 1080 lines of booking wizard to reach
    Save. */
 
-body.awty-mobile .modal-content.awty-modal,
-body.awty-mobile .modal.awty-modal > .modal-content {
-  /* vh first as the fallback, then dvh so the iOS URL bar collapsing does not
-     leave the footer parked below the fold. */
-  max-height: 72vh;
-  max-height: 72dvh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-}
+/* No max-height and no overflow here, deliberately — an earlier version set
+   `max-height: 72dvh; overflow-y: auto` and it was wrong twice over on a real
+   phone. Obsidian's mobile modal already scrolls, so the cap added a SECOND
+   scroll container nested inside it: dragging moved the outer one, the inner
+   one never scrolled, and everything past 72dvh — the Status field, half the
+   wizard — simply could not be reached. Worse, `.awty-plan-list` and the other
+   lists are column flex containers whose rows carry the default
+   `flex-shrink: 1`, so the cap squashed the rows while their buttons
+   (`.awty-plan-btn` is `flex: none`) kept full height and spilled over the row
+   above and below.
+
+   Letting Obsidian own the scrolling fixes both. The sticky footer below still
+   works — it pins against whichever ancestor Obsidian scrolls. */
 
 body.awty-mobile .modal-content.awty-modal > .setting-item:last-child {
   position: sticky;
@@ -605,14 +667,27 @@ body.awty-phone .awty-modal-shell {
   max-width: 96vw;
 }
 
-/* Long scrolling regions inside a modal already carry their own cap in vh
-   (45-wizard.css:136 and :736, 50-dashboard.css:275). Those caps were sized
-   against a desktop window; inside a 72dvh modal they leave the body barely
-   taller than a single row. */
+/* Long scrolling regions inside a modal carry their own cap in vh
+   (45-wizard.css:136 and :736, 50-dashboard.css:275) sized against a desktop
+   window. On a phone that is a scroll container inside the modal's scroll
+   container — two nested scrollbars for one list. Let the list run to its full
+   height and let the modal do the scrolling. */
 body.awty-mobile .awty-plan-list,
 body.awty-mobile .awty-offer-list,
 body.awty-mobile .awty-packing-list {
   max-height: none;
+  overflow-y: visible;
+}
+
+/* All three are `flex-direction: column`, where every child defaults to
+   `flex-shrink: 1`. Any height pressure from an ancestor squashes the rows
+   while the buttons inside them (`.awty-plan-btn` is `flex: none`) hold their
+   size and spill over the rows above and below. Pinning the rows means that
+   cannot happen again, whatever an ancestor decides to do. */
+body.awty-mobile .awty-plan-row,
+body.awty-mobile .awty-offer,
+body.awty-mobile .awty-packing-row {
+  flex: none;
 }
 
 /* 45-wizard.css:66 reserves 12em of body height so the nav does not jump
