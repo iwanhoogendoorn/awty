@@ -1,6 +1,6 @@
 {
   "name": "awty",
-  "version": "2.15.2",
+  "version": "2.15.3",
   "description": "Travel Planner — plan holidays, day trips, concerts and events as markdown notes in Obsidian",
   "main": "awty/main.js",
   "scripts": {

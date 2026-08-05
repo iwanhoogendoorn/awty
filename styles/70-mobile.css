@@ -85,7 +85,6 @@ body.awty-mobile .awty-card:active,
 body.awty-mobile .awty-next-row:active,
 body.awty-mobile .awty-booking:active,
 body.awty-mobile .awty-cost-line:active,
-body.awty-mobile .awty-doc-row:active,
 body.awty-mobile .awty-day-item:active,
 body.awty-mobile .awty-around-row.is-clickable:active,
 body.awty-mobile .awty-gallery-head.is-clickable:active,
@@ -171,7 +170,6 @@ body.awty-mobile .awty-subnote-row,
 body.awty-mobile .awty-next-row,
 body.awty-mobile .awty-booking,
 body.awty-mobile .awty-cost-line,
-body.awty-mobile .awty-doc-row,
 body.awty-mobile .awty-doc-item,
 body.awty-mobile .awty-day-item,
 body.awty-mobile .awty-around-row,
@@ -822,24 +820,26 @@ body.awty-phone .modal.awty-modal > .modal-close-button {
 }
 
 /* Long scrolling regions inside a modal carry their own cap in vh
-   (45-wizard.css:136 and :736, 50-dashboard.css:275) sized against a desktop
-   window. On a phone that is a scroll container inside the modal's scroll
-   container — two nested scrollbars for one list. Let the list run to its full
-   height and let the modal do the scrolling. */
+   (45-wizard.css:136, 50-dashboard.css:275) sized against a desktop window. On
+   a phone that is a scroll container inside the modal's scroll container — two
+   nested scrollbars for one list. Let the list run to its full height and let
+   the modal do the scrolling.
+
+   `.awty-offer-list` is not here despite carrying the same cap at
+   45-wizard.css:732: nothing in src/ ever creates it, so a rule for it would be
+   as dead as the styling it overrode. */
 body.awty-mobile .awty-plan-list,
-body.awty-mobile .awty-offer-list,
 body.awty-mobile .awty-packing-list {
   max-height: none;
   overflow-y: visible;
 }
 
-/* All three are `flex-direction: column`, where every child defaults to
+/* Both are `flex-direction: column`, where every child defaults to
    `flex-shrink: 1`. Any height pressure from an ancestor squashes the rows
    while the buttons inside them (`.awty-plan-btn` is `flex: none`) hold their
    size and spill over the rows above and below. Pinning the rows means that
    cannot happen again, whatever an ancestor decides to do. */
 body.awty-mobile .awty-plan-row,
-body.awty-mobile .awty-offer,
 body.awty-mobile .awty-packing-row {
   flex: none;
 }
