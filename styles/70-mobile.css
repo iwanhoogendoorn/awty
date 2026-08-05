@@ -192,8 +192,8 @@ body.awty-mobile .awty-day-ongoing {
   min-height: var(--awty-tap);
 }
 
-/* A 16px checkbox is the actual target in these rows; padding the label around
-   it turns the whole row into the target instead. */
+/* A checkbox is the actual target in these rows; padding the label around it
+   turns the whole row into the target instead. */
 body.awty-mobile .awty-slot-activity,
 body.awty-mobile .awty-packing-row,
 body.awty-mobile .awty-doc-done,
@@ -201,14 +201,43 @@ body.awty-mobile .awty-subnote {
   padding-block: 0.45em;
 }
 
+/* The sub-note picker (tripModal.ts:509-517) is a label per note, each holding
+   one checkbox and one word. The label is what a thumb aims at, so the 44px
+   goes here rather than on the box — and once the box is back to its own size
+   the row needs a little more air between the two. */
+body.awty-mobile .awty-subnote {
+  min-height: var(--awty-tap);
+  gap: 0.5em;
+}
+
+/* These rendered as tall purple pills on the phone: the min-height in section 4
+   caught every `input` in a modal without excluding `[type="checkbox"]`, so a
+   20px box was stretched to 44px tall while staying 20px wide. The exclusions
+   over there are the real fix; the explicit zeroes here mean no future rule
+   aimed at "every input in a modal" can stretch one of these again.
+   22px rather than 20px: the box is decorative now that the label carries the
+   tap target, but it still has to read as a checkbox at arm's length. */
 body.awty-mobile .awty-slot-activity input,
 body.awty-mobile .awty-packing-row input[type="checkbox"],
 body.awty-mobile .awty-matrix-cell input,
 body.awty-mobile .awty-doc-done input,
 body.awty-mobile .awty-subnote input {
-  width: 20px;
-  height: 20px;
   flex: none;
+  width: 22px;
+  height: 22px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+}
+
+/* 30-components.css:147 wraps the six sub-note labels as a flex row. At 44px
+   tall and 390px wide that wrapped 2 + 2 + 1 + 1 with a different amount of
+   dead space on every line. Six items in two columns is three even rows. */
+body.awty-phone .awty-modal .awty-subnote-row,
+body.awty-phone .awty-settings-subnotes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.15em 0.6em;
 }
 
 /* Small glyphs living inside dense inline runs — the × on an attachment chip,
@@ -271,14 +300,22 @@ body.awty-phone .awty-sidebar input {
   font-size: max(16px, var(--font-ui-small));
 }
 
-body.awty-mobile .modal-content.awty-modal input,
+/* Every `input` here has to exclude `[type="checkbox"]`, not just some of them.
+   The first selector did not, and it is the one that matched the sub-note
+   picker in tripModal.ts:514 — a 20px box stretched to a 44px-tall, 20px-wide
+   rounded rectangle, which in the accent colour reads as a purple pill rather
+   than as a checkbox. Section 3 gives those their size and puts the 44px on
+   the label around them, which is what the thumb is aiming at anyway.
+   `[type="radio"]` is not used anywhere in the plugin today; excluding it costs
+   nothing and means adding one later cannot bring the same bug back. */
+body.awty-mobile .modal-content.awty-modal input:not([type="checkbox"]):not([type="radio"]),
 body.awty-mobile .modal-content.awty-modal select,
 /* Same reason as above — routeModal's dropdowns are otherwise under 44px. */
-body.awty-mobile .awty-modal input:not([type="checkbox"]),
+body.awty-mobile .awty-modal input:not([type="checkbox"]):not([type="radio"]),
 body.awty-mobile .awty-modal select,
-body.awty-mobile .awty-settings input:not([type="checkbox"]),
+body.awty-mobile .awty-settings input:not([type="checkbox"]):not([type="radio"]),
 body.awty-mobile .awty-settings select,
-body.awty-mobile .awty-sidebar input {
+body.awty-mobile .awty-sidebar input:not([type="checkbox"]):not([type="radio"]) {
   min-height: var(--awty-tap);
 }
 
@@ -606,6 +643,45 @@ body.awty-mobile .awty-note-btn {
   min-width: 4.5em;
 }
 
+/* --- rows of buttons end where the row ends ------------------------------
+   Three rows had the same complaint on the phone: each button took only the
+   width of its own label, so every row stopped somewhere different short of
+   the right edge and the ragged column of endings read as an accident.
+
+   `flex: 1 1 auto` hands the leftover space out among the buttons that are
+   already there. The row always ends flush, whatever it holds, and because the
+   basis stays `auto` a button can only grow past its label — never shrink into
+   it, so nothing truncates. The 4.5em floor above still applies, which is what
+   stops a lone "Edit" looking spindly next to "Set targets". */
+
+/* overview.ts:136-218 — one to three labelled buttons plus the ⋮. The ⋮ keeps
+   its default `flex: 0 1 auto` so it stays one glyph wide instead of claiming
+   a quarter of a row of words. */
+body.awty-phone .awty-note-btn,
+/* dashboardView.ts:193-232 — Plan trip / Add / Export PDF, sharing row two
+   with the trip ⋯ menu. */
+body.awty-phone .awty-dash-quick-btn {
+  flex: 1 1 auto;
+}
+
+/* The tab toolbars (common.ts:113-119) are the one row where growing is not
+   enough: five buttons of very different lengths — "Add flight" against "Add
+   accommodation" — wrap into rows that each fill, but at different points, so
+   the buttons never line up down the tab. Two fixed columns give them one grid
+   to sit in. "Add accommodation" is the longest label in the app and fits a
+   column at 390px with room to spare. */
+body.awty-phone .awty-dash-toolbar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4em;
+}
+
+/* An odd number of buttons would otherwise leave the last one alone beside an
+   empty cell; full width is the deliberate-looking way to end the grid. */
+body.awty-phone .awty-dash-toolbar .awty-dash-add:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
 /* ==========================================================================
    9. Modals — full-height, scrollable, buttons always reachable
    ==========================================================================
@@ -660,11 +736,89 @@ body.awty-mobile .modal-content.awty-modal > .setting-item:last-child button {
   margin: 0;
 }
 
-/* 10-base.css:7 caps the shell at min(640px, 92vw); 92vw of 390 leaves 31px of
-   backdrop that is not doing any work on a phone. */
-body.awty-phone .awty-modal-shell {
-  width: 96vw;
-  max-width: 96vw;
+/* --- full-screen on a phone ----------------------------------------------
+   10-base.css:6 caps the shell at min(640px, 92vw) and this file used to widen
+   that to 96vw, which is the worst of both answers: a modal covering almost all
+   of the dashboard while still leaving a sliced band of it down each edge and
+   showing the page through the rounded corners. It reads neither as a window
+   you can see past nor as one that replaces the view.
+
+   Full-screen is the iOS convention for a form sheet and the one that reads as
+   deliberate. It applies to the eight long modals: the seven carrying
+   `.awty-modal-shell` on modalEl — trip, booking wizard, plan wizard, packing,
+   food, add-day, event details — plus routeModal, which puts `awty-modal` on
+   modalEl instead (routeModal.ts:52). The short dialogs (confirm, delete,
+   expense, budget) keep Obsidian's centred sheet on purpose: blowing a two-line
+   confirmation up to fill the screen is the same mistake in the other
+   direction.
+
+   `100vh` first and `100dvh` second: iOS measures `vh` against the viewport
+   with the URL bar hidden, so `vh` alone strands the bottom of the modal behind
+   the bar. A webview without `dvh` keeps the `vh` line rather than nothing.
+
+   The flex column is what keeps this safe. The note at the top of this section
+   records what happened last time a second scroll container appeared inside
+   Obsidian's own: everything past the cap became physically unreachable. There
+   is still exactly one scroller here — `.modal-content`, the element Obsidian
+   already scrolls — and `min-height: 0` is what lets it shrink to the column
+   rather than overflow it. */
+body.awty-phone .modal.awty-modal-shell,
+body.awty-phone .modal.awty-modal {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  max-width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  margin: 0;
+  border-radius: 0;
+}
+
+body.awty-phone .modal.awty-modal-shell > .modal-content,
+body.awty-phone .modal.awty-modal > .modal-content {
+  flex: 1 1 auto;
+  /* The one and only scroll container in the modal. */
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  /* Full-screen means the plugin now owns the notch and the rounded corners
+     that Obsidian's inset used to keep it clear of. */
+  padding-top: max(var(--size-4-4, 16px), env(safe-area-inset-top, 0px));
+  padding-left: max(var(--size-4-4, 16px), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--size-4-4, 16px), env(safe-area-inset-right, 0px));
+}
+
+/* No padding-bottom for the `.awty-modal-shell` modals: their sticky action row
+   below already carries `env(safe-area-inset-bottom)`, and padding under it
+   would only float the bar up off the edge with content sliding past beneath.
+   routeModal has no such row — its content simply ends — so it needs the inset
+   here or the last stop sits under the home indicator. */
+body.awty-phone .modal.awty-modal > .modal-content {
+  padding-bottom: max(var(--size-4-4, 16px), env(safe-area-inset-bottom, 0px));
+}
+
+/* Insurance against the other half of the failure recorded at the top of this
+   section. If Obsidian or a theme makes `.modal-content` a flex column, its
+   children inherit `flex-shrink: 1`, and a container with a definite height
+   then squashes them while the `flex: none` buttons inside keep full height and
+   spill over their neighbours. Pinning every direct child means the modal can
+   only ever scroll, never compress. Inert if `.modal-content` is the plain
+   block container it is today. */
+body.awty-phone .modal.awty-modal-shell > .modal-content > *,
+body.awty-phone .modal.awty-modal > .modal-content > * {
+  flex: none;
+}
+
+/* Obsidian positions its close button absolutely, so the flex column does not
+   normally see it. Pinned anyway, in case a theme makes it a static child — a
+   stretched close button across the top of the modal would be a strange thing
+   to ship on the strength of an assumption. */
+body.awty-phone .modal.awty-modal-shell > .modal-close-button,
+body.awty-phone .modal.awty-modal > .modal-close-button {
+  flex: none;
 }
 
 /* Long scrolling regions inside a modal carry their own cap in vh
@@ -732,11 +886,67 @@ body.awty-phone .awty-leg-adds .awty-leg-add {
   min-width: 0;
 }
 
-/* 45-wizard.css:392 already drops the leg grid to two columns at 560px. Two
+/* --- one flight leg, as a form rather than as a scatter of fields ---------
+   45-wizard.css:392 already drops the leg grid to two columns at 560px. Two
    columns of ~150px hold a date or a time field; what they do not hold is the
    0.4em gap plus a 16px font, so trim the padding around them. */
 body.awty-phone .awty-leg-box {
   padding: 0.5em;
+}
+
+/* This was the worst-looking part of the phone screenshot. The eight fields —
+   Airline, Flight, From, To, Date, Departs, Arrives, Arrives on
+   (legsField.ts:157-256) — each started at a different horizontal position:
+   "KLM" hard left, "KL1885" apparently indented, "Amsterdam (AMS)" apparently
+   centred, the dates apparently right-aligned, and the two empty time fields
+   rendering as stubby grey pills a third of their cell wide.
+
+   None of that is the grid's doing. iOS sizes `input[type=date]` and
+   `input[type=time]` to their own content and ignores an author `width` unless
+   the native appearance is switched off, and it lays the value out inside a
+   shadow box that carries its own centring and margin. So the fix is at the
+   control, not the column: switch the native sizing off, restore the height and
+   padding it took away, and pin the value to the left like every text field
+   beside it. Eight fields, one height, one left edge. */
+body.awty-phone .awty-leg-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5em;
+}
+
+/* Airline, Flight, From and To are free text and the two airports run to
+   "Amsterdam (AMS)", which does not fit half of 390px; a date or a time does,
+   and Date beside Departs — then Arrives beside Arrives on — is how the four
+   read anyway. `:has()` rather than `:nth-child()` so the layout follows what
+   each field *is* and survives someone reordering legsField.ts. A webview
+   without `:has()` drops this one rule and lands on two even columns, which is
+   the behaviour today. */
+body.awty-phone .awty-leg-cell:has(> .awty-leg-input[type="text"]) {
+  grid-column: 1 / -1;
+}
+
+body.awty-phone .awty-leg-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--awty-tap);
+  padding-inline: 0.6em;
+  text-align: left;
+  /* Without this a date or time field shrink-wraps its own placeholder on iOS
+     and the `width: 100%` at 45-wizard.css:405 is quietly ignored. */
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* The value inside a date or time control lives in a shadow box that iOS
+   centres in the field and gives its own margin — which is why the dates read
+   as right-aligned next to left-aligned text. */
+body.awty-phone .awty-leg-input::-webkit-date-and-time-value {
+  margin: 0;
+  text-align: left;
+}
+
+body.awty-phone .awty-leg-input::-webkit-datetime-edit {
+  padding: 0;
 }
 
 /* 30-components.css:196 keeps index, field and two buttons on one line. With
@@ -752,6 +962,43 @@ body.awty-phone .awty-stop-index {
 /* 30-components.css:141 indents the readout past a 3.4em label. */
 body.awty-phone .awty-date-readout {
   padding-left: 0;
+}
+
+/* --- the Length chips ----------------------------------------------------
+   dateRange.ts:70-80 emits a "Length" label and nine duration chips into one
+   wrapping flex row. "1 day" is written out where the other eight are "2d",
+   "3d" and so on, so it is half again as wide as its neighbours; the row came
+   out ragged and "21d" was pushed onto a line of its own.
+
+   Nine chips is three by three. Durations are one scale, so equal width is what
+   they should have had all along — this reads as a segmented control now rather
+   than as a handful of loose pills.
+
+   Scoped to `.awty-daterange` deliberately: the other two `.awty-chip-row`s
+   (bookingWizard.ts:723 and :753) hold route and transfer labels of genuinely
+   different lengths, where wrapping pills are the right answer and forcing them
+   to equal columns would be worse. */
+body.awty-phone .awty-daterange .awty-chip-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4em;
+}
+
+/* Its own line above the grid. Left as a grid item it would have taken one of
+   the nine cells and pushed the chips into an uneven 2 + 3 + 3 + 1. */
+body.awty-phone .awty-daterange .awty-chip-label {
+  grid-column: 1 / -1;
+  width: auto;
+}
+
+/* 30-components.css:115 gives a chip inline padding sized for its own text; in
+   a fixed column that padding is what stops the label centring in the cell. */
+body.awty-phone .awty-daterange .awty-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding-inline: 0.3em;
 }
 
 /* ==========================================================================
