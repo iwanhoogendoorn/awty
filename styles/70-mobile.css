@@ -238,6 +238,17 @@ body.awty-phone .awty-settings-subnotes {
   gap: 0.15em 0.6em;
 }
 
+/* Two columns is right for the six sub-notes, but `.awty-settings-subnotes` is
+   also the travel-modes picker (settingsTab.ts:738), which has exactly three —
+   Car, Public transport, Walking — so "Walking" was left alone on the last row
+   with an empty cell beside it. The same orphan appears in packingModal.ts:169
+   whenever a trip has an odd number of travellers. Spanning the last item is
+   the same answer already used for the dashboard toolbar in section 8. */
+body.awty-phone .awty-modal .awty-subnote-row > .awty-subnote:last-child:nth-child(odd),
+body.awty-phone .awty-settings-subnotes > .awty-subnote:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
 /* Small glyphs living inside dense inline runs — the × on an attachment chip,
    the × on a settings pill, the external-link arrow on a document row. A 44px
    visual box would break the chip or pill they sit in, so the box grows to 44px
@@ -1017,8 +1028,55 @@ body.awty-mobile .awty-settings {
   gap: 12px;
 }
 
+/* --- the nav reads as a grid, not as a wrapped row ------------------------
+   60-settings.css:69 turns the nav into `flex-direction: row; flex-wrap: wrap`
+   below 700px. Seven items each sized to its own label — "Documents" wide,
+   "You" narrow — wrap into rows that each stop somewhere different, so the
+   block reads as an accident rather than as navigation. It is the same
+   complaint the dashboard toolbar had, and it gets the same answer: two equal
+   columns, so every row ends flush at the same edge.
+
+   Two rather than three. Three columns at 390px leaves about 115px a cell, and
+   "Documents" — 15px icon, its gap, and nine characters at 13px — comes to
+   roughly 102px of that. Thirteen pixels of slack is not a margin, it is a bet
+   on the interface font, and a theme with a wider one clips the label. Two
+   columns leave about 176px a cell, which absorbs any font and leaves room to
+   lift the label off its mouse-sized 13px. Seven items is then 2 + 2 + 2 + 1
+   rather than 3 + 3 + 1: one row taller, and never ragged.
+
+   `display: grid` makes the two flex properties above inert; `position: static`
+   and `width: 100%` from the same media query still apply and are still wanted.
+   Phone-scoped to match the rest of this section — a tablet keeps the 150px
+   sticky column from 60-settings.css:11, which is the right layout there. */
+body.awty-phone .awty-settings-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+/* Seven is odd, so "About" would otherwise sit in a half-width cell with the
+   other half blank — the exact ragged edge this grid exists to remove. */
+body.awty-phone .awty-settings-nav-item:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+/* 13px is a pointer-era size (60-settings.css:31). The extra width bought by
+   choosing two columns over three pays for 14px without bringing the longest
+   label anywhere near the cell edge — and on a tablet, which keeps the 150px
+   column, 14px in a 150px track is comfortable too. */
 body.awty-mobile .awty-settings-nav-item {
   padding: 10px 12px;
+  font-size: 14px;
+}
+
+/* 60-settings.css:32 left-aligns the label because the nav is normally a 150px
+   column, where a shared left edge running down the list is what lines up —
+   which is still true on a tablet, so this is phone-only. In a two-column grid
+   of equal cells there is no such edge, and a left-hugging label strands about
+   60px of dead space inside every cell. Centred, each item reads as one chip,
+   the same shape the dashboard toolbar buttons take. */
+body.awty-phone .awty-settings-nav-item {
+  justify-content: center;
 }
 
 /* The worst offender at 390px: 60-settings.css:230 asks for
@@ -1053,9 +1111,20 @@ body.awty-phone .awty-matrix > .awty-matrix-corner:first-child {
 }
 
 /* 60-settings.css:132 caps the status chip at 60% of the panel head; at 390px
-   that is under 200px and "OpenAI key set" clips again. */
+   that is under 200px, and the longest thing this chip says — "imported from
+   Food Spot" (settingsTab.ts:689) — clips again. The chip is how a panel's
+   state is read without opening it, so 11px is the wrong size for the one
+   label on the row that is carrying information. */
 body.awty-phone .awty-sgroup-head .awty-chip {
   max-width: 100%;
+  font-size: 12px;
+}
+
+/* 60-settings.css:122 — the "Airlines" / "Airports" section labels, 11px and
+   uppercased, which is the smallest text in settings and the caps make it
+   smaller still. It is the only thing telling the two pill rows apart. */
+body.awty-mobile .awty-sgroup-label {
+  font-size: 12px;
 }
 
 body.awty-phone .awty-sgroup-head {
@@ -1066,32 +1135,86 @@ body.awty-phone .awty-sgroup {
   padding: 12px;
 }
 
-/* 60-settings.css:317 keeps the key field and its two buttons on one line; two
-   44px buttons leave the monospace field about 190px, which is enough to see
-   that a key is set. Wrapping is worse here, so only the gap comes down. */
+/* --- the API key row -----------------------------------------------------
+   The note that used to sit here said the row held "two buttons" and that
+   wrapping was worse. Both halves were wrong. settingsTab.ts:664-692 puts
+   THREE buttons in this row: the eye, the Food Spot import, and a text button
+   reading "Test". Two 44px squares, a ~50px "Test" and three gaps come to
+   about 160px of the ~334px inside a panel, leaving the field around 174px —
+   eleven characters of 16px monospace against a 39-character Google key.
+
+   That is not "enough to see that a key is set": the eye button exists for
+   exactly one purpose, reading the key back to check it, and at 174px it
+   cannot do its job. Stacking is the right answer and it is also what the
+   user asked for — text fields full width where possible.
+
+   So the field takes its own line, and the three buttons take the next. The
+   two icon buttons stay 44px squares (they are `flex: none` at
+   60-settings.css:335, and section 3 gives them their size); "Test" takes
+   everything left over, so the row ends flush at the same edge as the field
+   above it. Two square utilities and one wide labelled action is also the
+   honest hierarchy — Test is the only one of the three that says what it does. */
 body.awty-phone .awty-keyrow {
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+body.awty-phone .awty-key-input {
+  flex: 1 1 100%;
+}
+
+/* The "Test" button is the one child of the row that is not `.awty-key-btn`
+   (settingsTab.ts:692 creates it with no class at all), so it is also the one
+   that section 3 never gave a tap target to. */
+body.awty-phone .awty-keyrow > button:not(.awty-key-btn) {
+  flex: 1 1 auto;
+  min-height: var(--awty-tap);
+}
+
+/* The three links under the key — "Get a key", "Enable Geocoding API",
+   "Enable Distance Matrix API" (settingsTab.ts:712-723) — are the whole setup
+   path for this panel, and at 12px they were about 17px of tappable height.
+   Same treatment as the inline links in section 3. `.awty-doc-caveat-links`
+   is the disclaimer's source list on the About panel (settingsTab.ts:866),
+   which has the same problem for the same reason. */
+body.awty-mobile .awty-key-links a,
+body.awty-mobile .awty-doc-caveat-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--awty-tap);
 }
 
 /* 30-components.css:176 already stacks a Setting whose control is a group. On a
    phone a Setting whose control is a *field* wants the same treatment, or the
-   field is squeezed to a few characters beside a two-line description. Toggles
-   and single buttons are left inline, where they read correctly.
+   field is squeezed to a few characters beside a two-line description.
 
-   `:has()` rather than a blanket rule so only field rows are touched. On a
+   A control that is nothing but a button now stacks too. There is exactly one
+   in settings — "Clear the cache" (settingsTab.ts:771-788) — and inline it put
+   a ~55px "Clear" against the right edge of a description that wraps to three
+   lines at 390px, which is the ragged blank space the user objected to, in the
+   one place where the button is destructive. Stacked, the description gets the
+   full width and the button gets a full-width row of its own.
+
+   `> button` and not a bare `button`: `addToggle` renders a `div.checkbox-
+   container` and `addExtraButton` a `div.clickable-icon`, so neither is matched
+   and Obsidian's own toggle keeps the layout it is designed for.
+
+   `:has()` rather than a blanket rule so only these rows are touched. On a
    webview without `:has()` the whole rule is dropped and Obsidian's own mobile
    Setting layout applies unchanged, which is a safe place to land. */
 body.awty-phone .awty-settings .setting-item:has(.setting-item-control input[type="text"]),
 body.awty-phone .awty-settings .setting-item:has(.setting-item-control input[type="number"]),
 body.awty-phone .awty-settings .setting-item:has(.setting-item-control select),
-body.awty-phone .awty-settings .setting-item:has(.setting-item-control textarea) {
+body.awty-phone .awty-settings .setting-item:has(.setting-item-control textarea),
+body.awty-phone .awty-settings .setting-item:has(.setting-item-control > button) {
   display: block;
 }
 
 body.awty-phone .awty-settings .setting-item:has(.setting-item-control input[type="text"]) .setting-item-control,
 body.awty-phone .awty-settings .setting-item:has(.setting-item-control input[type="number"]) .setting-item-control,
 body.awty-phone .awty-settings .setting-item:has(.setting-item-control select) .setting-item-control,
-body.awty-phone .awty-settings .setting-item:has(.setting-item-control textarea) .setting-item-control {
+body.awty-phone .awty-settings .setting-item:has(.setting-item-control textarea) .setting-item-control,
+body.awty-phone .awty-settings .setting-item:has(.setting-item-control > button) .setting-item-control {
   justify-content: flex-start;
   width: 100%;
   margin-top: 8px;
@@ -1104,4 +1227,73 @@ body.awty-phone .awty-settings .setting-item-control select,
 body.awty-phone .awty-settings .setting-item-control textarea {
   width: 100%;
   min-width: 0;
+}
+
+/* A button sharing its control row with a field — "Add a passport"
+   (settingsTab.ts:555-566) is the only one — must not shrink below its own
+   label when the field beside it asks for `width: 100%` above. The field takes
+   what is left, which at 390px is still around 275px for a country name, and
+   the row ends flush against the right edge with the button on it. */
+body.awty-mobile .awty-settings .setting-item-control > button {
+  flex: 0 0 auto;
+  min-height: var(--awty-tap);
+}
+
+/* A button that is the whole control has nothing to end flush against, so it
+   takes the row. Higher specificity than the rule above, so source order here
+   is not load-bearing. */
+body.awty-mobile .awty-settings .setting-item-control > button:only-child {
+  flex: 1 1 auto;
+}
+
+/* The `?` that reveals a row's longer explanation (settingsTab.ts:111-124) is
+   an ExtraButtonComponent, so it is a `div.clickable-icon` and none of the
+   button rules above reach it — it was the last thing in settings under 44px
+   that you are meant to tap. Scoped inside our own `.setting-item-control` so
+   no other plugin's settings tab is touched. */
+body.awty-mobile .awty-settings .setting-item-control > .clickable-icon {
+  min-width: var(--awty-tap);
+  min-height: var(--awty-tap);
+}
+
+/* --- the removable pills -------------------------------------------------
+   `.awty-pill` (60-settings.css:184) is 12px text in 3px of vertical padding,
+   so about 20px tall. Each one is a passport or a starred airport, and each is
+   a thing you delete — a list row in all but name, at half the height of every
+   other row in settings.
+
+   The 44px hit area the × got in section 3 was built for that 20px pill: a
+   44px box with `margin: -12px` hangs 12px above and below it, while
+   `.awty-pill-row` leaves only a 6px gap between wrapped rows — so the tap
+   area of one pill reached into the row beneath and could take its
+   neighbour's delete. Giving the pill the same 44px the × already claims is
+   what fixes that: the × then overhangs by the pill's own padding, about 5px,
+   which the 8px row gap below clears. The vertical half of the negative margin
+   goes; the horizontal half stays, since that is what stops the × from
+   widening the pill past its own text. */
+body.awty-mobile .awty-pill {
+  min-height: var(--awty-tap);
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 14px;
+}
+
+body.awty-mobile .awty-pill-row {
+  gap: 8px;
+}
+
+body.awty-mobile .awty-pill .awty-pill-x {
+  margin-block: 0;
+}
+
+/* 12px glyphs and a 10px "default" tag were sized against a 20px pill; in a
+   44px one they read as debris rather than as parts of it. */
+body.awty-mobile .awty-pill-icon svg,
+body.awty-mobile .awty-pill-x svg {
+  width: 14px;
+  height: 14px;
+}
+
+body.awty-mobile .awty-pill-tag {
+  font-size: 12px;
 }
