@@ -300,9 +300,14 @@ body.awty-phone .modal-content.awty-modal textarea,
 body.awty-phone .awty-modal input,
 body.awty-phone .awty-modal select,
 body.awty-phone .awty-modal textarea,
+/* No `textarea` or `input[type="number"]` in the settings selectors here or
+   below: settingsTab.ts has no `addTextArea` and no numeric field, so those
+   would be dead the same way `.awty-doc-row` is. Both live only in modals
+   (foodModal.ts:72, tripModal.ts:141, eventDetailsModal.ts:65/:72,
+   bookingWizard.ts:333, packingModal.ts:209/:271), which the modal selectors
+   above already cover. */
 body.awty-phone .awty-settings input,
 body.awty-phone .awty-settings select,
-body.awty-phone .awty-settings textarea,
 body.awty-phone .awty-dashboard input,
 body.awty-phone .awty-dashboard select,
 body.awty-phone .awty-sidebar input {
@@ -328,8 +333,7 @@ body.awty-mobile .awty-sidebar input:not([type="checkbox"]):not([type="radio"]) 
   min-height: var(--awty-tap);
 }
 
-body.awty-mobile .modal-content.awty-modal textarea,
-body.awty-mobile .awty-settings textarea {
+body.awty-mobile .modal-content.awty-modal textarea {
   min-height: calc(var(--awty-tap) * 2);
 }
 
@@ -1028,55 +1032,120 @@ body.awty-mobile .awty-settings {
   gap: 12px;
 }
 
-/* --- the nav reads as a grid, not as a wrapped row ------------------------
-   60-settings.css:69 turns the nav into `flex-direction: row; flex-wrap: wrap`
-   below 700px. Seven items each sized to its own label — "Documents" wide,
-   "You" narrow — wrap into rows that each stop somewhere different, so the
-   block reads as an accident rather than as navigation. It is the same
-   complaint the dashboard toolbar had, and it gets the same answer: two equal
-   columns, so every row ends flush at the same edge.
-
-   Two rather than three. Three columns at 390px leaves about 115px a cell, and
-   "Documents" — 15px icon, its gap, and nine characters at 13px — comes to
-   roughly 102px of that. Thirteen pixels of slack is not a margin, it is a bet
-   on the interface font, and a theme with a wider one clips the label. Two
-   columns leave about 176px a cell, which absorbs any font and leaves room to
-   lift the label off its mouse-sized 13px. Seven items is then 2 + 2 + 2 + 1
-   rather than 3 + 3 + 1: one row taller, and never ragged.
-
-   `display: grid` makes the two flex properties above inert; `position: static`
-   and `width: 100%` from the same media query still apply and are still wanted.
-   Phone-scoped to match the rest of this section — a tablet keeps the 150px
-   sticky column from 60-settings.css:11, which is the right layout there. */
-body.awty-phone .awty-settings-nav {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-/* Seven is odd, so "About" would otherwise sit in a half-width cell with the
-   other half blank — the exact ragged edge this grid exists to remove. */
-body.awty-phone .awty-settings-nav-item:last-child:nth-child(odd) {
-  grid-column: 1 / -1;
-}
-
-/* 13px is a pointer-era size (60-settings.css:31). The extra width bought by
-   choosing two columns over three pays for 14px without bringing the longest
-   label anywhere near the cell edge — and on a tablet, which keeps the 150px
-   column, 14px in a 150px track is comfortable too. */
+/* 13px is a pointer-era size (60-settings.css:31). A tablet keeps the 150px
+   sticky column from 60-settings.css:11 — the right layout at 810px — so it
+   gets nothing here but a comfortable label and some padding. Everything below
+   this rule is the phone. */
 body.awty-mobile .awty-settings-nav-item {
   padding: 10px 12px;
   font-size: 14px;
 }
 
-/* 60-settings.css:32 left-aligns the label because the nav is normally a 150px
-   column, where a shared left edge running down the list is what lines up —
-   which is still true on a tablet, so this is phone-only. In a two-column grid
-   of equal cells there is no such edge, and a left-hugging label strands about
-   60px of dead space inside every cell. Centred, each item reads as one chip,
-   the same shape the dashboard toolbar buttons take. */
+/* --- the nav, as a tab bar rather than as seven floating labels ------------
+   This is the thing the user objected to hardest, and the previous round of
+   work made it worse. 60-settings.css:20-34 leaves a nav item transparent, with
+   no border and no shadow, because on the desktop it sits in a 150px column
+   where position alone says "navigation". Drop those seven items into a
+   full-width block on a phone and nothing about them says it: no surface, no
+   edge, no target. Centring the content inside each cell — the previous
+   answer — only stranded each icon-and-label cluster in the middle of an
+   invisible box. The selected one was bold text with a purple glyph, which is
+   not a selected *state*, it is a slightly different word.
+
+   Two designs were on the table.
+
+   A horizontally scrolling strip would match `.awty-dash-tabs`
+   (50-dashboard.css:328), which is this app's established mobile tab pattern
+   and works well on the same phone. It is rejected here because it only works
+   there: dashboardView.ts scrolls the active tab into view in TS, and this nav
+   has no such call. `this.active` (settingsTab.ts:48) outlives the settings
+   pane being closed, while `display()` (settingsTab.ts:133) rebuilds the strip
+   from scratch at scroll offset 0. Leave settings on "Food Spot", come back,
+   and the strip shows Trips…Distances with no selected tab anywhere on it, over
+   a body belonging to a tab you cannot see. CSS cannot set an initial scroll
+   offset, so that is not something this file could patch afterwards.
+
+   So: a grid of real buttons, all seven visible, nothing hidden and nothing to
+   swipe. Each gets a surface — `--background-primary` inside a border, which
+   reads as raised against the `--background-secondary` panels below it — so it
+   looks tappable before it is touched. The selected one is filled with
+   `--interactive-accent` on `--text-on-accent`, the strongest "you are here"
+   Obsidian's variables offer, and it needs no bold to be found.
+
+   Two columns rather than three. Three at 390px leaves about 115px a cell, and
+   "Documents" — a 17px icon, its gap, and nine characters at 15px — comes to
+   roughly 110px of that. Five pixels of slack is not a margin, it is a bet on
+   the interface font. Two columns leave about 176px, which absorbs a wider font
+   and pays for 15px type. Seven items is then 2 + 2 + 2 + 1, never ragged.
+
+   `display: grid` makes `flex-direction`/`flex-wrap` from 60-settings.css:69
+   inert; `position: static` and `width: 100%` from that same query still apply
+   and are still wanted. */
+body.awty-phone .awty-settings-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* Seven is odd, so "About" would otherwise sit in a half-width cell with the
+   other half blank — the exact ragged edge this grid exists to remove. Spanning
+   it means the block ends on a flush full-width row instead. */
+body.awty-phone .awty-settings-nav-item:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+/* Left-aligned, not centred: the icon sits at a fixed leading position in every
+   cell, so the seven glyphs line up in two columns down the block and the seven
+   labels line up beside them. Inside a bordered cell that reads as deliberate
+   structure; centred, the icons zig-zag with the label lengths.
+   No `white-space: nowrap` on purpose — a theme with a very wide interface font
+   should wrap a label to two lines and let the grid row grow (both cells grow
+   together), rather than push it out through the border. */
 body.awty-phone .awty-settings-nav-item {
-  justify-content: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: var(--font-normal);
+  line-height: 1.25;
+  /* Section 3 already sets the 44px floor; stated here so the whole shape of
+     one tab is readable in one rule. */
+  min-height: var(--awty-tap);
+}
+
+/* 60-settings.css:41 tints the selected item with `--background-secondary`,
+   which is the colour of the panels underneath it — so on a phone the selected
+   tab was the one item that blended into the page. Filled instead. */
+body.awty-phone .awty-settings-nav-item.is-active {
+  border-color: var(--interactive-accent);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: var(--font-semibold);
+}
+
+/* 60-settings.css:47 paints the selected item's glyph with the accent. That was
+   right on a transparent chip and invisible on an accent-filled one. */
+body.awty-phone .awty-settings-nav-item.is-active .awty-settings-nav-icon svg {
+  color: currentColor;
+}
+
+/* Section 2 gives every nav item one pressed background, which on the filled
+   tab would wash the accent out mid-tap. */
+body.awty-phone .awty-settings-nav-item.is-active:active {
+  background: var(--interactive-accent-hover);
+  color: var(--text-on-accent);
+}
+
+/* 15px icons (60-settings.css:55) beside 15px type read as an afterthought; the
+   glyph is what makes a tab findable at a glance before the label is read. */
+body.awty-phone .awty-settings-nav-icon svg {
+  width: 17px;
+  height: 17px;
 }
 
 /* The worst offender at 390px: 60-settings.css:230 asks for
@@ -1110,16 +1179,6 @@ body.awty-phone .awty-matrix > .awty-matrix-corner:first-child {
   background: var(--background-secondary);
 }
 
-/* 60-settings.css:132 caps the status chip at 60% of the panel head; at 390px
-   that is under 200px, and the longest thing this chip says — "imported from
-   Food Spot" (settingsTab.ts:689) — clips again. The chip is how a panel's
-   state is read without opening it, so 11px is the wrong size for the one
-   label on the row that is carrying information. */
-body.awty-phone .awty-sgroup-head .awty-chip {
-  max-width: 100%;
-  font-size: 12px;
-}
-
 /* 60-settings.css:122 — the "Airlines" / "Airports" section labels, 11px and
    uppercased, which is the smallest text in settings and the caps make it
    smaller still. It is the only thing telling the two pill rows apart. */
@@ -1127,12 +1186,150 @@ body.awty-mobile .awty-sgroup-label {
   font-size: 12px;
 }
 
-body.awty-phone .awty-sgroup-head {
-  flex-wrap: wrap;
+/* --- panel hierarchy ------------------------------------------------------
+   Three surfaces nested inside one another on every row: the grey
+   `.awty-sgroup` panel (60-settings.css:79), then Obsidian's mobile
+   `.setting-item`, which its stylesheet paints as a card in its own right, then
+   the field's own grey box inside that. And no size worth the name between the
+   panel title ("Where trips live", 60-settings.css:108 — inherited size at
+   weight 600) and the field label under it ("Trips folder"). Boxes in boxes,
+   all the type the same weight: the eye has nothing to grab.
+
+   The fix is two moves. The panel keeps the only surface and the rows inside it
+   lose theirs, separated by a hairline instead — two levels, not three. And the
+   type gets a real ladder: 17px panel title, 15px field label, 13px prose, with
+   the 16px input floor from section 4 sitting under them as content rather than
+   as chrome. 60-settings.css is full of hardcoded 11/12/13px sized against a
+   pointer, which is why it reads flat here; the sizes below are px for the same
+   reason, so the ladder holds whatever a theme does to `--font-ui-*`.
+
+   Everything is scoped through `.awty-sgroup-body`, which is what
+   `group()` (settingsTab.ts:105) returns and therefore what every single
+   `new Setting()` in settingsTab.ts is created inside. No other plugin's
+   settings tab, and no other `.setting-item` in Obsidian, is reachable from
+   these selectors. */
+body.awty-phone .awty-sgroup {
+  padding: 14px;
+  margin-bottom: 14px;
 }
 
-body.awty-phone .awty-sgroup {
-  padding: 12px;
+/* The head is a grid so the status chip has exactly one place to be. As a
+   wrapping flex row — 60-settings.css:86 plus the `flex-wrap: wrap` the
+   previous round added here — the chip sat inline beside a short title and
+   dropped to a line of its own beside a long one, so the green pills landed at
+   a different height in every panel. Icon and titles take row one; the chip
+   takes row two, indented to the title's own left edge, every time. It also
+   gets the full width there, which is what stops "imported from Food Spot"
+   (settingsTab.ts:689) clipping against 60-settings.css:141's 60% cap.
+   `chip.hide()` (settingsTab.ts:96) is `display: none`, and a `display: none`
+   grid item claims no cell — so a panel without a chip simply has no row two
+   and needs no separate rule. */
+body.awty-phone .awty-sgroup-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+body.awty-phone .awty-sgroup-head .awty-chip {
+  grid-column: 2;
+  justify-self: start;
+  max-width: 100%;
+}
+
+/* Section 3 gives `.awty-chip` a 44px floor and 0.5em of block padding, because
+   the chips in the booking wizard and the date-range picker are buttons. This
+   one is a plain span (settingsTab.ts:95) reporting what state the panel is in.
+   It is a label, and a 44px-tall label reads as a button that will not press.
+   `--background-primary` rather than 60-settings.css:135's
+   `--background-modifier-hover`, which is nearly the panel's own grey. */
+body.awty-mobile .awty-sgroup-head .awty-chip {
+  min-height: 0;
+  padding: 3px 10px;
+  background: var(--background-primary);
+  font-size: 12px;
+}
+
+body.awty-phone .awty-sgroup-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+body.awty-phone .awty-sgroup-title {
+  font-size: 17px;
+  font-weight: var(--font-bold);
+  line-height: 1.25;
+  color: var(--text-normal);
+}
+
+body.awty-phone .awty-sgroup-sub {
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* The card chrome is what makes the third surface. Flattened, and replaced with
+   a hairline between rows: 60-settings.css:118 dropped the desktop divider
+   because the panel already grouped the rows, but on a phone every row is two
+   or three lines tall and the rule is the only thing marking where one ends.
+   `gap` rather than relying on `.setting-item-info`'s own right margin, so the
+   toggle rows — which keep Obsidian's flex layout — still hold their label off
+   the switch once that margin is zeroed below. */
+body.awty-phone .awty-sgroup-body .setting-item {
+  gap: 12px;
+  margin: 0;
+  padding: 12px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* `:not(:first-child)` rather than `+ .setting-item`, so a row that follows an
+   inserted `.awty-setting-help` block (settingsTab.ts:121-122) still gets its
+   line instead of silently losing it while the help panel is open. */
+body.awty-phone .awty-sgroup-body .setting-item:not(:first-child) {
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+body.awty-phone .awty-sgroup-body .setting-item:last-child {
+  padding-bottom: 0;
+}
+
+/* Stacked rows put the label above its control, so the reserved right-hand
+   gutter is only an indent that never lines up with anything. */
+body.awty-phone .awty-sgroup-body .setting-item-info {
+  margin-right: 0;
+}
+
+body.awty-phone .awty-sgroup-body .setting-item-name {
+  font-size: 15px;
+  font-weight: var(--font-medium);
+  line-height: 1.3;
+  color: var(--text-normal);
+}
+
+body.awty-phone .awty-sgroup-body .setting-item-description {
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* The longest prose in settings — the standing notes (60-settings.css:168) and
+   the text the `?` reveals (:159) — both sized at 12px against a pointer. Held
+   to the same 13px as a panel subtitle and a field description, so a panel has
+   one reading size rather than three near-identical ones. */
+body.awty-phone .awty-setting-note,
+body.awty-phone .awty-setting-help,
+body.awty-phone .awty-key-warning,
+body.awty-phone .awty-key-links {
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 /* --- the API key row -----------------------------------------------------
@@ -1188,62 +1385,134 @@ body.awty-mobile .awty-doc-caveat-links a {
    phone a Setting whose control is a *field* wants the same treatment, or the
    field is squeezed to a few characters beside a two-line description.
 
-   A control that is nothing but a button now stacks too. There is exactly one
-   in settings — "Clear the cache" (settingsTab.ts:771-788) — and inline it put
-   a ~55px "Clear" against the right edge of a description that wraps to three
-   lines at 390px, which is the ragged blank space the user objected to, in the
-   one place where the button is destructive. Stacked, the description gets the
-   full width and the button gets a full-width row of its own.
+   A control that is nothing but a button stacks too. There is exactly one in
+   settings — "Clear the cache" (settingsTab.ts:771-788) — and inline it put a
+   ~55px "Clear" against the right edge of a description that wraps to three
+   lines at 390px, which is ragged blank space in the one place where the button
+   is destructive. Stacked, the description gets the full width and the button
+   gets a full-width row of its own.
 
    `> button` and not a bare `button`: `addToggle` renders a `div.checkbox-
    container` and `addExtraButton` a `div.clickable-icon`, so neither is matched
-   and Obsidian's own toggle keeps the layout it is designed for.
+   and Obsidian's own toggle keeps the switch layout it is designed for.
 
    `:has()` rather than a blanket rule so only these rows are touched. On a
-   webview without `:has()` the whole rule is dropped and Obsidian's own mobile
+   webview without `:has()` every rule here is dropped and Obsidian's own mobile
    Setting layout applies unchanged, which is a safe place to land. */
-body.awty-phone .awty-settings .setting-item:has(.setting-item-control input[type="text"]),
-body.awty-phone .awty-settings .setting-item:has(.setting-item-control input[type="number"]),
-body.awty-phone .awty-settings .setting-item:has(.setting-item-control select),
-body.awty-phone .awty-settings .setting-item:has(.setting-item-control textarea),
-body.awty-phone .awty-settings .setting-item:has(.setting-item-control > button) {
+body.awty-phone .awty-sgroup-body .setting-item:has(.setting-item-control input[type="text"]),
+body.awty-phone .awty-sgroup-body .setting-item:has(.setting-item-control select),
+body.awty-phone .awty-sgroup-body .setting-item:has(.setting-item-control > button) {
   display: block;
 }
 
-body.awty-phone .awty-settings .setting-item:has(.setting-item-control input[type="text"]) .setting-item-control,
-body.awty-phone .awty-settings .setting-item:has(.setting-item-control input[type="number"]) .setting-item-control,
-body.awty-phone .awty-settings .setting-item:has(.setting-item-control select) .setting-item-control,
-body.awty-phone .awty-settings .setting-item:has(.setting-item-control textarea) .setting-item-control,
-body.awty-phone .awty-settings .setting-item:has(.setting-item-control > button) .setting-item-control {
+body.awty-phone .awty-sgroup-body .setting-item:has(.setting-item-control input[type="text"]) .setting-item-control,
+body.awty-phone .awty-sgroup-body .setting-item:has(.setting-item-control select) .setting-item-control,
+body.awty-phone .awty-sgroup-body .setting-item:has(.setting-item-control > button) .setting-item-control {
   justify-content: flex-start;
   width: 100%;
-  margin-top: 8px;
+  margin-top: 10px;
   padding-left: 0;
 }
 
-body.awty-phone .awty-settings .setting-item-control input[type="text"],
-body.awty-phone .awty-settings .setting-item-control input[type="number"],
-body.awty-phone .awty-settings .setting-item-control select,
-body.awty-phone .awty-settings .setting-item-control textarea {
+body.awty-phone .awty-sgroup-body .setting-item-control input[type="text"],
+body.awty-phone .awty-sgroup-body .setting-item-control select {
   width: 100%;
   min-width: 0;
 }
 
-/* A button sharing its control row with a field — "Add a passport"
-   (settingsTab.ts:555-566) is the only one — must not shrink below its own
-   label when the field beside it asks for `width: 100%` above. The field takes
-   what is left, which at 390px is still around 275px for a country name, and
-   the row ends flush against the right edge with the button on it. */
+/* The four facts on the About panel (settingsTab.ts:873-881) are a `setName`
+   and a `setDesc` with no control at all. Obsidian still lays an empty
+   `.setting-item-control` out beside them and it still takes its share of the
+   row, so "6,071, with coordinates so flights need no geocoding" wrapped inside
+   about half a phone. Nothing to lay out means nothing to lay out beside.
+   `:empty` and not `:not(:has(> *))`: the div is built by `createDiv` with no
+   children and no text (settingsTab.ts:880 adds neither), so it matches, and
+   `:empty` is the older and better-supported of the two. */
+body.awty-phone .awty-sgroup-body .setting-item:has(.setting-item-control:empty) {
+  display: block;
+}
+
+/* --- the one control holding a field AND a button -------------------------
+   "Add a passport" (settingsTab.ts:555-566) is `.addText().addButton("Add")`,
+   so its `.setting-item-control` is a flex row holding both. This is where the
+   previous round broke: the field was told `width: 100%` while the button was
+   pinned `flex: 0 0 auto`, the two fought over one line in a `nowrap` row, and
+   the field lost — about 40px of input, a grey oval hard against the screen
+   edge, with "Add" taking nearly all of the rest.
+
+   Tuning that split is the wrong instinct. There is no width at 390px where a
+   country name and an Add button both look right side by side, and the user has
+   asked repeatedly for full-width fields. Turn the control into a column
+   instead: field full width on line one, button full width beneath it. The
+   competition is removed rather than balanced.
+
+   A column rather than `flex-wrap: wrap` with the field at `flex: 1 1 100%`,
+   which reaches the same picture. Both work; the column is the stronger of the
+   two because it does not depend on flex-basis arithmetic at all. Wrapping
+   still asks the browser to compare a 100% basis against whatever basis the
+   button ends up with and to decide there is no room — which is the same
+   machinery that produced the bug, pointed the other way. In a column the
+   button's width is a cross-axis question answered by `align-items`, so no
+   width the button inherits from anywhere can put it back on the field's line.
+
+   This is also the likely cause of the misplaced country popup. `CountrySuggest`
+   (suggest.ts:10) is an `AbstractInputSuggest`, which Obsidian positions and
+   sizes against its anchor input's bounding box — and the anchor was a 40px box
+   jammed against the right edge. A full-width field at a known left edge is the
+   anchor that popup was always meant to have, so nothing here reaches for
+   `.suggestion-container`: that class belongs to Obsidian and is shared with
+   every other plugin's suggester, and it should not be touched on a hunch about
+   a symptom whose cause is on our side of the line.
+
+   And whichever mechanism is used, it must NOT be applied to the control as a
+   whole. `help()` (settingsTab.ts:109-124) is an `addExtraButton`, so every
+   help-annotated field — "Folder pattern" (:215-230) is the live one — is a
+   text input sharing this same control with a `div.clickable-icon`. That pair
+   renders correctly today and belongs on one line: the `?` is an affordance
+   attached to the field, not a lone 44px icon marooned on a row of its own. A
+   `nowrap` row lets the field shrink by the icon's width and keep it, and a
+   blanket `flex-wrap: wrap` — or a blanket `flex: 1 1 100%` on the field —
+   would break it. Only `:has(> button)` becomes a column; the `.clickable-icon`
+   case is left exactly as it is. */
+body.awty-phone .awty-sgroup-body .setting-item-control {
+  gap: 8px;
+}
+
+body.awty-phone .awty-sgroup-body .setting-item-control:has(> button) {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* Behind the same `:has(> button)` guard as the column above, and that is
+   load-bearing rather than tidy. `width: 100%` on a button whose row is still
+   `nowrap` is half of what broke the passport row in the first place — an
+   inherited full width that the button was then forbidden to give back. Left
+   unguarded it would apply in exactly the case where the column does not: a
+   webview with no `:has()`. Guarded, the two live or die together, and that
+   webview falls back to Obsidian's own layout rather than to a hand-built copy
+   of the failure. */
+body.awty-phone .awty-sgroup-body .setting-item-control:has(> button) > button {
+  width: 100%;
+  margin: 0;
+}
+
+/* Tappable on every mobile. Note what is deliberately NOT here any more:
+   `flex: 0 0 auto`. `shrink: 0` on an element whose width is not ours to set is
+   the whole trap — the basis resolves to whatever width the element inherits,
+   the button is then forbidden to give any of it back, and the only thing left
+   that can absorb the overflow is the field beside it, which has `min-width: 0`
+   and duly collapses to its own border-radius. On a phone the button is in a
+   column now and needs no shrink rule at all. A tablet keeps Obsidian's own
+   mobile Setting layout — 810px is width enough for a field and a button on one
+   row — and there the pin is still wanted, so it goes on `awty-tablet` alone.
+   A phone, including one whose webview drops every `:has()` rule above, never
+   carries `shrink: 0` on a width it does not own. */
 body.awty-mobile .awty-settings .setting-item-control > button {
-  flex: 0 0 auto;
   min-height: var(--awty-tap);
 }
 
-/* A button that is the whole control has nothing to end flush against, so it
-   takes the row. Higher specificity than the rule above, so source order here
-   is not load-bearing. */
-body.awty-mobile .awty-settings .setting-item-control > button:only-child {
-  flex: 1 1 auto;
+body.awty-tablet .awty-settings .setting-item-control > button {
+  flex: 0 0 auto;
 }
 
 /* The `?` that reveals a row's longer explanation (settingsTab.ts:111-124) is
