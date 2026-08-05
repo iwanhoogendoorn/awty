@@ -264,6 +264,30 @@ const STYLES = `
   .disclaimer h2 { font-size: 10pt; border: none; margin: 0 0 2mm; padding: 0; }
   .disclaimer p { margin: 0 0 2mm; }
   footer { margin-top: 8mm; color: #8a939c; font-size: 8.5pt; border-top: 1px solid #e4e7eb; padding-top: 2mm; }
+
+  /* Read on a phone rather than printed.
+
+     "screen" is doing the real work here: paged media never matches it, so the
+     PDF Electron prints on the desktop is exactly the document it always was.
+     Last in the sheet because a media query adds no specificity — placed any
+     earlier, the plain rules below it would simply win.
+
+     The page box supplies the margins when printing and body has none of its
+     own, so on a screen the text would otherwise run into the bezel. */
+  @media screen and (max-width: 700px) {
+    body { padding: 4mm 4mm 10mm; font-size: 11pt; }
+    h1 { font-size: 19pt; }
+    h2 { margin-top: 6mm; }
+    /* Two columns of packing list across 390px is about twenty characters a
+       line. One column reads; two does not. */
+    .packing { column-count: 1; }
+    /* A five-column flight table cannot shrink to fit. Letting the table scroll
+       inside itself keeps it off the page's own horizontal scrollbar. */
+    table { display: block; overflow-x: auto; }
+    .totals { flex-wrap: wrap; gap: 4mm 8mm; }
+    .day { gap: 2mm; }
+    .gallery figure { width: 100%; }
+  }
 `;
 
 /** Renders the whole trip as one printable document. */
@@ -273,6 +297,12 @@ export function renderTripDocument(doc: TripDocument): string {
   parts.push(
     "<!doctype html>",
     '<html lang="en"><head><meta charset="utf-8">',
+    // Without this a phone lays the document out at ~980px and zooms out, which
+    // is unreadable — and on mobile this file IS the export, standing in for the
+    // PDF that only Electron can make. Desktop browsers resolve
+    // `width=device-width` to the window width, and paged media ignores the tag
+    // outright, so the printed PDF is byte-for-byte what it always was.
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(doc.title)}</title>`,
     `<style>${STYLES}</style>`,
     "</head><body>",

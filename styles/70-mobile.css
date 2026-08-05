@@ -1,0 +1,753 @@
+/* ==========================================================================
+   Mobile (Obsidian iOS / Android) — everything here is gated on a body class.
+
+   `markPlatform()` in src/util/platform.ts puts `awty-mobile`, `awty-phone` and
+   `awty-tablet` on document.body from Obsidian's own `Platform`. Those classes
+   exist ONLY in the mobile app, so every rule below is provably invisible to a
+   desktop user — including one working in a very narrow pane, which is exactly
+   what a bare `@media (max-width: …)` would have caught by mistake.
+
+   Width breakpoints are therefore always nested inside a body-class rule, never
+   written at the top level.
+
+   This file sorts last of the nine, so esbuild concatenates it last and its
+   declarations win ties on equal specificity without `!important`. The three
+   pre-existing media queries — 30-components.css @420px, 45-wizard.css @560px,
+   60-settings.css @700px — all fire on a phone and are built on, not fought.
+   ========================================================================== */
+
+body.awty-mobile {
+  /* Apple HIG and Material both land on ~44px as the smallest reliable tap
+     target. One name, so a sweep of the file shows every place it is applied. */
+  --awty-tap: 44px;
+}
+
+/* ==========================================================================
+   1. Nothing scrolls the page sideways
+   ========================================================================== */
+
+/* Belt and braces: if any row does overflow, it is clipped rather than turned
+   into a horizontal page scroll. Anything that genuinely needs to scroll wide —
+   the tab strip, the settings matrix — gets its own scroll container below. */
+body.awty-mobile .awty-dashboard,
+body.awty-mobile .awty-sidebar,
+body.awty-mobile .modal-content.awty-modal {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* ==========================================================================
+   2. Hover-only controls — P1, these are unreachable on a touch screen
+   ========================================================================== */
+
+/* 50-dashboard.css:75 parks the card menu at opacity 0 and 50-dashboard.css:82
+   brings it back on :hover. A finger never produces :hover, so on mobile this
+   button simply did not exist. Same story for the sidebar's trip actions at
+   20-sidebar.css:164/168. */
+body.awty-mobile .awty-card-menu,
+body.awty-mobile .awty-trip-actions {
+  opacity: 1;
+}
+
+/* No hover means no feedback that a tap registered, so give the pressed state
+   the treatment the hover state has on the desktop. */
+body.awty-mobile .awty-icon-btn:active,
+body.awty-mobile .awty-stop-btn:active,
+body.awty-mobile .awty-key-btn:active,
+body.awty-mobile .awty-matrix-reset:active,
+body.awty-mobile .awty-note-btn:active,
+body.awty-mobile .awty-dash-quick-btn:active,
+body.awty-mobile .awty-dash-add:active,
+body.awty-mobile .awty-dash-action:active,
+body.awty-mobile .awty-chip:active,
+body.awty-mobile .awty-plan-btn:active,
+body.awty-mobile .awty-settings-nav-item:active {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+body.awty-mobile .awty-trip:active,
+body.awty-mobile .awty-subnote-row:active,
+body.awty-mobile .awty-note-cell:active,
+body.awty-mobile .awty-card:active,
+body.awty-mobile .awty-next-row:active,
+body.awty-mobile .awty-booking:active,
+body.awty-mobile .awty-cost-line:active,
+body.awty-mobile .awty-doc-row:active,
+body.awty-mobile .awty-day-item:active,
+body.awty-mobile .awty-around-row.is-clickable:active,
+body.awty-mobile .awty-gallery-head.is-clickable:active,
+body.awty-mobile .awty-attention-row.is-clickable:active {
+  background: var(--background-modifier-hover);
+}
+
+/* The blue flash Safari paints over the whole row on tap fights the :active
+   states above and lands on the wrong element in nested rows. */
+body.awty-mobile .awty-dashboard,
+body.awty-mobile .awty-sidebar,
+body.awty-mobile .modal-content.awty-modal {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ==========================================================================
+   3. Touch targets — 44x44 minimum
+   ========================================================================== */
+
+/* Icon buttons. `.awty-icon-btn` (20-sidebar.css:175) carried `padding: 0.2em`
+   around a 1em glyph, so about 19px square. `.awty-card-menu` and the sidebar
+   trip menu are both this class, so both are fixed here. */
+body.awty-mobile .awty-icon-btn,
+body.awty-mobile .awty-stop-btn,
+body.awty-mobile .awty-star-btn,
+body.awty-mobile .awty-key-btn,
+body.awty-mobile .awty-matrix-reset,
+body.awty-mobile .awty-lightbox-nav {
+  min-width: var(--awty-tap);
+  min-height: var(--awty-tap);
+}
+
+/* The lightbox arrows are round, so both axes have to grow together or they go
+   oval; 45-wizard.css:636 sizes them at 2em (~32px). */
+body.awty-mobile .awty-lightbox-nav {
+  width: var(--awty-tap);
+  height: var(--awty-tap);
+}
+
+/* The twisty is a flex item in the trip row, which is already taller than 44px
+   once title and meta are in it — so the tap area costs no extra height. */
+body.awty-mobile .awty-twisty {
+  min-width: var(--awty-tap);
+  min-height: var(--awty-tap);
+  padding-top: 0;
+}
+
+/* Text buttons and chips: grow the box, since these sit in wrapping rows where
+   a taller button costs nothing. */
+body.awty-mobile .awty-note-btn,
+body.awty-mobile .awty-dash-quick-btn,
+body.awty-mobile .awty-dash-add,
+body.awty-mobile .awty-dash-action,
+body.awty-mobile .awty-dash-empty-btn,
+body.awty-mobile .awty-plan-btn,
+body.awty-mobile .awty-chip,
+body.awty-mobile .awty-stop-add,
+body.awty-mobile .awty-leg-add,
+body.awty-mobile .awty-new-btn,
+body.awty-mobile .awty-settings-nav-item,
+body.awty-mobile .awty-wizard-step {
+  min-height: var(--awty-tap);
+}
+
+/* Padding has to come with the height or the label floats in a tall empty box. */
+body.awty-mobile .awty-chip,
+body.awty-mobile .awty-note-btn,
+body.awty-mobile .awty-stop-add {
+  padding-block: 0.5em;
+}
+
+body.awty-mobile .awty-wizard-step {
+  padding: 0.5em 0.85em;
+}
+
+/* Rows that are one line of text are around 34px; two-line rows already clear
+   44px and are unaffected by a min-height. */
+body.awty-mobile .awty-subnote-row,
+body.awty-mobile .awty-next-row,
+body.awty-mobile .awty-booking,
+body.awty-mobile .awty-cost-line,
+body.awty-mobile .awty-doc-row,
+body.awty-mobile .awty-doc-item,
+body.awty-mobile .awty-day-item,
+body.awty-mobile .awty-around-row,
+body.awty-mobile .awty-route-mode,
+body.awty-mobile .awty-plan-row,
+body.awty-mobile .awty-packing-row,
+body.awty-mobile .awty-slot-activity,
+body.awty-mobile .awty-attention-row,
+body.awty-mobile .awty-matrix-cell,
+body.awty-mobile .awty-day-ongoing {
+  min-height: var(--awty-tap);
+}
+
+/* A 16px checkbox is the actual target in these rows; padding the label around
+   it turns the whole row into the target instead. */
+body.awty-mobile .awty-slot-activity,
+body.awty-mobile .awty-packing-row,
+body.awty-mobile .awty-doc-done,
+body.awty-mobile .awty-subnote {
+  padding-block: 0.45em;
+}
+
+body.awty-mobile .awty-slot-activity input,
+body.awty-mobile .awty-packing-row input[type="checkbox"],
+body.awty-mobile .awty-matrix-cell input,
+body.awty-mobile .awty-doc-done input,
+body.awty-mobile .awty-subnote input {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+/* Small glyphs living inside dense inline runs — the × on an attachment chip,
+   the × on a settings pill, the external-link arrow on a document row. A 44px
+   visual box would break the chip or pill they sit in, so the box grows to 44px
+   and an equal negative margin pulls the *layout* footprint back to roughly the
+   glyph's original 20px. The row looks unchanged; the hit area is 44x44.
+   `position: relative` keeps them painted above what they now overlap. */
+body.awty-mobile .awty-attach-chip-remove,
+body.awty-mobile .awty-pill-x,
+body.awty-mobile .awty-doc-link {
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--awty-tap);
+  min-height: var(--awty-tap);
+  margin: -12px;
+}
+
+/* The × is the last thing on its chip, so the negative right margin would pull
+   it past the chip's own padding and let two adjacent pills overlap. */
+body.awty-mobile .awty-attach-chip-remove,
+body.awty-mobile .awty-pill-x {
+  margin-right: -2px;
+}
+
+/* Inline text links that trigger something, rather than navigate. */
+body.awty-mobile .awty-slot-add,
+body.awty-mobile .awty-confirm-link,
+body.awty-mobile .awty-timeline-open a {
+  min-height: var(--awty-tap);
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ==========================================================================
+   4. Form controls
+   ========================================================================== */
+
+/* iOS zooms the viewport when a field with a font smaller than 16px takes
+   focus, and the zoom is not undone on blur. Raising the floor to 16px is the
+   standard fix; `max()` keeps a theme that already sets something larger. */
+body.awty-phone .modal-content.awty-modal input,
+body.awty-phone .modal-content.awty-modal select,
+body.awty-phone .modal-content.awty-modal textarea,
+body.awty-phone .awty-settings input,
+body.awty-phone .awty-settings select,
+body.awty-phone .awty-settings textarea,
+body.awty-phone .awty-dashboard input,
+body.awty-phone .awty-dashboard select,
+body.awty-phone .awty-sidebar input {
+  font-size: max(16px, var(--font-ui-small));
+}
+
+body.awty-mobile .modal-content.awty-modal input,
+body.awty-mobile .modal-content.awty-modal select,
+body.awty-mobile .awty-settings input:not([type="checkbox"]),
+body.awty-mobile .awty-settings select,
+body.awty-mobile .awty-sidebar input {
+  min-height: var(--awty-tap);
+}
+
+body.awty-mobile .modal-content.awty-modal textarea,
+body.awty-mobile .awty-settings textarea {
+  min-height: calc(var(--awty-tap) * 2);
+}
+
+/* A fixed-width field is a fixed-width field at 16px too, so the widths set in
+   30-components.css and 45-wizard.css need a little more room to hold their
+   content once the font floor lifts them. */
+body.awty-phone .awty-time-input {
+  width: 8.5em;
+}
+
+body.awty-phone .awty-packing-qty {
+  width: 5.5em;
+}
+
+/* 30-components.css:216 shrinks the stop field to match a Setting's own text
+   field; on a phone that is below the zoom threshold. */
+body.awty-phone .awty-stop-input {
+  font-size: max(16px, var(--font-ui-small));
+}
+
+/* ==========================================================================
+   5. Sidebar
+   ========================================================================== */
+
+body.awty-mobile .awty-sidebar {
+  /* The home indicator sits over the last row otherwise. */
+  padding-bottom: calc(2em + env(safe-area-inset-bottom, 0px));
+}
+
+/* The actions are permanently visible now (section 2), so the title needs to
+   stop under them rather than run behind them. */
+body.awty-mobile .awty-trip-actions {
+  flex: none;
+}
+
+/* 25-subnotes.css:93 indents the sub-notes 1.5em past the trip row. With a
+   44px twisty in the row above, that indent no longer lines up and costs width
+   the note names need. */
+body.awty-phone .awty-subnotes {
+  padding-left: 0.75em;
+}
+
+/* ==========================================================================
+   6. Dashboard — header and the six-tab strip
+   ========================================================================== */
+
+body.awty-phone .awty-dash-header {
+  padding: 0.6em 0.75em 0;
+}
+
+body.awty-phone .awty-dash-content {
+  padding: 0.9em 0.75em calc(4em + env(safe-area-inset-bottom, 0px));
+}
+
+/* 50-dashboard.css:28 caps the trip picker at 22em (~352px), which is wider
+   than the 390px screen minus its padding, and a <select> will happily take its
+   longest option's width. Give it the whole first row instead. */
+body.awty-phone .awty-dash-select {
+  flex: 1 1 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: var(--awty-tap);
+}
+
+/* 50-dashboard.css:36 pushes the quick actions right with `margin-left: auto`.
+   Once the picker takes its own row that only strands them against the edge. */
+body.awty-phone .awty-dash-quick {
+  margin-left: 0;
+  width: 100%;
+}
+
+/* Six tabs come to roughly 510px, so the strip has to scroll. 50-dashboard.css
+   :331 already sets `overflow-x: auto`; what was missing is `flex: none` — in a
+   flex row the tabs shrink to fit before the scroll ever engages, clipping
+   their labels. */
+body.awty-mobile .awty-dash-tab {
+  flex: 0 0 auto;
+  min-height: var(--awty-tap);
+  scroll-snap-align: start;
+  /* Room to breathe when JS scrolls the active tab into view. */
+  scroll-margin-inline: 0.75em;
+}
+
+body.awty-mobile .awty-dash-tabs {
+  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  /* A scrollbar gutter under a 44px tab strip is wasted height on a phone. */
+  scrollbar-width: none;
+}
+
+body.awty-mobile .awty-dash-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* ==========================================================================
+   7. Dashboard — content
+   ========================================================================== */
+
+/* 50-dashboard.css:383 keeps the countdown beside the title. At 390px the
+   title gets so little room that it ellipsises to nothing. */
+body.awty-phone .awty-hero {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6em;
+  padding: 0.9em 1em;
+}
+
+body.awty-phone .awty-hero-countdown {
+  text-align: left;
+  min-width: 0;
+}
+
+/* 50-dashboard.css:440 asks for 150px columns, which gives two across at 390px
+   and a stat value that wraps mid-number. One per row reads better. */
+body.awty-phone .awty-stat-grid {
+  grid-template-columns: 1fr;
+  gap: 0.5em;
+}
+
+/* 50-dashboard.css:92 (200px), :881 (230px) — both `auto-fill`, so they already
+   collapse to one column without overflowing. Stated explicitly so a wider
+   phone in landscape does not end up with two 195px cards holding three
+   buttons each. */
+body.awty-phone .awty-note-grid,
+body.awty-phone .awty-trip-grid {
+  grid-template-columns: 1fr;
+}
+
+/* 50-dashboard.css:1036 gives two 150px thumbnails at 390px, which is the right
+   answer for a gallery — only the fixed 120px image height needs to come down
+   a little so a row of two is not taller than it is wide. */
+body.awty-phone .awty-gallery {
+  gap: 0.4em;
+}
+
+body.awty-phone .awty-gallery-img,
+body.awty-phone .awty-gallery-doc {
+  height: 100px;
+}
+
+/* 55-travel.css:54 keeps the travel-time chips on the same line as the place
+   name with `flex: none`, leaving the name about 120px. Let them drop. */
+body.awty-phone .awty-around-row {
+  flex-wrap: wrap;
+}
+
+body.awty-phone .awty-around-times {
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+}
+
+/* 50-dashboard.css:1126 caps the empty-state copy at 32em; below that width the
+   cap does nothing but the surrounding padding still eats the line. */
+body.awty-phone .awty-dash-empty {
+  min-height: 30vh;
+  padding: 1.5em 0.5em;
+}
+
+/* 50-dashboard.css:1179 puts the headline value opposite its label; at 390px
+   the two collide once the number has four digits and a currency symbol. */
+body.awty-phone .awty-budget-headline {
+  flex-direction: column;
+  gap: 0.4em;
+}
+
+body.awty-phone .awty-budget-headline-right {
+  text-align: left;
+}
+
+/* 55-travel.css:104 indents a travel leg 4.6em to clear the time column; that
+   leaves under 200px for the text on a phone. */
+body.awty-phone .awty-day-items .awty-leg {
+  padding-left: 3.2em;
+}
+
+body.awty-phone .awty-day {
+  gap: 0.5em;
+}
+
+/* ==========================================================================
+   8. The two touch-only menu buttons
+   ==========================================================================
+   Both are created only on mobile, by `touchMenuButton()` in
+   src/ui/dashboard/common.ts — the desktop never has this DOM at all. They are
+   scoped anyway so this file has one rule about scoping, not two. */
+
+/* Trailing-edge button on a list row: .awty-booking (bookings.ts:101),
+   .awty-cost-line (costs.ts:133), .awty-day-item (itinerary.ts:113). */
+body.awty-mobile .awty-touch-menu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  /* Last child of a flex row, so this already sits at the trailing edge; the
+     auto margin holds it there even when the row's content is short. */
+  margin-left: auto;
+  min-width: var(--awty-tap);
+  min-height: var(--awty-tap);
+  padding: 0;
+  /* Pulls the 44px height back into the row's own vertical padding, so the tap
+     target is full size without the row growing to 44px + padding. */
+  margin-block: -0.4em;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-s);
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+body.awty-mobile .awty-touch-menu:active {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+body.awty-mobile .awty-touch-menu .svg-icon {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+/* The rows put their trailing price or status pill directly before this button;
+   without the gap the icon touches the number. */
+body.awty-mobile .awty-booking .awty-touch-menu,
+body.awty-mobile .awty-cost-line .awty-touch-menu,
+body.awty-mobile .awty-day-item .awty-touch-menu {
+  margin-left: 0.2em;
+}
+
+/* The sidebar sub-note rows (view.ts:309) are tighter than the dashboard list
+   rows — 25-subnotes.css:99 gives them 0.3em of vertical padding, so the -0.4em
+   the generic rule pulls back would eat into the row above. The progress ring
+   is the row's other trailing item, hence the gap rather than an auto margin. */
+body.awty-mobile .awty-subnote-row .awty-touch-menu {
+  margin-block: -0.3em;
+  margin-left: 0.15em;
+}
+
+/* Inline variant: overview.ts:217 puts this inside .awty-note-actions beside
+   the Edit and Open buttons, so it should read as one of them — bordered box,
+   square, same height — rather than as a floating overlay. */
+body.awty-mobile .awty-touch-menu-inline {
+  margin: 0;
+  width: var(--awty-tap);
+  min-width: var(--awty-tap);
+  height: var(--awty-tap);
+  min-height: var(--awty-tap);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
+}
+
+body.awty-mobile .awty-touch-menu-inline:active {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+/* .awty-note-btn grows to 44px in section 3; the row holding both needs to
+   align them rather than stretch the shorter one. */
+body.awty-mobile .awty-note-actions {
+  align-items: center;
+}
+
+/* ==========================================================================
+   9. Modals — full-height, scrollable, buttons always reachable
+   ==========================================================================
+   Every modal in src/ui/modals/ builds its action row as the last child of
+   contentEl: a `new Setting(contentEl)` carrying only buttons, which renders as
+   a `.setting-item`. bookingWizard.ts:213 names its one `.awty-wizard-nav`, and
+   that is a `.setting-item` too, so one selector covers all of them.
+
+   contentEl is the scroll container and the button row is stuck to its bottom
+   edge. At 390x664 that means the content scrolls under a bar that never
+   leaves the screen — no scrolling past 1080 lines of booking wizard to reach
+   Save. */
+
+body.awty-mobile .modal-content.awty-modal,
+body.awty-mobile .modal.awty-modal > .modal-content {
+  /* vh first as the fallback, then dvh so the iOS URL bar collapsing does not
+     leave the footer parked below the fold. */
+  max-height: 72vh;
+  max-height: 72dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.awty-mobile .modal-content.awty-modal > .setting-item:last-child {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  /* Solid, not translucent: content scrolls underneath this. */
+  background: var(--background-primary);
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: var(--size-4-2, 8px);
+  padding-top: var(--size-4-2, 8px);
+  padding-bottom: max(var(--size-4-2, 8px), env(safe-area-inset-bottom, 0px));
+}
+
+/* Obsidian lays a Setting's control row out at its natural width and right-
+   aligns it; three buttons at 44px tall need to be allowed to wrap. */
+body.awty-mobile .modal-content.awty-modal > .setting-item:last-child .setting-item-control {
+  flex-wrap: wrap;
+  gap: var(--size-4-2, 8px);
+  width: 100%;
+}
+
+body.awty-mobile .modal-content.awty-modal > .setting-item:last-child button {
+  flex: 1 1 auto;
+  min-width: 6em;
+  min-height: var(--awty-tap);
+  margin: 0;
+}
+
+/* 10-base.css:7 caps the shell at min(640px, 92vw); 92vw of 390 leaves 31px of
+   backdrop that is not doing any work on a phone. */
+body.awty-phone .awty-modal-shell {
+  width: 96vw;
+  max-width: 96vw;
+}
+
+/* Long scrolling regions inside a modal already carry their own cap in vh
+   (45-wizard.css:136 and :736, 50-dashboard.css:275). Those caps were sized
+   against a desktop window; inside a 72dvh modal they leave the body barely
+   taller than a single row. */
+body.awty-mobile .awty-plan-list,
+body.awty-mobile .awty-offer-list,
+body.awty-mobile .awty-packing-list {
+  max-height: none;
+}
+
+/* 45-wizard.css:66 reserves 12em of body height so the nav does not jump
+   between steps. On a phone that is a third of the screen given to whitespace
+   on the short steps. */
+body.awty-phone .awty-wizard-body {
+  min-height: 0;
+}
+
+/* The step chips wrap already (45-wizard.css:34); at 44px tall, six of them
+   wrapping to three rows is most of the screen. Let the strip scroll instead. */
+body.awty-phone .awty-wizard-steps {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+body.awty-phone .awty-wizard-steps::-webkit-scrollbar {
+  display: none;
+}
+
+body.awty-phone .awty-wizard-step {
+  flex: 0 0 auto;
+  scroll-margin-inline: 0.5em;
+}
+
+/* 45-wizard.css:546 sizes the lightbox at 88vh, which on iOS is measured
+   against the tallest viewport and so runs under the URL bar. */
+body.awty-mobile .awty-lightbox-shell {
+  width: 96vw;
+  height: 86vh;
+  height: 86dvh;
+}
+
+/* 45-wizard.css:825 asks each "add another flight" button for 12em; two of them
+   is 384px before gaps, so they wrap and the second one is left at 12em in a
+   full-width row. */
+body.awty-phone .awty-leg-adds .awty-leg-add {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+/* 45-wizard.css:392 already drops the leg grid to two columns at 560px. Two
+   columns of ~150px hold a date or a time field; what they do not hold is the
+   0.4em gap plus a 16px font, so trim the padding around them. */
+body.awty-phone .awty-leg-box {
+  padding: 0.5em;
+}
+
+/* 30-components.css:196 keeps index, field and two buttons on one line. With
+   44px buttons that is 88px of the 314px available. */
+body.awty-phone .awty-stop-row {
+  gap: 0.15em;
+}
+
+body.awty-phone .awty-stop-index {
+  width: 1em;
+}
+
+/* 30-components.css:141 indents the readout past a 3.4em label. */
+body.awty-phone .awty-date-readout {
+  padding-left: 0;
+}
+
+/* ==========================================================================
+   10. Settings
+   ========================================================================== */
+
+/* 60-settings.css:65 already turns the settings pane into a column at 700px.
+   What it does not undo is `flex: 0 0 150px` from :12 — in a column container
+   that 150px is a *height*, so the nav gets a fixed 150px block whether its
+   wrapped buttons need it or not. */
+body.awty-mobile .awty-settings-nav {
+  flex: 0 0 auto;
+}
+
+body.awty-mobile .awty-settings {
+  gap: 12px;
+}
+
+body.awty-mobile .awty-settings-nav-item {
+  padding: 10px 12px;
+}
+
+/* The worst offender at 390px: 60-settings.css:230 asks for
+   `minmax(7em, auto) + 6 x minmax(5em, 1fr) + 2.2em`, about 550px of minimum
+   track. `overflow-x: auto` on :237 keeps it out of the page scroll, so the fix
+   is to make the scroll usable rather than to remove it — trim the tracks so
+   fewer swipes are needed, and freeze the row label so you can still tell which
+   row a checkbox belongs to once you have scrolled past it. */
+body.awty-phone .awty-matrix {
+  grid-template-columns: minmax(5.5em, auto) repeat(var(--awty-matrix-cols), minmax(3.4em, 1fr)) 2.6em;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.awty-phone .awty-matrix-row-head {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  /* Matches .awty-sgroup (60-settings.css:80), which is what this scrolls over. */
+  background: var(--background-secondary);
+  padding-right: 8px;
+  font-size: 12px;
+}
+
+/* Only the top-left corner is frozen; 60-settings.css emits a second
+   .awty-matrix-corner at the end of the header row, which must scroll. */
+body.awty-phone .awty-matrix > .awty-matrix-corner:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--background-secondary);
+}
+
+/* 60-settings.css:132 caps the status chip at 60% of the panel head; at 390px
+   that is under 200px and "OpenAI key set" clips again. */
+body.awty-phone .awty-sgroup-head .awty-chip {
+  max-width: 100%;
+}
+
+body.awty-phone .awty-sgroup-head {
+  flex-wrap: wrap;
+}
+
+body.awty-phone .awty-sgroup {
+  padding: 12px;
+}
+
+/* 60-settings.css:317 keeps the key field and its two buttons on one line; two
+   44px buttons leave the monospace field about 190px, which is enough to see
+   that a key is set. Wrapping is worse here, so only the gap comes down. */
+body.awty-phone .awty-keyrow {
+  gap: 4px;
+}
+
+/* 30-components.css:176 already stacks a Setting whose control is a group. On a
+   phone a Setting whose control is a *field* wants the same treatment, or the
+   field is squeezed to a few characters beside a two-line description. Toggles
+   and single buttons are left inline, where they read correctly.
+
+   `:has()` rather than a blanket rule so only field rows are touched. On a
+   webview without `:has()` the whole rule is dropped and Obsidian's own mobile
+   Setting layout applies unchanged, which is a safe place to land. */
+body.awty-phone .awty-settings .setting-item:has(.setting-item-control input[type="text"]),
+body.awty-phone .awty-settings .setting-item:has(.setting-item-control input[type="number"]),
+body.awty-phone .awty-settings .setting-item:has(.setting-item-control select),
+body.awty-phone .awty-settings .setting-item:has(.setting-item-control textarea) {
+  display: block;
+}
+
+body.awty-phone .awty-settings .setting-item:has(.setting-item-control input[type="text"]) .setting-item-control,
+body.awty-phone .awty-settings .setting-item:has(.setting-item-control input[type="number"]) .setting-item-control,
+body.awty-phone .awty-settings .setting-item:has(.setting-item-control select) .setting-item-control,
+body.awty-phone .awty-settings .setting-item:has(.setting-item-control textarea) .setting-item-control {
+  justify-content: flex-start;
+  width: 100%;
+  margin-top: 8px;
+  padding-left: 0;
+}
+
+body.awty-phone .awty-settings .setting-item-control input[type="text"],
+body.awty-phone .awty-settings .setting-item-control input[type="number"],
+body.awty-phone .awty-settings .setting-item-control select,
+body.awty-phone .awty-settings .setting-item-control textarea {
+  width: 100%;
+  min-width: 0;
+}

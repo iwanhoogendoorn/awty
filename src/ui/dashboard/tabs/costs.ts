@@ -1,6 +1,6 @@
 import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { bar, editItem, emptyState, itemMenu, renderToolbar, sectionTitle, statTiles, noTripState } from "../common";
+import { bar, editItem, emptyState, itemMenu, renderToolbar, sectionTitle, statTiles, noTripState, touchMenuButton } from "../common";
 import { totalsByCategory } from "../../../bookings/bookingStore";
 import { allCategories } from "../../../bookings/types";
 import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/money";
@@ -130,6 +130,9 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
         evt.preventDefault();
         itemMenu(evt, ctx, line.file, line.description);
       });
+      touchMenuButton(row, `Actions for ${line.description}`, (evt) =>
+        itemMenu(evt, ctx, line.file, line.description),
+      );
     }
   }
 }

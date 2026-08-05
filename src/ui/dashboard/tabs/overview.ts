@@ -1,6 +1,7 @@
 import { Menu, Notice, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { bar, editItem, emptyState, readiness, sectionTitle, stateMark, statTiles, noTripState } from "../common";
+import { bar, editItem, emptyState, readiness, sectionTitle, stateMark, statTiles, noTripState, touchMenuButton } from "../common";
+import { isMobile } from "../../../util/platform";
 import { renderGettingAround } from "../gettingAround";
 import { renderDocuments } from "../documents";
 import { BOOKING_KINDS, type BookingKind } from "../../../bookings/types";
@@ -175,8 +176,10 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
 
     // A trip can end up with a note it has no use for — Event Details on a
     // holiday, say, or one left behind by an older version.
-    cell.addEventListener("contextmenu", (evt) => {
-      evt.preventDefault();
+    //
+    // Named rather than inlined into the listener so the touch button below
+    // opens this same menu instead of a second copy of it.
+    const noteMenu = (evt: MouseEvent): void => {
       const menu = new Menu();
       menu.addItem((i) =>
         i.setTitle("Open").setIcon("file-text").onClick(() => ctx.openFile(sub.file)),
@@ -203,8 +206,21 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
           }),
       );
       menu.showAtMouseEvent(evt);
+    };
+
+    cell.addEventListener("contextmenu", (evt) => {
+      evt.preventDefault();
+      noteMenu(evt);
     });
-    cell.setAttribute("aria-label", `${sub.label} — right-click for more`);
+    // Sits with the other buttons rather than floating over the cell, which is
+    // why it takes a second class.
+    touchMenuButton(actions, `More actions for ${sub.label}`, noteMenu, "awty-touch-menu-inline");
+
+    // "Right-click" is a lie on a touch screen, and this string is read aloud.
+    cell.setAttribute(
+      "aria-label",
+      isMobile() ? `${sub.label} — more actions button` : `${sub.label} — right-click for more`,
+    );
   }
 }
 

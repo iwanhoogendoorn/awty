@@ -27,6 +27,13 @@ import {
   type TripDocument,
 } from "./tripDocument";
 import { renderMarkdown, stripFrontmatter } from "./markdown";
+import {
+  htmlFallbackMessage,
+  pdfFallbackFor,
+  type ExportCapabilities,
+  type SaveTextOutcome,
+} from "./exportPlan";
+import { isMobile } from "../util/platform";
 import { BAND, dayEvents, ongoingOn } from "../store/dayPlan";
 import { readLegs as readFlightLegs, summariseFlight } from "../bookings/flightSummary";
 import { TRAVEL_MODES, formatDistance, formatDuration as formatTravelTime } from "../travel/types";
@@ -465,22 +472,23 @@ export function canExportPdf(): boolean {
  * Saves text to a file the user picks, using the desktop save dialogue.
  *
  * Shares the Electron bridge the PDF export already proved, rather than
- * standing up a second one. Returns the path written, or null when the user
- * cancelled or this is not the desktop app.
+ * standing up a second one. Answers with the path written, "cancelled" when the
+ * dialogue was dismissed, or "unsupported" when there is no dialogue to open —
+ * a phone can only be told something useful if those last two are told apart.
  */
 export async function saveTextFile(
   defaultName: string,
   contents: string,
   filters: { name: string; extensions: string[] }[],
-): Promise<string | null> {
+): Promise<SaveTextOutcome> {
   const bits = electron();
-  if (!bits) return null;
+  if (!bits) return { status: "unsupported" };
 
   const result = await bits.showSaveDialog({ defaultPath: defaultName, filters });
-  if (result.canceled || !result.filePath) return null;
+  if (result.canceled || !result.filePath) return { status: "cancelled" };
 
   bits.writeFile(result.filePath, new TextEncoder().encode(contents));
-  return result.filePath;
+  return { status: "saved", path: result.filePath };
 }
 
 /** Electron's <webview> tag, with the printToPDF extension this relies on. */
@@ -624,6 +632,31 @@ function printViaDialog(html: string): void {
   }, 400);
 }
 
+/**
+ * The mobile answer to "make me a PDF".
+ *
+ * There is no printToPDF and no print dialogue in the mobile app, but the
+ * self-contained HTML has already been written into the trip folder — so name
+ * the path and open the file, which is the most the typed API offers. Obsidian
+ * has no share-sheet method in obsidian.d.ts, so nothing here pretends there is
+ * one; from the opened file the OS share and print menus are one tap away.
+ */
+async function openExportedHtml(plugin: AwtyPlugin, htmlPath: string): Promise<void> {
+  const file = plugin.app.vault.getAbstractFileByPath(htmlPath);
+  let opened = false;
+  if (file instanceof TFile) {
+    try {
+      await plugin.openInWorkspace(file);
+      opened = true;
+    } catch (e) {
+      // Not every build has a view for .html. The path in the notice still
+      // gets the user there, so this is a downgrade, not a failure.
+      console.error("[awty]", e);
+    }
+  }
+  new Notice(htmlFallbackMessage(htmlPath, opened), 15000);
+}
+
 async function ensureFolder(app: App, path: string): Promise<void> {
   if (app.vault.getAbstractFileByPath(path) instanceof TFolder) return;
   try {
@@ -643,13 +676,14 @@ async function ensureFolder(app: App, path: string): Promise<void> {
 export async function exportTrip(plugin: AwtyPlugin, trip: Trip): Promise<void> {
   const notice = new Notice("Building the document…", 0);
   let html: string;
+  let htmlPath: string;
 
   try {
     html = renderTripDocument(await buildTripDocument(plugin, trip));
 
     const folder = joinPath(trip.folderPath, "Export");
     await ensureFolder(plugin.app, folder);
-    const htmlPath = joinPath(folder, `${sanitizeName(trip.title)}.html`);
+    htmlPath = joinPath(folder, `${sanitizeName(trip.title)}.html`);
     const existing = plugin.app.vault.getAbstractFileByPath(htmlPath);
     if (existing instanceof TFile) await plugin.app.vault.modify(existing, html);
     else await plugin.app.vault.create(htmlPath, html);
@@ -661,12 +695,21 @@ export async function exportTrip(plugin: AwtyPlugin, trip: Trip): Promise<void> 
   }
   notice.hide();
 
-  if (!canExportPdf()) {
+  const caps: ExportCapabilities = { canExportPdf: canExportPdf(), isMobile: isMobile() };
+  const fallback = pdfFallbackFor(caps);
+
+  if (!caps.canExportPdf) {
+    if (fallback === "openHtmlInVault") {
+      await openExportedHtml(plugin, htmlPath);
+      return;
+    }
     new Notice("Direct PDF export needs the desktop app — opening the print dialogue instead.");
     printViaDialog(html);
     return;
   }
 
   const outcome = await exportHtmlToPdf(html, `${sanitizeName(trip.title)}.pdf`);
-  if (outcome === "failed") printViaDialog(html);
+  if (outcome !== "failed") return;
+  if (fallback === "openHtmlInVault") await openExportedHtml(plugin, htmlPath);
+  else printViaDialog(html);
 }

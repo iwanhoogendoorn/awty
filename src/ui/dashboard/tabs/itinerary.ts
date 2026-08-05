@@ -1,6 +1,6 @@
 import { TFile, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { editItem, emptyState, itemMenu, sectionTitle, noTripState } from "../common";
+import { editItem, emptyState, itemMenu, sectionTitle, noTripState, touchMenuButton } from "../common";
 import type { Booking } from "../../../bookings/types";
 import type { DayEvent } from "../../../store/dayPlan";
 import { BAND, dayEvents, ongoingOn } from "../../../store/dayPlan";
@@ -110,6 +110,9 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
         evt.preventDefault();
         itemMenu(evt, ctx, event.file, event.title);
       });
+      touchMenuButton(item, `Actions for ${event.title}`, (evt) =>
+        itemMenu(evt, ctx, event.file, event.title),
+      );
 
       // Drawn between the two items it joins, not stacked below the day: a
       // pile of times at the bottom said nothing about which hop each was.

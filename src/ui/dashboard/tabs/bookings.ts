@@ -1,6 +1,6 @@
 import { Menu, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { editItem, emptyState, itemMenu, renderToolbar, sectionTitle, noTripState } from "../common";
+import { editItem, emptyState, itemMenu, renderToolbar, sectionTitle, noTripState, touchMenuButton } from "../common";
 import type { Booking, BookingKind } from "../../../bookings/types";
 import { BOOKING_KINDS, BOOKING_STATUSES } from "../../../bookings/types";
 import { formatMoney } from "../../../util/money";
@@ -98,4 +98,7 @@ function renderRow(parent: HTMLElement, booking: Booking, ctx: DashboardContext)
     evt.preventDefault();
     itemMenu(evt, ctx, booking.file, booking.title);
   });
+  touchMenuButton(row, `Actions for ${booking.title}`, (evt) =>
+    itemMenu(evt, ctx, booking.file, booking.title),
+  );
 }

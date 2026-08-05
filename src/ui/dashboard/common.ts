@@ -3,6 +3,7 @@ import type AwtyPlugin from "../../main";
 import type { Trip } from "../../types";
 import type { Totals } from "../../util/money";
 import { formatTotals } from "../../util/money";
+import { isMobile } from "../../util/platform";
 
 export interface DashboardContext {
   app: App;
@@ -193,6 +194,42 @@ export function itemMenu(evt: MouseEvent, ctx: DashboardContext, file: TFile, la
     );
   }
   menu.showAtMouseEvent(evt);
+}
+
+/**
+ * A tappable way into a menu that otherwise only opens on right-click.
+ *
+ * A touch screen has no right-click, so every action living only behind a
+ * `contextmenu` listener is unreachable on a phone — Delete… among them, which
+ * had no other route anywhere in the plugin.
+ *
+ * The guard is here, in one place, rather than in CSS: on the desktop this
+ * returns before creating anything, so the desktop keeps exactly the DOM, the
+ * listeners and the class lists it had. Hiding an always-created button with
+ * CSS would not have that property.
+ *
+ * `open` is handed the button's own click event. `Menu.showAtMouseEvent` wants a
+ * MouseEvent and a click is one, so the same builders the right-click uses take
+ * it unchanged — there is one definition of each menu, reached two ways.
+ */
+export function touchMenuButton(
+  parent: HTMLElement,
+  label: string,
+  open: (evt: MouseEvent) => void,
+  cls = "",
+): void {
+  if (!isMobile()) return;
+  const btn = parent.createEl("button", {
+    cls: `awty-touch-menu${cls ? ` ${cls}` : ""}`,
+    attr: { "aria-label": label },
+  });
+  setIcon(btn, "more-vertical");
+  btn.addEventListener("click", (evt) => {
+    // The row around this button opens the item when tapped. Without this the
+    // one tap would open the item and the menu both.
+    evt.stopPropagation();
+    open(evt);
+  });
 }
 
 /** Readiness: how much of a trip's planning is actually filled in. */

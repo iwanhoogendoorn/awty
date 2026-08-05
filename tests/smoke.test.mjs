@@ -57,6 +57,7 @@ export { tripKml, tripMapNote, tripLinksText, directionsLink, placeLink, MAX_WAY
 export { looksLikeMoreJourneys } from "./src/bookings/legs.ts";
 export { zoneForAirport, utcToLocal, localiseLegs } from "./src/flights/localTime.ts";
 export { linkTarget } from "./src/bookings/linkTarget.ts";
+export { pdfPlanFor, pdfFallbackFor, mapSavePlanFor, htmlFallbackMessage, mapSavedInVaultMessage } from "./src/export/exportPlan.ts";
 `;
 
 const outfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tp-test-")), "bundle.mjs");
@@ -1009,6 +1010,26 @@ test("trip content cannot inject markup into the export", () => {
   const html = m.renderTripDocument({ ...emptyDoc, title: '<img src=x onerror=alert(1)>' });
   assert.equal(html.includes("<img src=x"), false);
   assert.ok(html.includes("&lt;img src=x"));
+});
+
+test("the trip document is readable on a phone", () => {
+  const html = m.renderTripDocument(emptyDoc);
+  // On mobile this file stands in for the PDF, and without a viewport tag a
+  // phone lays it out at ~980px and zooms out until nothing can be read.
+  assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
+
+  // The narrow-screen block must be `screen`-only, or it would follow the
+  // document into the PDF that the desktop prints.
+  const narrow = html.match(/@media screen and \(max-width: 700px\) \{[\s\S]*?\n {2}\}/);
+  assert.ok(narrow, "expected a screen-only narrow-width block");
+  assert.match(narrow[0], /column-count: 1/, "packing list drops to one column");
+  assert.match(narrow[0], /overflow-x: auto/, "wide tables scroll inside themselves");
+
+  // A media query adds no specificity, so anything after it would beat it.
+  assert.ok(
+    html.indexOf("@media screen and (max-width: 700px)") > html.lastIndexOf("  footer {"),
+    "the narrow-width block must come last in the stylesheet to win",
+  );
 });
 
 test("empty sections are left out rather than printed blank", () => {
@@ -2411,6 +2432,52 @@ test("reopening the form shows the notes that are in the note", () => {
   assert.equal(m.sectionText(BOOKING_NOTE, "Notes"), "Ask for the top-floor flat.");
   assert.equal(m.sectionText(BOOKING_NOTE, "Door code"), "4821, then #");
   assert.equal(m.sectionText(BOOKING_NOTE, "Nothing here"), "");
+});
+
+// -------------------------------------------------------------- export plan
+
+const DESKTOP = { canExportPdf: true, isMobile: false };
+const MOBILE = { canExportPdf: false, isMobile: true };
+// A desktop app that cannot reach Electron — require blocked, or a version
+// where the remote module moved. Not a phone, so not a phone's answer.
+const CRIPPLED_DESKTOP = { canExportPdf: false, isMobile: false };
+
+test("the desktop still prints straight to PDF", () => {
+  assert.equal(m.pdfPlanFor(DESKTOP), "printToPdf");
+  // And when printToPDF fails mid-flight, the print dialogue, exactly as before.
+  assert.equal(m.pdfFallbackFor(DESKTOP), "printDialog");
+});
+
+test("a desktop without Electron keeps the print dialogue", () => {
+  // The offscreen iframe works in any browser engine, so nothing changes here.
+  assert.equal(m.pdfPlanFor(CRIPPLED_DESKTOP), "printDialog");
+  assert.equal(m.pdfFallbackFor(CRIPPLED_DESKTOP), "printDialog");
+});
+
+test("mobile never opens a print dialogue that does nothing", () => {
+  assert.equal(m.pdfPlanFor(MOBILE), "openHtmlInVault");
+  assert.equal(m.pdfFallbackFor(MOBILE), "openHtmlInVault");
+  // Belt and braces: a phone that somehow reported Electron is still a phone.
+  assert.equal(m.pdfFallbackFor({ canExportPdf: true, isMobile: true }), "openHtmlInVault");
+});
+
+test("only mobile changes where a map file is saved", () => {
+  assert.equal(m.mapSavePlanFor(DESKTOP), "saveDialog");
+  assert.equal(m.mapSavePlanFor(CRIPPLED_DESKTOP), "saveDialog");
+  assert.equal(m.mapSavePlanFor(MOBILE), "vaultFile");
+});
+
+test("the mobile notices name the file they are talking about", () => {
+  const opened = m.htmlFallbackMessage("Trips/Japan/Export/Japan.html", true);
+  assert.match(opened, /Trips\/Japan\/Export\/Japan\.html/);
+  assert.match(opened, /Opening it now/);
+  const not = m.htmlFallbackMessage("Trips/Japan/Export/Japan.html", false);
+  assert.match(not, /Trips\/Japan\/Export\/Japan\.html/);
+  assert.ok(!not.includes("Opening it now"), "does not claim to have opened it");
+
+  const map = m.mapSavedInVaultMessage(12, "Trips/Japan/Japan.kml");
+  assert.match(map, /^12 places/);
+  assert.match(map, /Trips\/Japan\/Japan\.kml/);
 });
 
 console.log(`\n${passed} tests passed`);

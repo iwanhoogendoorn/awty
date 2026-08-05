@@ -66,6 +66,8 @@ import {
 } from "./travel/advice";
 import { replaceSection } from "./store/sectionWriter";
 import { canExportPdf, exportTrip, saveTextFile } from "./export/pdfExport";
+import { mapSavePlanFor, mapSavedInVaultMessage, type ExportCapabilities } from "./export/exportPlan";
+import { isMobile, markPlatform } from "./util/platform";
 import { createTrip, deleteTrip, notifyError, updateTrip } from "./store/noteWriter";
 import { AwtySidebarView } from "./ui/view";
 import { TripModal } from "./ui/modals/tripModal";
@@ -96,10 +98,16 @@ export default class AwtyPlugin extends Plugin {
   loadedAt = "";
   /** Countries already attempted this session, so a failure is not retried on every render. */
   private adviceTried = new Set<string>();
+  /** Body classes this plugin put on, so unload can take exactly those off. */
+  private platformClasses: string[] = [];
 
   async onload(): Promise<void> {
     this.loadedAt = new Date().toLocaleTimeString();
     await this.loadSettings();
+
+    // The hook the mobile stylesheet hangs off. Adds nothing on the desktop,
+    // so the desktop DOM is the same as it was.
+    this.platformClasses = markPlatform(document.body);
 
     this.store = new TripStore(this.app, () => this.settings);
     this.store.register(this);
@@ -294,6 +302,10 @@ export default class AwtyPlugin extends Plugin {
   onunload(): void {
     // Leaves are detached by Obsidian; the store's listeners came from
     // registerEvent/registerInterval and unwind with the plugin.
+    // The body classes are ours, though, and nothing else removes them. On the
+    // desktop this list is empty and the loop does nothing.
+    for (const cls of this.platformClasses) document.body.classList.remove(cls);
+    this.platformClasses = [];
   }
 
   // ---------------------------------------------------------------- settings
@@ -644,6 +656,20 @@ export default class AwtyPlugin extends Plugin {
     return places;
   }
 
+  /**
+   * Writes a file into the trip folder, creating or overwriting as needed.
+   *
+   * One copy of the write, because the map export and the mobile "Save map
+   * file" both land in the same place with the same rules. Returns the path.
+   */
+  private async writeInTripFolder(trip: Trip, name: string, contents: string): Promise<string> {
+    const path = joinPath(trip.folderPath, name);
+    const existing = this.app.vault.getAbstractFileByPath(path);
+    if (existing instanceof TFile) await this.app.vault.modify(existing, contents);
+    else await this.app.vault.create(path, contents);
+    return path;
+  }
+
   /** The KML alone, saved wherever the user wants it. */
   async saveMapFile(trip: Trip): Promise<void> {
     const places = this.mapPlaces(trip);
@@ -652,19 +678,31 @@ export default class AwtyPlugin extends Plugin {
       return;
     }
 
+    const kml = tripKml(trip.title, places);
+    const caps: ExportCapabilities = { canExportPdf: canExportPdf(), isMobile: isMobile() };
+
+    // No save dialogue exists in the mobile app, so this used to end in a
+    // notice about a desktop app the user was not holding. The trip folder is
+    // where the map export already writes, so write it there and say so.
+    if (mapSavePlanFor(caps) === "vaultFile") {
+      const path = await this.writeInTripFolder(trip, `${sanitizeName(trip.title)}.kml`, kml);
+      new Notice(mapSavedInVaultMessage(places.length, path), 12000);
+      return;
+    }
+
     const suggested = `${sanitizeName(trip.title)}.kml`;
-    const saved = await saveTextFile(suggested, tripKml(trip.title, places), [
+    const saved = await saveTextFile(suggested, kml, [
       { name: "Google Earth / My Maps", extensions: ["kml"] },
     ]);
-    if (saved === null) {
+    if (saved.status !== "saved") {
       new Notice(
-        canExportPdf()
+        saved.status === "cancelled"
           ? "Not saved."
           : "Saving to disk needs the desktop app. The file is in the trip folder instead.",
       );
       return;
     }
-    new Notice(`${places.length} places saved to ${saved}`, 8000);
+    new Notice(`${places.length} places saved to ${saved.path}`, 8000);
   }
 
   async exportMap(trip: Trip): Promise<void> {
@@ -675,11 +713,7 @@ export default class AwtyPlugin extends Plugin {
     }
 
     const name = `${sanitizeName(trip.title)} map.kml`;
-    const path = joinPath(trip.folderPath, name);
-    const kml = tripKml(trip.title, places);
-    const existing = this.app.vault.getAbstractFileByPath(path);
-    if (existing instanceof TFile) await this.app.vault.modify(existing, kml);
-    else await this.app.vault.create(path, kml);
+    await this.writeInTripFolder(trip, name, tripKml(trip.title, places));
 
     // The companion note is the one that helps on a phone: tap a place, tap
     // Save. Google's lists are built by hand and no link creates one, so the
