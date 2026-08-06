@@ -228,6 +228,14 @@ export class BookingWizard extends Modal {
       },
     });
 
+    contentEl.createDiv({ cls: "awty-wizard-missing" });
+
+    // Any typing anywhere in the form may complete the page, so the check
+    // rides on the events rather than being wired to each field.
+    for (const event of ["input", "change"]) {
+      contentEl.addEventListener(event, () => this.refreshNav());
+    }
+
     const nav = new Setting(contentEl).setClass("awty-wizard-nav");
     // Deleting belongs where you are already looking at the thing.
     if (this.editing && this.onDelete) {
@@ -261,14 +269,56 @@ export class BookingWizard extends Modal {
     this.go(0);
   }
 
+  /**
+   * What is missing from the step on screen, named.
+   *
+   * Checked per step rather than only at Save, so you cannot walk past a
+   * half-filled page and be told about it three screens later.
+   */
+  private missingOnStep(name: string): string | null {
+    if (name === "Details") {
+      const field = FIELDS[this.draft.kind].find(
+        (spec) => spec.required && !String(this.draft[spec.key] ?? "").trim(),
+      );
+      return field ? field.label : null;
+    }
+    if (name === "Flights") {
+      if (this.draft.status === "idea") return null;
+      return firstIncompleteLeg([...this.draft.legs, ...this.draft.returnLegs]);
+    }
+    if (name === "When" && !isValidISODate(this.draft.date)) return "a valid date";
+    return null;
+  }
+
+  /** Greys out Next while the page is incomplete, and says what is wanted. */
+  private refreshNav(): void {
+    const missing = this.missingOnStep(this.steps[this.step]);
+    const last = this.step === this.steps.length - 1;
+    this.nextBtn.setDisabled(missing !== null);
+    this.nextBtn.setButtonText(
+      last ? (this.editing ? "Save changes" : "Save booking") : "Next",
+    );
+
+    const hint = this.contentEl.querySelector<HTMLElement>(".awty-wizard-missing");
+    if (!hint) return;
+    hint.empty();
+    hint.toggleClass("is-shown", missing !== null);
+    if (!missing) return;
+    setIcon(hint.createSpan({ cls: "awty-wizard-missing-icon" }), "alert-circle");
+    hint.createSpan({
+      text:
+        this.draft.kind === "flight" && this.steps[this.step] === "Flights"
+          ? `${missing} is needed on every leg — or set the status to Idea.`
+          : `${missing} is needed before you can go on.`,
+    });
+  }
+
   private go(step: number): void {
     this.step = Math.max(0, Math.min(this.steps.length - 1, step));
     this.renderSteps();
     this.renderBody();
     this.backBtn.setDisabled(this.step === 0);
-    this.nextBtn.setButtonText(
-      this.step === this.steps.length - 1 ? (this.editing ? "Save changes" : "Save booking") : "Next",
-    );
+    this.refreshNav();
   }
 
   private renderSteps(): void {

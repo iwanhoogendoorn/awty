@@ -830,3 +830,31 @@
 .awty-plan-row.is-attention .awty-plan-title {
   color: var(--text-normal);
 }
+
+/* What the page still wants, above the buttons that will not take you on. */
+.awty-wizard-missing {
+  display: none;
+  align-items: center;
+  gap: 0.45em;
+  margin: 0.4em 0 0;
+  padding: 0.5em 0.7em;
+  border-left: 3px solid var(--color-orange);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-wizard-missing.is-shown {
+  display: flex;
+}
+
+.awty-wizard-missing-icon {
+  display: flex;
+  color: var(--color-orange);
+}
+
+.awty-wizard-missing-icon .svg-icon {
+  width: 14px;
+  height: 14px;
+}
