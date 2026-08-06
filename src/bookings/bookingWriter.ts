@@ -184,7 +184,10 @@ function writeBookingFrontmatter(
   fm.category = draft.category;
   // An airport picked from the list already knows where it is, so travel
   // times can skip the billed geocoding call entirely.
-  const airport = airportFromLabel(draft.to) ?? airportFromLabel(draft.from);
+  // Where it lands, and only that. Falling back to the departure airport put
+  // the airport transfer at Amsterdam for a trip to Dubrovnik — 1,919 km from
+  // the hotel, stated with total confidence. No destination, no location.
+  const airport = airportFromLabel(draft.to);
   if (draft.kind === "flight" && airport) fm.location = `${airport.a},${airport.o}`;
   // A restaurant picked from Food Spot arrives with coordinates already.
   else if (draft.location) fm.location = draft.location;

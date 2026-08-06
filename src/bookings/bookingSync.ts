@@ -5,7 +5,9 @@ import type { SubNoteId, Trip } from "../types";
 import { replaceSection, subNoteFile } from "../store/sectionWriter";
 import { formatMoney } from "../util/money";
 import { parseLegTable } from "./legTable";
-import { legsToFrontmatter } from "./legs";
+import { inferMissingDestination, legsToFrontmatter } from "./legs";
+import { readLegs } from "./flightSummary";
+import { airportFromLabel } from "../ui/components/suggest";
 import { readLegacyFoodTable } from "./legacyFood";
 import { createBooking } from "./bookingWriter";
 import type { AwtySettings } from "../types";
@@ -165,6 +167,28 @@ export async function backfillFlightLegs(app: App, settings: { tripsFolder: stri
     if (prefix && !file.path.startsWith(prefix)) continue;
     const fm = app.metadataCache.getFileCache(file)?.frontmatter;
     if (!fm || fm.type !== "booking" || fm.booking_kind !== "flight") continue;
+
+    // An outbound saved without its destination: the return departs from
+    // wherever it landed, so the answer is already on the booking.
+    const outbound = readLegs(fm.legs);
+    const back = readLegs(fm.return_legs);
+    const inferred = inferMissingDestination(outbound, back);
+    if (inferred) {
+      const fixed = [...outbound];
+      fixed[fixed.length - 1] = { ...fixed[fixed.length - 1], to: inferred };
+      const airport = airportFromLabel(inferred);
+      await app.fileManager.processFrontMatter(file, (front) => {
+        front.legs = legsToFrontmatter(fixed);
+        front.to = inferred;
+        // The old location was the departure airport, which is why the
+        // transfer read as nineteen hundred kilometres.
+        if (airport) front.location = `${airport.a},${airport.o}`;
+        else delete front.location;
+      });
+      repaired += 1;
+      continue;
+    }
+
     if (Array.isArray(fm.legs) && fm.legs.length > 0) continue;
 
     const legs = parseLegTable(await app.vault.cachedRead(file), "Outbound");

@@ -1046,6 +1046,19 @@ export class BookingWizard extends Modal {
       return;
     }
 
+    // A flight with no destination has nowhere to be on a map, and the
+    // airport transfer then measures from wherever it took off.
+    if (this.draft.kind === "flight") {
+      const missing = [...this.draft.legs, ...this.draft.returnLegs].findIndex(
+        (leg) => !leg.from.trim() || !leg.to.trim(),
+      );
+      if (missing !== -1) {
+        new Notice("Every leg needs a From and a To — that is what puts the flight on the map.");
+        this.go(0);
+        return;
+      }
+    }
+
     this.submitting = true;
     this.nextBtn.setDisabled(true).setButtonText("Saving…");
     try {

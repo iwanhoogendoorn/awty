@@ -103,9 +103,10 @@ export class TravelService {
   private addressFor(booking: Booking, trip: Trip): string {
     const where = [trip.city, trip.country].filter(Boolean).join(", ");
     if (booking.kind === "flight") {
-      // The destination airport is what matters for "airport to hotel".
-      const airport = booking.to || booking.from;
-      return airport ? `${airport} airport` : "";
+      // The destination airport is what matters for "airport to hotel", and
+      // nothing else will do: the origin is where you started, not where you
+      // need a taxi from.
+      return booking.to ? `${booking.to} airport` : "";
     }
     // A street address places a pin far better than a venue's name; the venue
     // is the fallback, and the title the last resort.
@@ -175,8 +176,10 @@ export class TravelService {
 
       // A flight's place is the airport it lands at; labelling it with the
       // whole route read as though AMS⇄DBV were 21 km from the apartment.
-      const label =
-        booking.kind === "flight" ? booking.to || booking.from || booking.title : booking.title;
+      // The airport you land at. A flight with no destination recorded is not
+      // an airport transfer to its origin, so it is left out entirely.
+      const label = booking.kind === "flight" ? booking.to : booking.title;
+      if (!label) continue;
 
       const place: Place = {
         id: booking.file.path,

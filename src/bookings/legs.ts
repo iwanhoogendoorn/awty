@@ -228,3 +228,22 @@ export function journeyCostTotal(legs: FlightLeg[]): number | null {
   if (priced.length === 0) return null;
   return priced.reduce((sum, cost) => sum + cost, 0);
 }
+
+/**
+ * Infers an outbound destination from the way home.
+ *
+ * A return ticket departs from wherever the outbound landed, so a leg saved
+ * without its destination can be repaired from the return rather than left
+ * pointing nowhere — which made the airport transfer measure from the airport
+ * the trip started at.
+ */
+export function inferMissingDestination(
+  outbound: FlightLeg[],
+  back: FlightLeg[],
+): string | null {
+  if (outbound.length === 0 || back.length === 0) return null;
+  const last = outbound[outbound.length - 1];
+  if (last.to.trim()) return null;
+  const home = back[0].from.trim();
+  return home && home !== last.from.trim() ? home : null;
+}

@@ -16,7 +16,7 @@ export * from "./src/util/paths.ts";
 export { foodSpotBlock } from "./src/store/templates.ts";
 export { analyseNote } from "./src/store/noteProgress.ts";
 export { emptyDayDates, readDaySections } from "./src/store/itinerary.ts";
-export { routeTitle, layoverMinutes, formatLayover, totalJourneyMinutes, splitJourney, groupJourneys, journeyCostTotal } from "./src/bookings/legs.ts";
+export { routeTitle, layoverMinutes, formatLayover, totalJourneyMinutes, splitJourney, groupJourneys, journeyCostTotal, inferMissingDestination } from "./src/bookings/legs.ts";
 export { parseConfirmation, parseIcs, parseConfirmationText, parseLooseDate } from "./src/flights/parseConfirmation.ts";
 export { splitFlightNumber } from "./src/flights/flightNumber.ts";
 export { parseLegTable } from "./src/bookings/legTable.ts";
@@ -1843,6 +1843,32 @@ test("an island people book by name resolves to a city that exists", () => {
   // And the airport lookup follows the alias, so the flight is to DPS.
   assert.equal(m.airportForCity("Bali"), m.airportForCity("Denpasar"));
   assert.equal(m.airportForCity("Bali"), "DPS");
+});
+
+test("an outbound with no destination is read from the way home", () => {
+  // Saved without its "to", the flight recorded the departure airport as its
+  // location — so the airport transfer measured from Amsterdam for a trip to
+  // Dubrovnik: 1,919 km, stated with complete confidence.
+  const leg = (from, to, date) => ({
+    operator: "KL", number: "KL1", from, to, date,
+    depTime: "10:15", arrDate: date, arrTime: "12:35",
+  });
+  const outbound = [leg("Amsterdam (AMS)", "", "2026-08-17")];
+  const back = [leg("Dubrovnik (DBV)", "Amsterdam (AMS)", "2026-08-24")];
+  assert.equal(m.inferMissingDestination(outbound, back), "Dubrovnik (DBV)");
+
+  // A complete outbound is left alone.
+  assert.equal(
+    m.inferMissingDestination([leg("AMS", "DBV", "2026-08-17")], back),
+    null,
+  );
+  // With no return there is nothing to infer from, and nothing is invented.
+  assert.equal(m.inferMissingDestination(outbound, []), null);
+  // A return departing where the outbound departed says nothing useful.
+  assert.equal(
+    m.inferMissingDestination(outbound, [leg("Amsterdam (AMS)", "X", "2026-08-24")]),
+    null,
+  );
 });
 
 test("separate flights are priced separately; connections are not", () => {
