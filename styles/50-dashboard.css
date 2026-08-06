@@ -1261,3 +1261,45 @@
 .awty-timeline-open a {
   cursor: pointer;
 }
+
+/* Delete, on the tile itself: an attachment unlinked from a booking lands in
+   the loose group, and nothing else in the plugin could throw it away. */
+.awty-gallery-cell {
+  position: relative;
+}
+
+.awty-gallery-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 90ms ease-in-out;
+}
+
+.awty-gallery-cell:hover .awty-gallery-remove,
+.awty-gallery-remove:focus-visible {
+  opacity: 1;
+}
+
+.awty-gallery-remove:hover {
+  color: var(--text-error);
+}
+
+.awty-gallery-remove .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* No hover on a touch screen, so it is simply always there. */
+body.awty-mobile .awty-gallery-remove {
+  opacity: 1;
+}

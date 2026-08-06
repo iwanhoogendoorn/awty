@@ -1,4 +1,5 @@
-import { TFile, TFolder, setIcon } from "obsidian";
+import { Notice, TFile, TFolder, setIcon } from "obsidian";
+import { ConfirmModal } from "../../modals/confirmModal";
 import type { DashboardContext } from "../common";
 import { emptyState, sectionTitle, noTripState } from "../common";
 import { fileFromLink } from "../../../bookings/bookingStore";
@@ -150,6 +151,32 @@ export function renderGallery(parent: HTMLElement, ctx: DashboardContext): void 
       cell.createDiv({ cls: "awty-gallery-caption", text: file.name });
       cell.setAttribute("title", `${file.name} — ${group.title}`);
       cell.addEventListener("click", () => openAttachment(app, allFiles, file));
+
+      // Taking an attachment off a booking unlinks it; the file stays in the
+      // trip's folder and turns up here as loose. This is where it can be
+      // thrown away, since nothing else in the plugin could.
+      const remove = cell.createDiv({
+        cls: "awty-gallery-remove",
+        attr: { "aria-label": `Delete ${file.name}` },
+      });
+      setIcon(remove, "trash-2");
+      remove.setAttribute("title", "Delete this file from the vault");
+      remove.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        new ConfirmModal(app, {
+          title: "Delete this file?",
+          name: file.name,
+          detail: group.source
+            ? `Attached to ${group.title}. The booking keeps its other files.`
+            : file.path,
+          onConfirm: async () => {
+            await app.fileManager.trashFile(file);
+            ctx.plugin.bookings.invalidate();
+            ctx.refresh();
+            new Notice(`Deleted ${file.name}.`);
+          },
+        }).open();
+      });
     }
   }
 }
