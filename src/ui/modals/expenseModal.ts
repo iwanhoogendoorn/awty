@@ -60,15 +60,18 @@ export class ExpenseModal extends Modal {
     });
     contentEl.createDiv({ cls: "awty-wizard-sub", text: this.trip.title });
 
-    new Setting(contentEl).setName("What was it?").addText((t) => {
+    const what = new Setting(contentEl).setName("What was it?");
+    what.nameEl.createSpan({ cls: "awty-required", text: "*" });
+    what.addText((t) => {
       t.setPlaceholder("Dinner at Proto");
       t.setValue(this.draft.description);
       t.onChange((v) => (this.draft.description = v.trim()));
       window.setTimeout(() => t.inputEl.focus(), 0);
     });
 
-    new Setting(contentEl)
-      .setName("Amount")
+    const amount = new Setting(contentEl).setName("Amount");
+    amount.nameEl.createSpan({ cls: "awty-required", text: "*" });
+    amount
       .addText((t) => {
         t.setPlaceholder("62,50");
         if (this.draft.amount > 0) t.setValue(String(this.draft.amount));

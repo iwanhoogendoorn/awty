@@ -48,6 +48,12 @@ interface FieldSpec {
   key: FieldKey;
   label: string;
   placeholder: string;
+  /**
+   * Required because the plugin cannot do its job without it — not because
+   * the form would like it. A booking with no name is unreadable in every
+   * list; a journey with no ends cannot be placed, timed or mapped.
+   */
+  required?: boolean;
 }
 
 /** Which detail fields each kind asks for, and what to call them. */
@@ -61,19 +67,19 @@ const FIELDS: Record<BookingKind, FieldSpec[]> = {
     { key: "reference", label: "Booking reference", placeholder: "ABC123" },
   ],
   stay: [
-    { key: "title", label: "Property", placeholder: "Hotel Excelsior" },
+    { key: "title", label: "Property", placeholder: "Hotel Excelsior", required: true },
     { key: "address", label: "Address", placeholder: "Frana Supila 12, Dubrovnik" },
     { key: "reference", label: "Confirmation number", placeholder: "1234567890" },
   ],
   activity: [
-    { key: "title", label: "What", placeholder: "Old town walls walk" },
+    { key: "title", label: "What", placeholder: "Old town walls walk", required: true },
     { key: "to", label: "Venue", placeholder: "Pile Gate" },
     { key: "address", label: "Address", placeholder: "Optional — improves travel times" },
     { key: "seat", label: "Seat / section", placeholder: "Block C, row 4" },
     { key: "reference", label: "Booking reference", placeholder: "ABC123" },
   ],
   restaurant: [
-    { key: "title", label: "Restaurant", placeholder: "Nautika" },
+    { key: "title", label: "Restaurant", placeholder: "Nautika", required: true },
     { key: "address", label: "Address", placeholder: "Brsalje ul. 3, Dubrovnik" },
     { key: "operator", label: "Booked by", placeholder: "Optional" },
     { key: "reference", label: "Reservation reference", placeholder: "Optional" },
@@ -81,15 +87,21 @@ const FIELDS: Record<BookingKind, FieldSpec[]> = {
   ],
   transport: [
     { key: "operator", label: "Carrier", placeholder: "FlixBus" },
-    { key: "title", label: "Service", placeholder: "Bus 402" },
-    { key: "from", label: "From", placeholder: "Dubrovnik Airport (DBV)" },
+    { key: "title", label: "Service", placeholder: "Bus 402", required: true },
+    { key: "from", label: "From", placeholder: "Dubrovnik Airport (DBV)", required: true },
     { key: "fromAddress", label: "From address", placeholder: "Where it picks you up" },
-    { key: "to", label: "To", placeholder: "Rausion Luxury Apartments" },
+    { key: "to", label: "To", placeholder: "Rausion Luxury Apartments", required: true },
     { key: "address", label: "To address", placeholder: "Where it drops you" },
     { key: "seat", label: "Seat", placeholder: "12" },
     { key: "reference", label: "Booking reference", placeholder: "ABC123" },
   ],
 };
+
+/** A quiet mark, so the requirement is visible before Save refuses. */
+function markRequired(setting: Setting): void {
+  setting.nameEl.createSpan({ cls: "awty-required", text: "*" });
+  setting.nameEl.setAttribute("aria-label", `${setting.nameEl.textContent ?? ""} (required)`);
+}
 
 const STEPS = ["Details", "When", "Cost", "Attachments"] as const;
 const FLIGHT_STEPS = ["Flights", "Cost", "Attachments"] as const;
@@ -299,6 +311,7 @@ export class BookingWizard extends Modal {
         continue;
       }
       const setting = new Setting(this.bodyEl).setName(spec.label);
+      if (spec.required) markRequired(setting);
       if (spec.key === "address") {
         setting.setDesc(
           this.draft.kind === "transport"
@@ -642,6 +655,7 @@ export class BookingWizard extends Modal {
     const setting = new Setting(this.bodyEl)
       .setName(spec.label)
       .setDesc("Starts typing against your Food Spot places in this city.");
+    if (spec.required) markRequired(setting);
     setting.addText((t) => {
       t.setPlaceholder(spec.placeholder);
       t.setValue(this.draft.title);
@@ -675,7 +689,9 @@ export class BookingWizard extends Modal {
    * position and a travel time without anything being typed twice or geocoded.
    */
   private renderEndpointField(spec: FieldSpec): void {
-    new Setting(this.bodyEl).setName(spec.label).addText((t) => {
+    const setting = new Setting(this.bodyEl).setName(spec.label);
+    if (spec.required) markRequired(setting);
+    setting.addText((t) => {
       t.setPlaceholder(spec.placeholder);
       t.setValue(this.draft[spec.key]);
       t.onChange((v) => (this.draft[spec.key] = v.trim()));
@@ -772,7 +788,9 @@ export class BookingWizard extends Modal {
   }
 
   private renderCityField(spec: FieldSpec): void {
-    new Setting(this.bodyEl).setName(spec.label).addText((t) => {
+    const setting = new Setting(this.bodyEl).setName(spec.label);
+    if (spec.required) markRequired(setting);
+    setting.addText((t) => {
       t.setPlaceholder(spec.placeholder);
       t.setValue(this.draft[spec.key]);
       t.onChange((v) => (this.draft[spec.key] = v.trim()));
@@ -1043,6 +1061,15 @@ export class BookingWizard extends Modal {
     if (!isValidISODate(this.draft.date)) {
       new Notice("Pick a valid date on the When step.");
       this.go(1);
+      return;
+    }
+
+    const missingField = FIELDS[this.draft.kind].find(
+      (spec) => spec.required && !String(this.draft[spec.key] ?? "").trim(),
+    );
+    if (missingField) {
+      new Notice(`${missingField.label} is needed before this can be saved.`);
+      this.go(0);
       return;
     }
 

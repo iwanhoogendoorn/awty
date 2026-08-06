@@ -273,3 +273,10 @@
 .awty-attach-chip.is-saved .awty-attach-chip-size {
   font-style: italic;
 }
+
+/* Required, said before Save refuses rather than after. */
+.awty-required {
+  margin-left: 0.25em;
+  color: var(--text-accent);
+  font-weight: var(--font-semibold);
+}

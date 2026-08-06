@@ -210,7 +210,11 @@ export class TripModal extends Modal {
   }
 
   private renderPlaceFields(parent: HTMLElement): void {
-    new Setting(parent).setName("Title").setDesc("Shown in the sidebar and used as the note name.").addText(
+    const title = new Setting(parent)
+      .setName("Title")
+      .setDesc("Shown in the sidebar and used as the note name.");
+    title.nameEl.createSpan({ cls: "awty-required", text: "*" });
+    title.addText(
       (t) => {
         this.titleInput = t.inputEl;
         t.setPlaceholder("e.g. Japan 2026, or Radiohead at Ziggo Dome");
