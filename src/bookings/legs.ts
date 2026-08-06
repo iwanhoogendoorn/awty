@@ -255,10 +255,11 @@ const LEG_REQUIRED: { key: keyof FlightLeg; label: string }[] = [
   { key: "from", label: "From" },
   { key: "to", label: "To" },
   { key: "date", label: "Date" },
-  { key: "depTime", label: "Departs" },
-  { key: "arrTime", label: "Arrives" },
   { key: "arrDate", label: "Arrives on" },
 ];
+
+/** Times are not among them: you book a flight before you check its clock. */
+export const LEG_OPTIONAL_LABELS = ["Departs", "Arrives"];
 
 /**
  * The first thing missing from any leg, or null when they are all complete.

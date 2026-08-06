@@ -1,6 +1,7 @@
 import { App, setIcon } from "obsidian";
 import type { FlightLeg } from "../../bookings/legs";
 import {
+  LEG_OPTIONAL_LABELS,
   TIGHT_CONNECTION_MINUTES,
   emptyLeg,
   formatLayover,
@@ -149,15 +150,16 @@ export class LegsField {
 
     const grid = box.createDiv({ cls: "awty-leg-grid" });
 
-    // Everything on a leg is needed: without the airline and number you
-    // cannot identify the flight, without the airports it cannot be placed,
-    // and without the times there is no duration, no layover and no order in
-    // the day. An idea is exempt — it is a placeholder, not a booking.
-    const optional = this.opts.isIdea?.() ?? false;
+    // What identifies the flight and places it: the airline, the number, the
+    // airports and the dates. Times are not required — a ticket is often held
+    // before its clock is checked. An idea is exempt from all of it.
+    const idea = this.opts.isIdea?.() ?? false;
     const field = (label: string, build: (input: HTMLInputElement) => void, cls = "") => {
       const cell = grid.createDiv({ cls: `awty-leg-cell ${cls}` });
       const tag = cell.createEl("label", { cls: "awty-leg-label", text: label });
-      if (!optional) tag.createSpan({ cls: "awty-required", text: "*" });
+      if (!idea && !LEG_OPTIONAL_LABELS.includes(label)) {
+        tag.createSpan({ cls: "awty-required", text: "*" });
+      }
       const input = cell.createEl("input", { cls: "awty-leg-input" });
       build(input);
       return input;

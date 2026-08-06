@@ -1856,10 +1856,11 @@ test("a leg says which field is missing, not merely that one is", () => {
   // right box rather than hunting across eight of them on every leg.
   assert.equal(m.firstIncompleteLeg([{ ...full, operator: "" }]), "Airline");
   assert.equal(m.firstIncompleteLeg([{ ...full, to: "" }]), "To");
-  assert.equal(m.firstIncompleteLeg([{ ...full, depTime: "" }]), "Departs");
   assert.equal(m.firstIncompleteLeg([{ ...full, arrDate: "" }]), "Arrives on");
   // A later leg is checked too, not just the first.
-  assert.equal(m.firstIncompleteLeg([full, { ...full, arrTime: "" }]), "Arrives");
+  assert.equal(m.firstIncompleteLeg([full, { ...full, to: "" }]), "To");
+  // Times are not required: a ticket is often held before its clock is known.
+  assert.equal(m.firstIncompleteLeg([{ ...full, depTime: "", arrTime: "" }]), null);
   assert.equal(m.firstIncompleteLeg([]), null);
 });
 
