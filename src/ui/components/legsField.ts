@@ -20,6 +20,8 @@ export interface LegsFieldOptions {
   };
   /** Airports here are offered before the rest of the world. */
   nearby: () => { country: string; cities: string[] };
+  /** An idea is a placeholder; its legs are not held to being complete. */
+  isIdea?: () => boolean;
   onChange: () => void;
 }
 
@@ -147,9 +149,15 @@ export class LegsField {
 
     const grid = box.createDiv({ cls: "awty-leg-grid" });
 
+    // Everything on a leg is needed: without the airline and number you
+    // cannot identify the flight, without the airports it cannot be placed,
+    // and without the times there is no duration, no layover and no order in
+    // the day. An idea is exempt — it is a placeholder, not a booking.
+    const optional = this.opts.isIdea?.() ?? false;
     const field = (label: string, build: (input: HTMLInputElement) => void, cls = "") => {
       const cell = grid.createDiv({ cls: `awty-leg-cell ${cls}` });
-      cell.createEl("label", { cls: "awty-leg-label", text: label });
+      const tag = cell.createEl("label", { cls: "awty-leg-label", text: label });
+      if (!optional) tag.createSpan({ cls: "awty-required", text: "*" });
       const input = cell.createEl("input", { cls: "awty-leg-input" });
       build(input);
       return input;

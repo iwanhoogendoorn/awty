@@ -247,3 +247,30 @@ export function inferMissingDestination(
   const home = back[0].from.trim();
   return home && home !== last.from.trim() ? home : null;
 }
+
+/** Fields a leg cannot do without, in the order they are asked for. */
+const LEG_REQUIRED: { key: keyof FlightLeg; label: string }[] = [
+  { key: "operator", label: "Airline" },
+  { key: "number", label: "Flight" },
+  { key: "from", label: "From" },
+  { key: "to", label: "To" },
+  { key: "date", label: "Date" },
+  { key: "depTime", label: "Departs" },
+  { key: "arrTime", label: "Arrives" },
+  { key: "arrDate", label: "Arrives on" },
+];
+
+/**
+ * The first thing missing from any leg, or null when they are all complete.
+ *
+ * Named rather than counted, because "something is missing" sends someone
+ * hunting across eight boxes on however many legs.
+ */
+export function firstIncompleteLeg(legs: FlightLeg[]): string | null {
+  for (const leg of legs) {
+    for (const field of LEG_REQUIRED) {
+      if (!String(leg[field.key] ?? "").trim()) return field.label;
+    }
+  }
+  return null;
+}

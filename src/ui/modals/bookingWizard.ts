@@ -20,6 +20,7 @@ import { parseConfirmation, type ParsedConfirmation } from "../../flights/parseC
 import { localiseLegs } from "../../flights/localTime";
 import {
   emptyLeg,
+  firstIncompleteLeg,
   groupJourneys,
   journeyCostTotal,
   looksLikeMoreJourneys,
@@ -500,6 +501,7 @@ export class BookingWizard extends Modal {
       defaultDate: this.draft.date,
       stars: this.stars,
       nearby: () => ({ country: this.trip.country, cities: tripCities(this.trip) }),
+      isIdea: () => this.draft.status === "idea",
       onChange: () => this.syncFromLegs(),
     });
 
@@ -536,6 +538,7 @@ export class BookingWizard extends Modal {
         defaultDate: this.trip.endDate || this.draft.date,
         stars: this.stars,
         nearby: () => ({ country: this.trip.country, cities: tripCities(this.trip) }),
+        isIdea: () => this.draft.status === "idea",
         onChange: () => this.syncFromLegs(),
         });
     } else {
@@ -1073,14 +1076,12 @@ export class BookingWizard extends Modal {
       return;
     }
 
-    // A flight with no destination has nowhere to be on a map, and the
-    // airport transfer then measures from wherever it took off.
-    if (this.draft.kind === "flight") {
-      const missing = [...this.draft.legs, ...this.draft.returnLegs].findIndex(
-        (leg) => !leg.from.trim() || !leg.to.trim(),
-      );
-      if (missing !== -1) {
-        new Notice("Every leg needs a From and a To — that is what puts the flight on the map.");
+    // A leg missing anything cannot be identified, placed, timed or ordered.
+    // An idea is exempt: it is a placeholder for a flight not yet booked.
+    if (this.draft.kind === "flight" && this.draft.status !== "idea") {
+      const gap = firstIncompleteLeg([...this.draft.legs, ...this.draft.returnLegs]);
+      if (gap) {
+        new Notice(`${gap} is needed on every leg — set the status to Idea to save it unfinished.`);
         this.go(0);
         return;
       }

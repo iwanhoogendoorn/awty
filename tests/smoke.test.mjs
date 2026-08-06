@@ -16,7 +16,7 @@ export * from "./src/util/paths.ts";
 export { foodSpotBlock } from "./src/store/templates.ts";
 export { analyseNote } from "./src/store/noteProgress.ts";
 export { emptyDayDates, readDaySections } from "./src/store/itinerary.ts";
-export { routeTitle, layoverMinutes, formatLayover, totalJourneyMinutes, splitJourney, groupJourneys, journeyCostTotal, inferMissingDestination } from "./src/bookings/legs.ts";
+export { routeTitle, layoverMinutes, formatLayover, totalJourneyMinutes, splitJourney, groupJourneys, journeyCostTotal, inferMissingDestination, firstIncompleteLeg } from "./src/bookings/legs.ts";
 export { parseConfirmation, parseIcs, parseConfirmationText, parseLooseDate } from "./src/flights/parseConfirmation.ts";
 export { splitFlightNumber } from "./src/flights/flightNumber.ts";
 export { parseLegTable } from "./src/bookings/legTable.ts";
@@ -1843,6 +1843,24 @@ test("an island people book by name resolves to a city that exists", () => {
   // And the airport lookup follows the alias, so the flight is to DPS.
   assert.equal(m.airportForCity("Bali"), m.airportForCity("Denpasar"));
   assert.equal(m.airportForCity("Bali"), "DPS");
+});
+
+test("a leg says which field is missing, not merely that one is", () => {
+  const full = {
+    operator: "KLM (KL)", number: "KL1885", from: "Amsterdam (AMS)", to: "Dubrovnik (DBV)",
+    date: "2026-08-17", depTime: "10:15", arrDate: "2026-08-17", arrTime: "12:35",
+  };
+  assert.equal(m.firstIncompleteLeg([full]), null);
+
+  // Asked for in the order they appear on screen, so the eye goes to the
+  // right box rather than hunting across eight of them on every leg.
+  assert.equal(m.firstIncompleteLeg([{ ...full, operator: "" }]), "Airline");
+  assert.equal(m.firstIncompleteLeg([{ ...full, to: "" }]), "To");
+  assert.equal(m.firstIncompleteLeg([{ ...full, depTime: "" }]), "Departs");
+  assert.equal(m.firstIncompleteLeg([{ ...full, arrDate: "" }]), "Arrives on");
+  // A later leg is checked too, not just the first.
+  assert.equal(m.firstIncompleteLeg([full, { ...full, arrTime: "" }]), "Arrives");
+  assert.equal(m.firstIncompleteLeg([]), null);
 });
 
 test("an outbound with no destination is read from the way home", () => {
