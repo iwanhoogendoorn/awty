@@ -106,6 +106,11 @@ export class ExpenseModal extends Modal {
       label: "Receipt",
       baseName: this.trip.title,
       startIndex: countAttachmentsNamed(this.app, this.settings, this.trip, this.trip.title),
+      // What is already attached, so it can be seen and removed.
+      existing: this.draft.attachments,
+      onRemoveExisting: (removed) => {
+        this.draft.attachments = this.draft.attachments.filter((p) => p !== removed);
+      },
     });
 
     const nav = new Setting(contentEl);

@@ -264,3 +264,12 @@
   color: var(--text-normal);
   background: var(--background-modifier-hover);
 }
+
+/* Already on the booking, as against picked in this sitting. */
+.awty-attach-chip.is-saved {
+  border-style: dashed;
+}
+
+.awty-attach-chip.is-saved .awty-attach-chip-size {
+  font-style: italic;
+}

@@ -208,6 +208,11 @@ export class BookingWizard extends Modal {
     this.attachments = new AttachmentField(hidden, {
       baseName: this.trip.title,
       startIndex: countAttachmentsNamed(this.app, this.settings, this.trip, this.trip.title),
+      // What is already attached, so it can be seen and removed.
+      existing: this.draft.attachments,
+      onRemoveExisting: (removed) => {
+        this.draft.attachments = this.draft.attachments.filter((p) => p !== removed);
+      },
     });
 
     const nav = new Setting(contentEl).setClass("awty-wizard-nav");
@@ -953,19 +958,6 @@ export class BookingWizard extends Modal {
         });
       });
 
-    new Setting(this.bodyEl)
-      .setName("Category")
-      .setDesc("Which budget line this counts against.")
-      .addDropdown((dd) => {
-        for (const c of allCategories(this.settings.customCategories, [this.draft.category])) {
-          dd.addOption(c, c);
-        }
-        dd.setValue(this.draft.category);
-        dd.onChange((v) => (this.draft.category = v as CostCategory));
-      });
-
-    this.bodyEl.createDiv({ cls: "awty-cost-preview" });
-    this.renderCostPreview();
   }
 
   private renderCostPreview(): void {

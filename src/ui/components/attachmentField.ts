@@ -12,7 +12,18 @@ export interface AttachmentFieldOptions {
   baseName?: string;
   /** How many files already carry that name, so numbering continues. */
   startIndex?: number;
+  /**
+   * Attachments the booking already has, as vault paths.
+   *
+   * Without these the field showed only what was added in this sitting, so a
+   * screenshot attached last week was invisible and could not be taken off.
+   */
+  existing?: string[];
+  /** Called when one of those is removed, so the draft can drop it. */
+  onRemoveExisting?: (path: string) => void;
 }
+
+const IMAGE_NAME = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
 
 export class AttachmentField {
   private files: File[] = [];
@@ -22,6 +33,8 @@ export class AttachmentField {
   private label: string;
   private baseName: string;
   private startIndex: number;
+  private existing: string[];
+  private onRemoveExisting?: (path: string) => void;
   /** Counts only the pastes made in this session. */
   private pasted = 0;
 
@@ -33,6 +46,8 @@ export class AttachmentField {
     this.label = opts.label ?? "Tickets, confirmations, receipts";
     this.baseName = opts.baseName ?? "";
     this.startIndex = opts.startIndex ?? 0;
+    this.existing = [...(opts.existing ?? [])];
+    this.onRemoveExisting = opts.onRemoveExisting;
     this.render();
   }
 
@@ -119,11 +134,37 @@ export class AttachmentField {
 
   private renderList(): void {
     this.listEl.empty();
+
+    // What is already on the booking, so it can be seen and taken off. The
+    // file stays in the vault; only the link to it goes.
+    for (const path of this.existing) {
+      const name = path.split("/").pop() ?? path;
+      const chip = this.listEl.createDiv({ cls: "awty-attach-chip is-saved" });
+      setIcon(
+        chip.createSpan({ cls: "awty-attach-chip-icon" }),
+        IMAGE_NAME.test(name) ? "image" : "file-text",
+      );
+      chip.createSpan({ cls: "awty-attach-chip-name", text: name });
+      chip.createSpan({ cls: "awty-attach-chip-size", text: "attached" });
+
+      const drop = chip.createSpan({
+        cls: "awty-attach-chip-remove",
+        attr: { "aria-label": `Remove ${name}` },
+      });
+      setIcon(drop, "x");
+      drop.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        this.existing = this.existing.filter((p) => p !== path);
+        this.onRemoveExisting?.(path);
+        this.renderList();
+      });
+    }
+
     for (const [index, file] of this.files.entries()) {
       const chip = this.listEl.createDiv({ cls: "awty-attach-chip" });
       setIcon(
         chip.createSpan({ cls: "awty-attach-chip-icon" }),
-        /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(file.name) ? "image" : "file-text",
+        IMAGE_NAME.test(file.name) ? "image" : "file-text",
       );
       chip.createSpan({ cls: "awty-attach-chip-name", text: file.name });
       chip.createSpan({ cls: "awty-attach-chip-size", text: formatSize(file.size) });
