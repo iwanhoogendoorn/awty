@@ -1563,6 +1563,23 @@ test("an untimed morning activity comes before a timed evening one", () => {
   assert.deepEqual(order, ["Museum", "Concert"]);
 });
 
+test("a category budgeted but not yet spent still gets a row", () => {
+  // The row only ever appeared for categories that had a cost line, so a
+  // target set for food with nothing booked yet vanished from the table —
+  // and the card then read "no food yet" about a budget that existed.
+  const table = m.budgetPlanTable(
+    new Map([["Transport", 827], ["Accommodation", 1456], ["Food & drink", 1050]]),
+    [
+      { source: "booking", file: { basename: "Flight" }, date: "2026-08-17",
+        description: "Flight", category: "Transport",
+        money: { amount: 827, currency: "EUR" }, counted: true },
+    ],
+    "EUR",
+  );
+  assert.match(table, /\| Food & drink \| €1,050 \|  \| €1,050 \|/, table);
+  assert.equal(m.analyseNote("budget", `# Budget\n\n## Planned\n\n${table}\n`).state, "complete");
+});
+
 test("setting a budget makes the Budget note say so", () => {
   // Targets are written to the trip note and prices to each booking, so the
   // Budget note itself was never filled by anything: its card read "Not

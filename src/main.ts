@@ -16,7 +16,7 @@ import {
 import { TripStore } from "./store/tripStore";
 import { ProgressCache } from "./store/noteProgress";
 import { BookingStore, totalsByCategory } from "./bookings/bookingStore";
-import type { Booking, BookingKind, Expense } from "./bookings/types";
+import type { Booking, BookingKind, CostCategory, Expense } from "./bookings/types";
 import {
   attachmentPaths,
   createBooking,
@@ -853,11 +853,22 @@ export default class AwtyPlugin extends Plugin {
   }
 
   /** Regenerates the sub-note tables from bookings, expenses and targets. */
-  private async syncTripNotes(trip: Trip): Promise<void> {
+  /**
+   * @param known Values just written, to be used instead of read back.
+   *
+   * Obsidian's metadata cache updates after a write, not during it, so reading
+   * frontmatter immediately after saving it returns what was there before. A
+   * budget saved and then regenerated from the cache lost whichever category
+   * had just been added — it was in the trip note and absent from the table.
+   */
+  private async syncTripNotes(
+    trip: Trip,
+    known?: { targets?: Map<CostCategory, number>; currency?: string },
+  ): Promise<void> {
     await syncBookingNotes(this.app, trip, this.bookings.getBookings(trip), {
-      targets: this.bookings.getBudget(trip),
+      targets: known?.targets ?? this.bookings.getBudget(trip),
       lines: this.bookings.getCostLines(trip),
-      currency: this.bookings.getCurrency(trip),
+      currency: known?.currency ?? this.bookings.getCurrency(trip),
     });
   }
 
@@ -887,8 +898,10 @@ export default class AwtyPlugin extends Plugin {
         await saveBudget(this.app, trip, budget, currency, total);
         this.bookings.invalidate();
         this.store.invalidate();
-        // The targets went onto the trip note; the Budget note has to be told.
-        await this.syncTripNotes(trip);
+        // The targets went onto the trip note; the Budget note has to be told,
+        // and told with what was just saved rather than what the cache still
+        // remembers.
+        await this.syncTripNotes(trip, { targets: budget, currency });
         this.progress.clear();
         this.refreshViews();
         new Notice("Budget saved.");
