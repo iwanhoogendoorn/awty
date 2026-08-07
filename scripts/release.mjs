@@ -21,8 +21,15 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ASSETS = ["main.js", "manifest.json", "styles.css"];
 
+/**
+ * Runs a command and returns its output.
+ *
+ * `execFileSync` returns null rather than a string when stdio is inherited —
+ * which is what the build and the release call want, so that their progress
+ * is visible — so the empty string stands in for "nothing captured".
+ */
 function run(cmd, args, opts = {}) {
-  return execFileSync(cmd, args, { cwd: ROOT, encoding: "utf8", ...opts }).trim();
+  return (execFileSync(cmd, args, { cwd: ROOT, encoding: "utf8", ...opts }) ?? "").trim();
 }
 
 function fail(message) {
