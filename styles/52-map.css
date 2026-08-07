@@ -1,9 +1,12 @@
 /* ==========================================================================
    The flight map
 
-   A bundled vector world with great-circle arcs over it. No tiles, so nothing
-   is fetched and the whole thing works on a plane — which is where a fair
-   amount of trip planning happens.
+   OpenStreetMap tiles under great-circle arcs, with a bundled vector world
+   beneath the tiles so the map still has a world when the wifi does not.
+
+   Everything here is measured in screen pixels: Leaflet reprojects the
+   geometry on every zoom, so a stroke, a dash or a radius means the same thing
+   at every scale without any counter-scaling.
    ========================================================================== */
 
 .awty-map {
@@ -14,41 +17,72 @@
   margin-bottom: 1em;
 }
 
-.awty-map-svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: 6px;
-  /* The ocean. Sits behind the land so coastlines read without an outline. */
-  background: var(--background-secondary);
+.awty-map-stage {
+  position: relative;
 }
 
-/* Land is filled quietly and bordered faintly: it is the backdrop, and every
-   pixel it spends on itself is one the routes do not get. */
+.awty-map-canvas {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 320px;
+  max-height: 70vh;
+  border-radius: 6px;
+  /* Leaflet paints its container behind the tiles, and its own default is a
+     light grey that flashes on every pan in a dark theme. */
+  background: var(--background-secondary);
+  /* Vertical scrolling still belongs to the pane; only a pinch is ours. */
+  touch-action: pan-x pan-y;
+}
 
-.awty-map-land path {
-  fill: var(--background-modifier-border);
+.awty-map-canvas:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+.awty-map-canvas .leaflet-container {
+  background: var(--background-secondary);
+  font-family: inherit;
+}
+
+/* Tiles are shown as OpenStreetMap draws them, undimmed — the same as the
+   Food Spot map this was asked to match. A filter would also be a small lie:
+   green means a park and blue means water, and a map that recolours them is
+   telling you something the survey did not. */
+
+/* -------------------------------------------------- the world underneath */
+
+/* The bundled outlines. Online they sit under the tiles and are never seen;
+   offline they are the entire map, and in the minimap they are the only thing
+   drawn at all. So they are given contrast to spare rather than the little they
+   need on the one occasion anybody is also looking at tiles. Filled rather than
+   stroked, so a missing tile leaves a continent rather than the outline of one. */
+
+.awty-map-base {
+  fill: var(--text-muted);
+  fill-opacity: 0.42;
   stroke: var(--background-secondary);
-  stroke-width: 0.6;
-  vector-effect: non-scaling-stroke;
+  stroke-width: 0.5;
+  stroke-opacity: 0.6;
 }
 
 /* ------------------------------------------------------------- the routes */
 
-.awty-map-arc {
+.awty-map-route {
   fill: none;
-  stroke-width: 1.8;
   stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
 }
 
 /* Booked: solid, and it draws itself from one airport to the other. The draw
-   is what says which way round the flight goes — a static arc does not. */
+   is what says which way round the flight goes — a static arc does not.
 
-.awty-map-route.is-booked .awty-map-arc {
+   The dash units are the path's own length, because the element carries
+   pathLength="1". That makes the draw-in identical at every zoom instead of
+   restarting the illusion each time Leaflet rewrites the geometry. */
+
+.awty-map-route.is-booked {
   stroke: var(--color-green);
-  stroke-dasharray: var(--awty-arc-length, 1000);
-  stroke-dashoffset: var(--awty-arc-length, 1000);
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
   animation: awty-arc-draw 1.6s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
   animation-delay: var(--awty-arc-delay, 0s);
 }
@@ -63,9 +97,8 @@
    in colour, because a map that shows an idea like a ticket is one that gets
    somebody to an airport on the wrong day. */
 
-.awty-map-route.is-proposed .awty-map-arc {
+.awty-map-route.is-proposed {
   stroke: var(--color-yellow);
-  stroke-width: 1.5;
   stroke-dasharray: 5 6;
   opacity: 0;
   animation:
@@ -86,15 +119,24 @@
   }
 }
 
-/* The dot that runs a booked route, so the direction is unmistakable.
- *
- * The path is set per marker from the script, since it is the route's own
- * geometry; everything else about the motion lives here so the reduced-motion
- * rule at the bottom can switch it off.
+/* Cancelled: drawn, but drawn as a ghost. Present because you asked to see
+   these trips and a filter that answers with an empty map is a filter that
+   lies; quiet because it is a route nobody took. */
+
+.awty-map-route.is-cancelled {
+  stroke: var(--text-faint);
+  stroke-dasharray: 2 5;
+  opacity: 0.55;
+}
+
+/* The dot that runs a booked route, so the direction is unmistakable. The path
+   is set per marker from the script, since it is the route's own geometry;
+   everything else about the motion lives here so the reduced-motion rule at
+   the bottom can switch it off.
  *
  * `offset-path` rather than SVG's `<animateMotion>`: SMIL inserted into a live
- * document does not reliably start — measured at nought pixels of movement
- * over a second, with the SVG clock ticking along regardless. */
+ * document does not reliably start — measured at nought pixels of movement over
+ * a second, with the SVG clock ticking along regardless. */
 
 .awty-map-plane {
   fill: var(--color-green);
@@ -113,11 +155,93 @@
   }
 }
 
-.awty-map-airports circle {
+.awty-map-airport {
   fill: var(--text-accent);
+  fill-opacity: 1;
   stroke: var(--background-secondary);
   stroke-width: 1.2;
-  vector-effect: non-scaling-stroke;
+}
+
+/* ----------------------------------------- Leaflet's own furniture, themed */
+
+.awty-map-canvas .leaflet-control-zoom a {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border-color: var(--background-modifier-border);
+}
+
+.awty-map-canvas .leaflet-control-zoom a:hover {
+  background: var(--background-modifier-hover);
+}
+
+.awty-map-canvas .leaflet-control-attribution {
+  background: var(--background-primary);
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.awty-map-canvas .leaflet-control-attribution a {
+  color: var(--text-accent);
+}
+
+.awty-map-tip {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: var(--shadow-s);
+  font-size: var(--font-ui-smaller);
+}
+
+.awty-map-tip::before {
+  display: none;
+}
+
+/* ------------------------------------------------------------ the minimap */
+
+/* Where you are, on a world you can no longer see all of. Vectors only — no
+   tiles — so it costs nothing to fetch and works with the wifi off. It arrives
+   with the zoom and leaves with it, because at full extent it is a rectangle
+   drawn around everything. */
+
+.awty-map-mini {
+  position: absolute;
+  right: 10px;
+  bottom: 24px;
+  z-index: 500;
+  width: 26%;
+  max-width: 190px;
+  aspect-ratio: 2 / 1;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-secondary);
+  box-shadow: var(--shadow-s);
+  cursor: crosshair;
+  opacity: 0.92;
+}
+
+.awty-map-mini.is-hidden {
+  display: none;
+}
+
+.awty-map-mini:hover {
+  opacity: 1;
+}
+
+.awty-map-mini .leaflet-container {
+  background: var(--background-secondary);
+}
+
+.awty-map-mini-box {
+  fill: var(--interactive-accent);
+  fill-opacity: 0.18;
+  stroke: var(--interactive-accent);
+  stroke-width: 1.5;
+}
+
+.awty-map-hint {
+  padding: 0.45em 0.3em 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
 }
 
 /* --------------------------------------------------------------- the key */
@@ -127,7 +251,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 14px;
-  padding: 0.6em 0.3em 0.1em;
+  padding: 0.4em 0.3em 0.1em;
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
 }
@@ -150,6 +274,10 @@
 
 .awty-map-legend-line.is-proposed {
   border-top: 2px dashed var(--color-yellow);
+}
+
+.awty-map-legend-line.is-cancelled {
+  border-top: 2px dotted var(--text-faint);
 }
 
 .awty-map-legend-note {
@@ -183,14 +311,14 @@
    the system to stop moving things. Everything lands in its finished state. */
 
 @media (prefers-reduced-motion: reduce) {
-  .awty-map-route.is-booked .awty-map-arc,
-  .awty-map-route.is-proposed .awty-map-arc {
+  .awty-map-route.is-booked,
+  .awty-map-route.is-proposed {
     animation: none;
     stroke-dashoffset: 0;
     opacity: 0.95;
   }
 
-  .awty-map-route.is-booked .awty-map-arc {
+  .awty-map-route.is-booked {
     stroke-dasharray: none;
   }
 

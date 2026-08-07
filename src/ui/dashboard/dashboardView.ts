@@ -58,6 +58,15 @@ export class AwtyDashboardView extends ItemView {
    * filter to different things.
    */
   private stageFilter: TripStage | null = null;
+  /**
+   * How to take down whatever the current tab built.
+   *
+   * Most tabs are plain DOM and vanish when the container is emptied. The map
+   * is a Leaflet instance with listeners on the window, so it has to be told
+   * to go — otherwise every repaint, and this view repaints on every vault
+   * change, leaves another live map behind.
+   */
+  private disposeTab: (() => void) | null = null;
   private unsubscribe: (() => void) | null = null;
   private hydrating = false;
 
@@ -88,6 +97,8 @@ export class AwtyDashboardView extends ItemView {
   async onClose(): Promise<void> {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.disposeTab?.();
+    this.disposeTab = null;
   }
 
   /** Focus a specific trip, e.g. when opened from the sidebar. */
@@ -144,6 +155,8 @@ export class AwtyDashboardView extends ItemView {
 
   render(): void {
     const root = this.containerEl.children[1] as HTMLElement;
+    this.disposeTab?.();
+    this.disposeTab = null;
     root.empty();
     root.addClass("awty-dashboard");
 
@@ -172,7 +185,18 @@ export class AwtyDashboardView extends ItemView {
         });
         break;
       case "map":
-        renderFlightMap(content, ctx);
+        this.disposeTab =
+          renderFlightMap(content, ctx, {
+            // The same filter value as the Trips grid: switching tab should
+            // change how the trips are drawn, not which ones.
+            filter: {
+              stage: this.stageFilter,
+              onChange: (stage) => {
+                this.stageFilter = stage;
+                this.render();
+              },
+            },
+          }) ?? null;
         break;
       case "planning":
         renderPlanning(content, ctx);

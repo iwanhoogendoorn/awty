@@ -67,6 +67,8 @@ export { project, fitToBox, WORLD_HALF_WIDTH, WORLD_HALF_HEIGHT } from "./src/ma
 export { greatCirclePath, interpolate as gcInterpolate, distanceKm, angularDistance } from "./src/map/greatCircle.ts";
 export { worldRings, RING_COUNT } from "./src/data/worldMap.ts";
 export { routesFrom, airportPoint } from "./src/map/flightRoutes.ts";
+export { viewBox, viewBoxAttr, clampView, wholeWorld, isWholeWorld, zoomAt, zoomBy, panBy, centreOn, MIN_ZOOM, MAX_ZOOM } from "./src/map/viewport.ts";
+export { worldPolygons } from "./src/map/baseLayer.ts";
 export { splitFrontmatter } from "./src/util/frontmatter.ts";
 `;
 
@@ -2783,17 +2785,17 @@ test("a proposed flight is not drawn like a booked one", () => {
   const proposed = m.routesFrom([
     routeInput({ status: "reserved", journeys: [[LEG("AMS", "DBV")]] }),
   ]);
-  assert.equal(proposed.routes[0].booked, false);
+  assert.equal(proposed.routes[0].kind, "proposed");
 
   // A trip still being weighed up is a proposal however booked the flight is:
   // you cannot have committed to a flight on a trip you have not committed to.
   const stillAnIdea = m.routesFrom([
     routeInput({ stage: "planning", status: "booked", journeys: [[LEG("AMS", "DBV")]] }),
   ]);
-  assert.equal(stillAnIdea.routes[0].booked, false);
+  assert.equal(stillAnIdea.routes[0].kind, "proposed");
 
   const real = m.routesFrom([routeInput({ journeys: [[LEG("AMS", "DBV")]] })]);
-  assert.equal(real.routes[0].booked, true);
+  assert.equal(real.routes[0].kind, "booked");
 });
 
 test("one booked flight along a pair makes the route real", () => {
@@ -2803,13 +2805,28 @@ test("one booked flight along a pair makes the route real", () => {
     routeInput({ tripTitle: "Another", journeys: [[LEG("DBV", "AMS")]] }),
   ]);
   assert.equal(set.routes.length, 1);
-  assert.equal(set.routes[0].booked, true);
+  assert.equal(set.routes[0].kind, "booked");
   assert.deepEqual(set.routes[0].trips, ["A trip", "Another"]);
 });
 
-test("cancelled flights and cancelled trips are not on the map", () => {
+test("a cancelled booking is not a flight; a cancelled trip is a ghost of one", () => {
+  // Nothing to draw: the flight was called off, so there is no journey at all.
   assert.equal(m.routesFrom([routeInput({ status: "cancelled", journeys: [[LEG("AMS","DBV")]] })]).routes.length, 0);
-  assert.equal(m.routesFrom([routeInput({ stage: "cancelled", journeys: [[LEG("AMS","DBV")]] })]).routes.length, 0);
+
+  // A cancelled *trip* keeps its routes, classified rather than dropped — the
+  // filter can ask for cancelled trips, and answering that with an empty map
+  // would be a filter that lies. The caller decides whether to feed them in.
+  const off = m.routesFrom([routeInput({ stage: "cancelled", journeys: [[LEG("AMS","DBV")]] })]);
+  assert.equal(off.routes.length, 1);
+  assert.equal(off.routes[0].kind, "cancelled");
+
+  // A hop someone actually flew is not downgraded by someone else cancelling it.
+  const both = m.routesFrom([
+    routeInput({ stage: "cancelled", journeys: [[LEG("AMS","DBV")]] }),
+    routeInput({ tripTitle: "Another", journeys: [[LEG("DBV","AMS")]] }),
+  ]);
+  assert.equal(both.routes.length, 1);
+  assert.equal(both.routes[0].kind, "booked");
 });
 
 test("a leg the airport list does not know is counted, not silently dropped", () => {
@@ -2827,6 +2844,122 @@ test("routes draw longest first, so short hops are not buried", () => {
     routeInput({ journeys: [[LEG("AMS", "DBV")], [LEG("AMS", "Tokyo (NRT)")], [LEG("AMS", "London (LHR)")]] }),
   ]);
   assert.deepEqual(set.routes.map((r) => r.to.code), ["NRT", "DBV", "LHR"]);
+});
+
+test("the bundled world comes out as latitude and longitude, in that order", () => {
+  // The packed data is longitude-first, because that is GeoJSON's order, and
+  // every map library wants the opposite. Swapping them draws a world that is
+  // wrong in a way nobody notices until they look at it — but a latitude of 140
+  // does not exist, so the swap is catchable.
+  const polys = m.worldPolygons();
+  assert.ok(polys.length > 200, `expected the whole world, got ${polys.length} rings`);
+
+  let north = -Infinity, south = Infinity, east = -Infinity, west = Infinity;
+  for (const poly of polys) {
+    for (const p of poly) {
+      assert.ok(Math.abs(p.lat) <= 90, `latitude ${p.lat} is not a latitude`);
+      assert.ok(Math.abs(p.lng) <= 180, `longitude ${p.lng} is not a longitude`);
+      north = Math.max(north, p.lat); south = Math.min(south, p.lat);
+      east = Math.max(east, p.lng); west = Math.min(west, p.lng);
+    }
+  }
+  // Greenland and Antarctica at the ends, and the date line reached both ways.
+  assert.ok(north > 80, `northernmost land at ${north}`);
+  assert.ok(south < -60, `southernmost land at ${south}`);
+  assert.ok(east > 179 && west < -179, `longitudes span ${west}..${east}`);
+});
+
+// ------------------------------------------------------------ map viewport
+
+const W = 1000;
+const H = 560;
+
+test("zoomed all the way out is the whole world, exactly", () => {
+  const home = m.wholeWorld(W, H);
+  assert.deepEqual(m.viewBox(home, W, H), { x: 0, y: 0, w: W, h: H });
+  assert.ok(m.isWholeWorld(home));
+
+  // Every way back out lands on the same place rather than near it: a reset
+  // that leaves a two-pixel sliver of ocean off the edge is a reset that failed.
+  const wandered = m.centreOn(m.zoomBy(home, 6, W, H), 120, 90, W, H);
+  for (const back of [m.zoomBy(wandered, 1 / 100, W, H), m.wholeWorld(W, H)]) {
+    assert.deepEqual(m.viewBox(back, W, H), { x: 0, y: 0, w: W, h: H });
+  }
+});
+
+test("zooming under the pointer leaves that place under the pointer", () => {
+  // The whole trick of a map that does not feel slippery. Point at Reykjavik,
+  // zoom, and Reykjavik has not moved.
+  const at = { x: 261, y: 118 };
+  let view = m.wholeWorld(W, H);
+  const where = (v) => {
+    const box = m.viewBox(v, W, H);
+    return { fx: (at.x - box.x) / box.w, fy: (at.y - box.y) / box.h };
+  };
+  const before = where(view);
+
+  for (const factor of [1.6, 1.6, 1.6, 1 / 1.6]) {
+    view = m.zoomAt(view, factor, at.x, at.y, W, H);
+    const now = where(view);
+    assert.ok(Math.abs(now.fx - before.fx) < 1e-9, `x drifted to ${now.fx} from ${before.fx}`);
+    assert.ok(Math.abs(now.fy - before.fy) < 1e-9, `y drifted to ${now.fy} from ${before.fy}`);
+  }
+});
+
+test("the world cannot be dragged off the edge of its own box", () => {
+  const view = m.zoomBy(m.wholeWorld(W, H), 4, W, H);
+  for (const [dx, dy] of [[9999, 9999], [-9999, -9999], [9999, -9999], [0, 4000]]) {
+    const box = m.viewBox(m.panBy(view, dx, dy, W, H), W, H);
+    assert.ok(box.x >= -1e-9, `left edge escaped to ${box.x}`);
+    assert.ok(box.y >= -1e-9, `top edge escaped to ${box.y}`);
+    assert.ok(box.x + box.w <= W + 1e-9, `right edge escaped to ${box.x + box.w}`);
+    assert.ok(box.y + box.h <= H + 1e-9, `bottom edge escaped to ${box.y + box.h}`);
+  }
+});
+
+test("when holding the anchor would leave the world, the world wins", () => {
+  // Zooming *out* from a corner is the case where the two rules disagree: the
+  // anchor wants a box hanging off the right-hand edge. The place under the
+  // pointer is allowed to move rather than the map showing empty space.
+  const corner = m.centreOn(m.zoomBy(m.wholeWorld(W, H), 8, W, H), W, H, W, H);
+  const box = m.viewBox(m.zoomAt(corner, 1 / 4, m.viewBox(corner, W, H).x, m.viewBox(corner, W, H).y, W, H), W, H);
+  assert.equal(+(box.x + box.w).toFixed(6), W);
+  assert.equal(+(box.y + box.h).toFixed(6), H);
+});
+
+test("no sequence of zooms and drags can show the edge of the world", () => {
+  // The clamp is easy to get right in the cases you think of and wrong in the
+  // ones you do not, so this walks a few thousand of them.
+  let seed = 20260807;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  let view = m.wholeWorld(W, H);
+  for (let i = 0; i < 4000; i += 1) {
+    const roll = rnd();
+    if (roll < 0.4) view = m.zoomAt(view, 0.25 + rnd() * 4, rnd() * W, rnd() * H, W, H);
+    else if (roll < 0.7) view = m.panBy(view, (rnd() - 0.5) * 2000, (rnd() - 0.5) * 2000, W, H);
+    else if (roll < 0.9) view = m.zoomBy(view, rnd() < 0.5 ? 1.6 : 1 / 1.6, W, H);
+    else view = m.centreOn(view, (rnd() - 0.5) * 3000, (rnd() - 0.5) * 3000, W, H);
+
+    const box = m.viewBox(view, W, H);
+    const inside =
+      box.x >= -1e-9 && box.y >= -1e-9 && box.x + box.w <= W + 1e-9 && box.y + box.h <= H + 1e-9;
+    assert.ok(inside, `step ${i} escaped: ${JSON.stringify(box)}`);
+    assert.ok(view.zoom >= m.MIN_ZOOM && view.zoom <= m.MAX_ZOOM, `step ${i} zoom ${view.zoom}`);
+  }
+});
+
+test("zoom stops where the outlines stop being outlines", () => {
+  let view = m.wholeWorld(W, H);
+  for (let i = 0; i < 40; i += 1) view = m.zoomBy(view, 2, W, H);
+  assert.equal(view.zoom, m.MAX_ZOOM);
+
+  for (let i = 0; i < 40; i += 1) view = m.zoomBy(view, 0.5, W, H);
+  assert.equal(view.zoom, m.MIN_ZOOM);
+});
+
+test("the viewBox attribute is a viewBox", () => {
+  const view = m.zoomBy(m.wholeWorld(W, H), 2, W, H);
+  assert.equal(m.viewBoxAttr(view, W, H), "250.00 140.00 500.00 280.00");
 });
 
 test("an airport label resolves however it is written", () => {

@@ -15,19 +15,26 @@ const banner = `/*
 Travel Planner — bundled by esbuild. Source: src/ in this repository.
 */`;
 
+// Leaflet ships its own stylesheet and the map is unusable without it. Read
+// from the installed package rather than vendored into styles/, so bumping the
+// dependency cannot leave the CSS a version behind the code.
+const LEAFLET_CSS = "node_modules/leaflet/dist/leaflet.css";
+
 // Styles live as numbered files in styles/ and are concatenated in name order,
 // so 10-base.css always lands before 40-components.css can override it.
+// Leaflet goes first of all, so our own rules can override its defaults.
 function concatStyles() {
   const dir = "styles";
   const files = fs
     .readdirSync(dir)
     .filter((f) => f.endsWith(".css"))
     .sort();
-  const css = files
-    .map((f) => `/* === ${f} === */\n` + fs.readFileSync(path.join(dir, f), "utf8"))
-    .join("\n\n");
-  fs.writeFileSync(path.join(OUT_DIR, "styles.css"), css);
-  console.log(`styles: concatenated ${files.length} files -> ${OUT_DIR}/styles.css`);
+  const parts = [`/* === leaflet.css (vendored at build time) === */\n` + fs.readFileSync(LEAFLET_CSS, "utf8")];
+  for (const f of files) {
+    parts.push(`/* === ${f} === */\n` + fs.readFileSync(path.join(dir, f), "utf8"));
+  }
+  fs.writeFileSync(path.join(OUT_DIR, "styles.css"), parts.join("\n\n"));
+  console.log(`styles: leaflet + ${files.length} files -> ${OUT_DIR}/styles.css`);
 }
 
 const stylesPlugin = {

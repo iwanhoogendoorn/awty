@@ -48,6 +48,11 @@ does not make you give it twice.
   from them
 - Flights with multiple legs and multiple journeys, priced separately, laid out
   across the days they actually happen on
+- A world map of every flight, along the great circle an aeroplane actually
+  flies, on OpenStreetMap tiles — booked, proposed and cancelled drawn
+  differently. Tiles are fetched from `tile.openstreetmap.org` as you pan; when
+  they cannot be, a bundled vector world is drawn underneath so the routes are
+  still readable with the wifi off
 - Travel times between the places on a trip, from the Google Maps APIs, only
   ever fetched from a button
 - Visa checks by passport and Dutch government travel advice, per country, for
