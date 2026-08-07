@@ -1,6 +1,6 @@
 import { setIcon } from "obsidian";
 import type { DashboardContext } from "./common";
-import { bar, sectionTitle } from "./common";
+import { bar, readiness, sectionTitle } from "./common";
 import type { Trip } from "../../types";
 import { tripCities, tripCountries } from "../../types";
 import { formatMoney, formatTotals } from "../../util/money";
@@ -250,6 +250,24 @@ export function renderTripStatistics(
   }
   if (planning.cancelledShare !== null && planning.cancelledShare > 0) {
     row(habits, "Cancelled", `${Math.round(planning.cancelledShare * 100)}%`, "of everything planned");
+  }
+
+  // The one thing the old tile row said that nothing else on the screen did.
+  //
+  // Counted over trips that are actually coming — a holiday you called off, or
+  // one you got back from, has no notes left to finish, and counting those
+  // would turn a to-do into a permanent complaint.
+  const ahead = trips.filter(
+    (t) =>
+      t.stage !== "cancelled" &&
+      (t.status === "current" || (t.status === "upcoming" && t.stage !== "planning")),
+  );
+  const unfinished = ahead.filter((t) => {
+    const ready = readiness(ctx.plugin, t);
+    return ready.total > 0 && ready.ratio < 1;
+  }).length;
+  if (unfinished > 0) {
+    row(habits, "Notes still empty", String(unfinished), unfinished === 1 ? "on a trip ahead" : "on trips ahead");
   }
   // The honest gap. Better said than filled with a number from file mtimes,
   // which measure when a file last synced.
