@@ -2,8 +2,8 @@ import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
 import { bar, emptyState, readiness, stateMark, statTiles } from "../common";
 import { showTripMenu } from "../tripMenu";
-import type { Trip } from "../../../types";
-import { joinPlaces, kindDef, tripCities, tripCountries } from "../../../types";
+import type { Trip, TripStage } from "../../../types";
+import { STAGES, joinPlaces, kindDef, stageDef, tripCities, tripCountries } from "../../../types";
 import { stageBadge } from "../stageMenu";
 import { estimateTotals, trackQuotes } from "../../../planning/priceWatch";
 import { formatTotals, sumMoney } from "../../../util/money";
@@ -87,11 +87,58 @@ function renderAllTripsSummary(
   ]);
 }
 
+/**
+ * Filter chips, one per stage that actually has trips in it.
+ *
+ * Only stages that exist: an empty "Cancelled (0)" is a control that does
+ * nothing, and offering it on a vault where nothing has ever been cancelled
+ * makes the row longer without making it more useful.
+ */
+function renderStageFilter(
+  parent: HTMLElement,
+  trips: Trip[],
+  active: TripStage | null,
+  onChange: (stage: TripStage | null) => void,
+): void {
+  const counts = new Map<TripStage, number>();
+  for (const trip of trips) counts.set(trip.stage, (counts.get(trip.stage) ?? 0) + 1);
+
+  const present = STAGES.filter((def) => (counts.get(def.id) ?? 0) > 0);
+  // One stage across the whole vault means the filter can only ever be a
+  // no-op or a way to hide everything.
+  if (present.length < 2) return;
+
+  const row = parent.createDiv({ cls: "awty-stage-filter" });
+
+  const chip = (
+    label: string,
+    count: number,
+    stage: TripStage | null,
+    icon?: string,
+  ): void => {
+    const el = row.createEl("button", {
+      cls: `awty-stage-chip${stage ? ` is-${stage}` : ""}${active === stage ? " is-active" : ""}`,
+    });
+    el.type = "button";
+    if (icon) setIcon(el.createSpan({ cls: "awty-stage-chip-icon" }), icon);
+    el.createSpan({ text: label });
+    el.createSpan({ cls: "awty-stage-chip-count", text: String(count) });
+    el.setAttribute("aria-pressed", String(active === stage));
+    // Clicking the stage you are already on clears the filter, so the chips
+    // are a toggle rather than a trap you need the All chip to escape.
+    el.addEventListener("click", () => onChange(active === stage ? null : stage));
+  };
+
+  chip("All", trips.length, null, "layers");
+  for (const def of present) chip(def.label, counts.get(def.id) ?? 0, def.id, def.icon);
+}
+
 /** Every trip as a card — the one view that spans trips rather than drilling in. */
 export function renderTrips(
   parent: HTMLElement,
   ctx: DashboardContext,
   onSelect: (trip: Trip) => void,
+  filter?: { stage: TripStage | null; onChange: (stage: TripStage | null) => void },
 ): void {
   const { plugin } = ctx;
   const all = plugin.store.getTrips();
@@ -111,10 +158,29 @@ export function renderTrips(
   // No toolbar: "New trip" moved into the dashboard header, where it is on
   // every tab. Leaving it here too would be the same button twice on one
   // screen, a row apart.
+  //
+  // The summary counts every trip even while the grid is filtered: it is the
+  // answer to "how am I doing overall", and recomputing it against the filter
+  // would make "1 trip" mean something different depending on a chip.
   renderAllTripsSummary(parent, ctx, trips);
 
+  const stage = filter?.stage ?? null;
+  if (filter) renderStageFilter(parent, trips, stage, filter.onChange);
+
+  const shown = stage ? trips.filter((t) => t.stage === stage) : trips;
+  if (shown.length === 0) {
+    emptyState(
+      parent,
+      stageDef(stage ?? undefined).icon,
+      `Nothing ${stageDef(stage ?? undefined).label.toLowerCase()}`,
+      "No trip is at this stage. The others are still there — clear the filter to see them.",
+      [{ label: "Show all trips", icon: "layers", onClick: () => filter?.onChange(null) }],
+    );
+    return;
+  }
+
   const grid = parent.createDiv({ cls: "awty-trip-grid" });
-  for (const trip of trips) {
+  for (const trip of shown) {
     const def = kindDef(trip.kind);
     const card = grid.createDiv({
       cls: `awty-card is-${trip.status} is-stage-${trip.stage}`,
@@ -129,8 +195,14 @@ export function renderTrips(
       text: [joinPlaces(tripCities(trip)), joinPlaces(tripCountries(trip))].filter(Boolean).join(", ") || def.label,
     });
 
-    // A countdown on a trip that is not booked is a promise the trip has not
-    // made. Those get the stage instead, which is the honest answer.
+    // The stage always shows, under the destination. It used to take the
+    // corner badge only when there was no countdown to put there, which meant
+    // it disappeared the moment a trip was booked — exactly when knowing a
+    // trip is going rather than merely soon starts to matter.
+    stageBadge(headText, plugin, trip, ctx.refresh).addClass("awty-card-stage");
+
+    // A countdown on a trip that is not happening is a promise the trip has
+    // not made, so those get no corner badge at all.
     const until = daysUntil(trip.startDate);
     const badge =
       trip.stage === "cancelled" || trip.stage === "planning"
@@ -144,14 +216,7 @@ export function renderTrips(
               : until === 0
                 ? "Today"
                 : `${until}d`;
-    if (badge) {
-      card.createDiv({ cls: `awty-card-badge is-${trip.status}`, text: badge });
-    } else {
-      // The title reserves room for a badge the width of "12d". A stage badge
-      // is a word and an icon, so the card has to be told to leave more.
-      stageBadge(card, plugin, trip, ctx.refresh).addClass("awty-card-badge");
-      card.addClass("has-stage-badge");
-    }
+    if (badge) card.createDiv({ cls: `awty-card-badge is-${trip.status}`, text: badge });
 
     const meta = card.createDiv({ cls: "awty-card-meta" });
     meta.createDiv({ text: formatDateRange(trip.startDate, trip.endDate) });

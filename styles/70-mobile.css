@@ -1676,3 +1676,15 @@ body.awty-phone .awty-dash-tab.starts-group {
   margin-left: 0;
   padding-left: 0.6em;
 }
+
+/* Filter chips are the width of their own text, so they wrap into rows on a
+   phone rather than scrolling — but they have to be tall enough to hit. */
+body.awty-mobile .awty-stage-chip {
+  min-height: var(--awty-tap);
+  padding-inline: 0.9em;
+  font-size: 13px;
+}
+
+body.awty-mobile .awty-stage-filter {
+  gap: 8px;
+}

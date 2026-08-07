@@ -735,3 +735,105 @@
 .awty-dash-tab.is-locked:hover {
   opacity: 0.7;
 }
+
+/* ---------------------------------------------------------- stage filter
+ *
+ * Chips over the trip grid. Each carries its own count, so the row doubles as
+ * a breakdown — "3 going, 2 planning, 1 cancelled" is legible without
+ * clicking anything, and the tiles above stay global.
+ */
+
+.awty-stage-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 1em;
+}
+
+.awty-stage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: auto;
+  padding: 0.3em 0.7em;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.awty-stage-chip:hover {
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.awty-stage-chip-icon {
+  display: flex;
+}
+
+.awty-stage-chip-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* The count sits in its own well, so a long stage name and a two-digit count
+   stay distinguishable at a glance. */
+.awty-stage-chip-count {
+  padding: 0 0.4em;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.awty-stage-chip.is-active {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+/* The active chip takes its stage's colour, which is the same colour that
+   stage carries on the cards below — so the filter and its result match. */
+
+.awty-stage-chip.is-going.is-active {
+  border-color: var(--color-green);
+}
+
+.awty-stage-chip.is-going.is-active .awty-stage-chip-icon {
+  color: var(--color-green);
+}
+
+.awty-stage-chip.is-planning.is-active {
+  border-color: var(--color-yellow);
+}
+
+.awty-stage-chip.is-planning.is-active .awty-stage-chip-icon {
+  color: var(--color-yellow);
+}
+
+.awty-stage-chip.is-cancelled.is-active {
+  border-color: var(--color-red);
+}
+
+.awty-stage-chip.is-cancelled.is-active .awty-stage-chip-icon {
+  color: var(--color-red);
+}
+
+/* ------------------------------------------------- the stage on a card
+ *
+ * Under the destination rather than in the corner. The corner is the
+ * countdown's, and the two used to compete for it — so on a booked trip the
+ * stage simply vanished.
+ */
+
+.awty-card-stage {
+  margin-top: 0.35em;
+}
+
+/* The top edge of a card carries the stage colour — see 50-dashboard.css,
+   where the rules live so that nothing loaded after them can win the edge
+   back. Readable from across the grid without reading a word. */

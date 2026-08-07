@@ -916,12 +916,24 @@
   background: var(--background-modifier-hover);
 }
 
-.awty-card.is-current {
+/* The top edge belongs to the stage, coloured in 48-planning.css.
+ *
+ * It used to carry the date status — blue for upcoming, green for now — which
+ * meant a trip you had booked and one you were only considering wore the same
+ * blue, and the edge answered a question the countdown badge already answers.
+ * One meaning per channel: the edge says what the trip *is*, the badge says
+ * when. Removed rather than out-specified, so there is nothing left to fight. */
+
+.awty-card.is-stage-going {
   border-top-color: var(--color-green);
 }
 
-.awty-card.is-upcoming {
-  border-top-color: var(--color-blue);
+.awty-card.is-stage-planning {
+  border-top-color: var(--color-yellow);
+}
+
+.awty-card.is-stage-cancelled {
+  border-top-color: var(--color-red);
 }
 
 .awty-card-head {

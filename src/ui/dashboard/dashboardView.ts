@@ -1,7 +1,7 @@
 import { ItemView, Menu, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import { BOOKING_KINDS } from "../../bookings/types";
 import type AwtyPlugin from "../../main";
-import type { Trip } from "../../types";
+import type { Trip, TripStage } from "../../types";
 import { AWTY_DASHBOARD_TYPE } from "../../types";
 import { isMobile } from "../../util/platform";
 import type { DashboardContext } from "./common";
@@ -46,6 +46,14 @@ export class AwtyDashboardView extends ItemView {
    * arriving somewhere else entirely.
    */
   private pendingTab: TabId | null = null;
+  /**
+   * Which stage the Trips grid is filtered to, or null for all of them.
+   *
+   * Held on the view rather than passed through the context, because it is
+   * this pane's state: two dashboards open side by side should be able to
+   * filter to different things.
+   */
+  private stageFilter: TripStage | null = null;
   private unsubscribe: (() => void) | null = null;
   private hydrating = false;
 
@@ -151,7 +159,13 @@ export class AwtyDashboardView extends ItemView {
 
     switch (this.tab) {
       case "trips":
-        renderTrips(content, ctx, (selected) => this.showTrip(selected));
+        renderTrips(content, ctx, (selected) => this.showTrip(selected), {
+          stage: this.stageFilter,
+          onChange: (stage) => {
+            this.stageFilter = stage;
+            this.render();
+          },
+        });
         break;
       case "planning":
         renderPlanning(content, ctx);
