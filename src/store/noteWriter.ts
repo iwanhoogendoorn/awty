@@ -1,5 +1,5 @@
 import { App, Notice, TAbstractFile, TFile, TFolder, normalizePath } from "obsidian";
-import type { SubNoteId, AwtySettings, Trip, TripDraft } from "../types";
+import type { SubNoteId, AwtySettings, Trip, TripDraft, TripStage } from "../types";
 import { kindDef } from "../types";
 import { buildSubNote, buildTripBody, type TemplateContext } from "./templates";
 import { expandFolderPattern, joinPath, sanitizeName } from "../util/paths";
@@ -76,6 +76,7 @@ function tripFrontmatter(draft: TripDraft): Record<string, unknown> {
   const fm: Record<string, unknown> = {
     type: "trip",
     kind: draft.kind,
+    stage: draft.stage,
     title: draft.title,
     start_date: draft.startDate,
     end_date: def.singleDay ? draft.startDate : draft.endDate,
@@ -213,6 +214,20 @@ export async function updateTrip(
   }
 
   return trip.file;
+}
+
+/**
+ * Moves a trip to another stage, and nothing else.
+ *
+ * Separate from `updateTrip` because the whole point of the stage buttons is
+ * that saying "we're going" is one click. Routing it through the trip editor
+ * would rewrite every other field, rename the folder if the pattern moved, and
+ * make an answer to one question into a save of everything.
+ */
+export async function setTripStage(app: App, trip: Trip, stage: TripStage): Promise<void> {
+  await app.fileManager.processFrontMatter(trip.file, (fm) => {
+    fm.stage = stage;
+  });
 }
 
 /**

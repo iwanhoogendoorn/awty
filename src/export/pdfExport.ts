@@ -1,7 +1,7 @@
 import { App, Notice, TFile, TFolder, arrayBufferToBase64 } from "obsidian";
 import type AwtyPlugin from "../main";
 import type { Trip } from "../types";
-import { SUB_NOTE_LABELS, kindDef } from "../types";
+import { SUB_NOTE_LABELS, kindDef, stageDef } from "../types";
 import { joinPlaces, tripCities, tripCountries } from "../types";
 import { BOOKING_KINDS } from "../bookings/types";
 import { fileFromLink, totalsByCategory } from "../bookings/bookingStore";
@@ -81,7 +81,8 @@ export async function buildTripDocument(
   const counted = lines.filter((l) => l.counted);
 
   // ------------------------------------------------------------ facts
-  const facts: [string, string][] = [["Kind", def.label]];
+  const stage = stageDef(trip.stage);
+  const facts: [string, string][] = [["Kind", def.label], ["Status", stage.label]];
   if (trip.originCity || trip.originAirport) {
     facts.push(["From", [trip.originCity, trip.originAirport].filter(Boolean).join(" · ")]);
   }
@@ -394,6 +395,14 @@ export async function buildTripDocument(
     days,
     costs,
     packing,
+    // A document is carried and trusted, so a trip that is not confirmed says
+    // so at the top rather than looking exactly like one that is.
+    banner:
+      trip.stage === "cancelled"
+        ? "CANCELLED — this trip is not happening. Kept for reference only."
+        : trip.stage === "planning"
+          ? "PLANNING ONLY — nothing here is booked. Prices and times are indicative and may already have changed."
+          : "",
     disclaimer: DISCLAIMER_FULL,
     travel,
     restaurants,

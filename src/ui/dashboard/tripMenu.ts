@@ -1,6 +1,7 @@
 import { Menu, Notice } from "obsidian";
 import type { DashboardContext } from "./common";
 import type { Trip } from "../../types";
+import { STAGES } from "../../types";
 import { BOOKING_KINDS } from "../../bookings/types";
 
 /**
@@ -57,7 +58,28 @@ export function showTripMenu(evt: MouseEvent, trip: Trip, ctx: DashboardContext)
       .onClick(() => plugin.openAddDayModal(trip)),
   );
 
+  // Moving a trip along is one click, from wherever you are looking at it:
+  // "the flights are booked" is something you find out mid-scroll, and a
+  // three-step edit is how a vault ends up claiming you are going somewhere
+  // you cancelled in March.
   menu.addSeparator();
+  for (const def of STAGES) {
+    if (def.id === trip.stage) continue;
+    menu.addItem((item) =>
+      item
+        .setTitle(`Mark as ${def.label.toLowerCase()}`)
+        .setIcon(def.icon)
+        .onClick(() => void plugin.setStage(trip, def.id)),
+    );
+  }
+
+  menu.addSeparator();
+  menu.addItem((item) =>
+    item
+      .setTitle("Log a price check…")
+      .setIcon("line-chart")
+      .onClick(() => plugin.openPriceQuoteModal(trip)),
+  );
   menu.addItem((item) =>
     item
       .setTitle("Edit trip…")

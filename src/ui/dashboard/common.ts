@@ -238,6 +238,10 @@ export function readiness(plugin: AwtyPlugin, trip: Trip): { done: number; total
   let done = 0;
   let total = 0;
   for (const sub of subNotes) {
+    // Watching prices is how you decide whether to go, so it stops being work
+    // the moment you have decided. Left in, a Price Watch note kept from the
+    // planning stage would hold a booked trip permanently short of finished.
+    if (sub.id === "prices" && trip.stage !== "planning") continue;
     const progress = plugin.progress.peek(sub.file);
     if (!progress) continue;
     total += 1;

@@ -1,9 +1,10 @@
 import { App, ButtonComponent, Modal, Notice, Setting, setIcon } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
-import type { SubNoteId, AwtySettings, Trip, TripDraft, TripKind } from "../../types";
+import type { SubNoteId, AwtySettings, Trip, TripDraft, TripKind, TripStage } from "../../types";
 import {
   CREATABLE_SUB_NOTES,
   KINDS,
+  STAGES,
   SUB_NOTE_LABELS,
   joinPlaces,
   kindDef,
@@ -25,6 +26,7 @@ export class TripModal extends Modal {
   private countryInput!: HTMLInputElement;
   private venueSetting!: Setting;
   private kindButtons = new Map<TripKind, HTMLElement>();
+  private stageButtons = new Map<TripStage, HTMLElement>();
   private subNoteSection!: HTMLElement;
   private submitBtn: ButtonComponent | null = null;
   /**
@@ -50,6 +52,10 @@ export class TripModal extends Modal {
     this.draft = {
       title: initial.title ?? "",
       kind,
+      // A new trip starts as an idea. Most do, and promoting one to "going" is
+      // a single click — whereas a trip that starts committed has to be
+      // demoted, which nobody thinks to do.
+      stage: initial.stage ?? (mode === "create" ? settings.defaultStage : "planning"),
       country: initial.country ?? (mode === "create" ? settings.defaultCountry : ""),
       city: initial.city ?? "",
       stops:
@@ -90,6 +96,9 @@ export class TripModal extends Modal {
       {
         title: trip.title,
         kind: trip.kind,
+        // What the note says, not what the calendar implies: opening the
+        // editor should not quietly rewrite a trip's stage on save.
+        stage: trip.storedStage,
         country: trip.country,
         city: trip.city,
         stops: trip.stops,
@@ -120,6 +129,7 @@ export class TripModal extends Modal {
     });
 
     this.renderKindPicker(contentEl);
+    this.renderStagePicker(contentEl);
     this.renderPlaceFields(contentEl);
 
     const dateSection = contentEl.createDiv({ cls: "awty-section" });
@@ -180,6 +190,41 @@ export class TripModal extends Modal {
       this.kindButtons.set(def.id, btn);
     }
     this.syncKindButtons();
+  }
+
+  /**
+   * Whether this is happening, might happen, or already did.
+   *
+   * Asked at creation because the answer is usually "might": a trip is an idea
+   * long before it is a booking, and starting every trip as committed left no
+   * way to keep proposals without them looking like plans.
+   */
+  private renderStagePicker(parent: HTMLElement): void {
+    const section = parent.createDiv({ cls: "awty-section" });
+    section.createDiv({ cls: "awty-section-label", text: "Is this happening?" });
+    const row = section.createDiv({ cls: "awty-stage-row is-compact" });
+
+    for (const def of STAGES) {
+      const btn = row.createEl("button", { cls: `awty-stage-btn is-${def.id}` });
+      btn.type = "button";
+      setIcon(btn.createSpan({ cls: "awty-stage-icon" }), def.icon);
+      const text = btn.createSpan({ cls: "awty-stage-text" });
+      text.createSpan({ cls: "awty-stage-label", text: def.label });
+      text.createSpan({ cls: "awty-stage-desc", text: def.description });
+      btn.addEventListener("click", (evt) => {
+        evt.preventDefault();
+        this.draft.stage = def.id;
+        this.syncStageButtons();
+      });
+      this.stageButtons.set(def.id, btn);
+    }
+    this.syncStageButtons();
+  }
+
+  private syncStageButtons(): void {
+    for (const [id, btn] of this.stageButtons) {
+      btn.toggleClass("is-active", id === this.draft.stage);
+    }
   }
 
   private syncKindButtons(): void {

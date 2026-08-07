@@ -6,7 +6,7 @@ import { renderGettingAround } from "../gettingAround";
 import { renderDocuments } from "../documents";
 import { BOOKING_KINDS, type BookingKind } from "../../../bookings/types";
 import type { SubNoteId } from "../../../types";
-import { joinPlaces, tripCities, tripCountries } from "../../../types";
+import { joinPlaces, stageDef, tripCities, tripCountries } from "../../../types";
 
 import { totalsByCategory } from "../../../bookings/bookingStore";
 import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/money";
@@ -242,7 +242,7 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
   const until = daysUntil(trip.startDate);
 
   // ------------------------------------------------------------- hero
-  const hero = parent.createDiv({ cls: `awty-hero is-${trip.status}` });
+  const hero = parent.createDiv({ cls: `awty-hero is-${trip.status} is-stage-${trip.stage}` });
   const heroMain = hero.createDiv({ cls: "awty-hero-main" });
   heroMain.createDiv({ cls: "awty-hero-title", text: trip.title });
   const where = [joinPlaces(tripCities(trip)), joinPlaces(tripCountries(trip))].filter(Boolean).join(", ");
@@ -251,8 +251,23 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
     text: [formatDateRange(trip.startDate, trip.endDate), where].filter(Boolean).join(" · "),
   });
 
+  const stage = stageDef(trip.stage);
+  const stagePill = heroMain.createDiv({ cls: `awty-hero-stage is-${stage.id}` });
+  setIcon(stagePill.createSpan({ cls: "awty-hero-stage-icon" }), stage.icon);
+  stagePill.createSpan({ text: stage.label });
+  stagePill.setAttribute("title", stage.description);
+  stagePill.addEventListener("click", () => plugin.openEditTripModal(trip));
+
   const countdown = hero.createDiv({ cls: "awty-hero-countdown" });
-  if (trip.status === "current") {
+  // Counting down to a trip nobody has booked is the dashboard telling a
+  // story the vault cannot back up.
+  if (trip.stage === "cancelled") {
+    countdown.createDiv({ cls: "awty-hero-big", text: "—" });
+    countdown.createDiv({ cls: "awty-hero-small", text: "Cancelled" });
+  } else if (trip.stage === "planning") {
+    countdown.createDiv({ cls: "awty-hero-big", text: until === null ? "—" : String(until) });
+    countdown.createDiv({ cls: "awty-hero-small", text: "days away, if it happens" });
+  } else if (trip.status === "current") {
     countdown.createDiv({ cls: "awty-hero-big", text: "Now" });
     countdown.createDiv({ cls: "awty-hero-small", text: "You're on this trip" });
   } else if (until !== null && until >= 0) {

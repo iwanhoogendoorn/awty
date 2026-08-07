@@ -205,6 +205,38 @@ function eventDetailsBody(ctx: TemplateContext): string {
   );
 }
 
+/**
+ * The empty Price Watch note.
+ *
+ * Deliberately thin: everything below the heading is generated from the quotes
+ * in the frontmatter, so writing a placeholder table here would only be
+ * something for the first save to throw away.
+ */
+function pricesBody(ctx: TemplateContext): string {
+  const { draft } = ctx;
+  return lines(
+    `# ${SUB_NOTE_LABELS.prices} — ${draft.title}`,
+    "",
+    // A table, not a paragraph: everything above the first heading that is not
+    // the title or a generated table is treated as hand-written and preserved,
+    // so a generated paragraph here would reappear on every save.
+    "| | |",
+    "|---|---|",
+    `| **Trip** | ${ctx.tripLink} |`,
+    `| **When** | ${formatDateRange(draft.startDate, draft.endDate)} |`,
+    `| **Watching** | 0 things |`,
+    "",
+    "## Estimate",
+    "",
+    "_No prices checked yet._",
+    "",
+    "## Watching",
+    "",
+    "_No prices checked yet._",
+    "",
+  );
+}
+
 const BUILDERS: Record<SubNoteId, (ctx: TemplateContext) => string> = {
   itinerary: itineraryBody,
   packing: packingBody,
@@ -212,6 +244,7 @@ const BUILDERS: Record<SubNoteId, (ctx: TemplateContext) => string> = {
   transport: transportBody,
   budget: budgetBody,
   food: foodBody,
+  prices: pricesBody,
   "event-details": eventDetailsBody,
 };
 
@@ -223,6 +256,7 @@ const FRONTMATTER_TYPE: Record<SubNoteId, string> = {
   transport: "transport",
   budget: "budget",
   food: "food",
+  prices: "price-watch",
   "event-details": "event-details",
 };
 

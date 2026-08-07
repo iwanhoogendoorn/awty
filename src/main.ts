@@ -5,6 +5,7 @@ import {
   CREATABLE_SUB_NOTES,
   KINDS,
   tripCountries,
+  stageDef,
   AWTY_DASHBOARD_TYPE,
   AWTY_SIDEBAR_TYPE,
   type SubNoteId,
@@ -12,6 +13,7 @@ import {
   type Trip,
   type TripDraft,
   type TripKind,
+  type TripStage,
 } from "./types";
 import { TripStore } from "./store/tripStore";
 import { ProgressCache } from "./store/noteProgress";
@@ -68,9 +70,12 @@ import { replaceSection } from "./store/sectionWriter";
 import { canExportPdf, exportTrip, saveTextFile } from "./export/pdfExport";
 import { mapSavePlanFor, mapSavedInVaultMessage, type ExportCapabilities } from "./export/exportPlan";
 import { isMobile, markPlatform } from "./util/platform";
-import { createTrip, deleteTrip, notifyError, updateTrip } from "./store/noteWriter";
+import { createTrip, deleteTrip, notifyError, setTripStage, updateTrip } from "./store/noteWriter";
+import { readTripQuotes, removeQuote, saveQuote } from "./planning/priceStore";
+import { nextQuoteId, trackQuotes, type PriceQuote } from "./planning/priceWatch";
 import { AwtySidebarView } from "./ui/view";
 import { TripModal } from "./ui/modals/tripModal";
+import { PriceQuoteModal } from "./ui/modals/priceQuoteModal";
 import { ConfirmDeleteModal } from "./ui/modals/confirmDelete";
 import { ConfirmModal } from "./ui/modals/confirmModal";
 import { AddDayModal } from "./ui/modals/addDayModal";
@@ -1031,6 +1036,82 @@ export default class AwtyPlugin extends Plugin {
         // on a day and measured from the hotel like everything else.
         void this.openBookingWizard(trip, "restaurant");
         return;
+      case "prices":
+        this.openPriceQuoteModal(trip);
+        return;
+    }
+  }
+
+  /** Prices logged against a trip while deciding whether to go. */
+  readQuotes(trip: Trip): PriceQuote[] {
+    return readTripQuotes(this.app, trip);
+  }
+
+  /**
+   * Logs a price check, or edits one already logged.
+   *
+   * @param editingId The id of the quote being replaced. Absent means a new
+   *   check, even when `initial` pre-fills the label — which is exactly what
+   *   "check again" does.
+   */
+  openPriceQuoteModal(trip: Trip, initial?: Partial<PriceQuote>, editingId?: string): void {
+    const quotes = this.readQuotes(trip);
+    new PriceQuoteModal(
+      this.app,
+      this.settings,
+      trip,
+      async (quote, files) => {
+        const added = await importAttachments(this.app, this.settings, trip, files);
+        const saved: PriceQuote = {
+          ...quote,
+          id: editingId ?? nextQuoteId(quotes),
+          screenshots: [...quote.screenshots, ...added],
+        };
+        await saveQuote(this.app, this.settings, trip, saved);
+        this.progress.clear();
+        this.store.invalidate();
+        new Notice(
+          editingId
+            ? `Updated the check on “${saved.label}”.`
+            : `Logged ${formatMoney({ amount: saved.amount, currency: saved.currency })} for “${saved.label}”.`,
+        );
+      },
+      trackQuotes(quotes),
+      initial,
+      editingId
+        ? () => {
+            void (async () => {
+              await removeQuote(this.app, this.settings, trip, editingId);
+              this.progress.clear();
+              this.store.invalidate();
+              new Notice("Price check removed.");
+            })();
+          }
+        : undefined,
+    ).open();
+  }
+
+  /** Opens a screenshot logged with a price check. */
+  openScreenshot(path: string): void {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (file instanceof TFile) void this.openInWorkspace(file);
+    else new Notice(`Could not find ${path}.`);
+  }
+
+  /**
+   * Moves a trip to another stage.
+   *
+   * Writes only the one field, so saying "we're going" cannot rename a folder
+   * or rewrite a date as a side effect of answering a different question.
+   */
+  async setStage(trip: Trip, stage: TripStage): Promise<void> {
+    if (trip.storedStage === stage && !trip.stageImplied) return;
+    try {
+      await setTripStage(this.app, trip, stage);
+      this.store.invalidate();
+      new Notice(`“${trip.title}” is now ${stageDef(stage).label.toLowerCase()}.`);
+    } catch (err) {
+      notifyError(err, "Could not change the stage.");
     }
   }
 

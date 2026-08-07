@@ -99,6 +99,12 @@ export interface TripDocument {
   notes: DocNote[];
   /** Images embedded as data URIs, so the file stands alone. */
   images: { caption: string; dataUri: string }[];
+  /**
+   * A banner across the top, for a trip the document must not be read as
+   * confirming: a cancelled trip printed like any other is a boarding pass for
+   * a flight that is not happening.
+   */
+  banner: string;
   /** Shown wherever requirements are, and in full at the end. */
   disclaimer: string;
   generatedOn: string;
@@ -257,6 +263,14 @@ const STYLES = `
     font-size: 9pt; color: #55606b; border-left: 3px solid #b7791f;
     padding-left: 3mm; margin: 0 0 3mm;
   }
+  /* Loud on purpose: this document gets printed and carried, and a stale one
+     is worse than none. */
+  .banner {
+    background: #fbe9e7; border: 1.5pt solid #c0392b; color: #7b241c;
+    padding: 3mm; margin: 0 0 5mm; border-radius: 1.5mm;
+    font-weight: 700; font-size: 11pt; text-align: center;
+    page-break-after: avoid;
+  }
   .disclaimer {
     margin-top: 8mm; padding-top: 3mm; border-top: 1px solid #d7dbe0;
     font-size: 8.5pt; color: #55606b; page-break-inside: avoid;
@@ -307,6 +321,8 @@ export function renderTripDocument(doc: TripDocument): string {
     `<style>${STYLES}</style>`,
     "</head><body>",
   );
+
+  if (doc.banner) parts.push(`<div class="banner">${escapeHtml(doc.banner)}</div>`);
 
   parts.push(
     '<div class="cover">',

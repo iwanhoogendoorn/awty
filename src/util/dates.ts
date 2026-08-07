@@ -1,4 +1,4 @@
-import type { TripStatus } from "../types";
+import type { TripStage, TripStatus } from "../types";
 
 /**
  * Dates are handled as ISO YYYY-MM-DD strings and converted through UTC
@@ -84,6 +84,35 @@ export function tripStatus(startISO: string, endISO: string, today = todayISO())
   return "upcoming";
 }
 
+/**
+ * The stage of a trip whose note never said.
+ *
+ * Every trip written before stages existed is a real trip someone made — so the
+ * honest guess is "going", or "went" once it is behind us. Guessing "planning"
+ * instead would file a whole vault of finished holidays as unbooked ideas.
+ */
+export function impliedStage(startISO: string, endISO: string, today = todayISO()): TripStage {
+  return tripStatus(startISO, endISO, today) === "past" ? "went" : "going";
+}
+
+/**
+ * The stored stage, with the calendar applied.
+ *
+ * A trip you are going on stops being upcoming the day after it ends, and
+ * nobody should have to open the note to say so. Cancelled never moves — it was
+ * a decision, not a date — and a plan that was never resolved stays a plan, so
+ * an idea whose dates slid past still reads as one rather than claiming you went.
+ */
+export function effectiveStage(
+  stored: TripStage,
+  startISO: string,
+  endISO: string,
+  today = todayISO(),
+): TripStage {
+  if (stored !== "going") return stored;
+  return tripStatus(startISO, endISO, today) === "past" ? "went" : "going";
+}
+
 /** Whole days until a trip starts; negative once it has started. */
 export function daysUntil(startISO: string, today = todayISO()): number | null {
   const start = parseISO(startISO);
@@ -151,11 +180,14 @@ export function yearOf(iso: string): string {
   return date ? String(date.getUTCFullYear()) : "";
 }
 
-function formatShort(iso: string): string {
+/** "14 Aug 2026", or the input unchanged when it is not a date. */
+export function formatDate(iso: string): string {
   const date = parseISO(iso);
   if (!date) return iso;
   return `${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
 }
+
+const formatShort = formatDate;
 
 /** "14 Aug 2026" for one day, "14 – 21 Aug 2026" when the month is shared. */
 export function formatDateRange(startISO: string, endISO: string): string {

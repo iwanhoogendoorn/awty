@@ -14,6 +14,13 @@ import { stripFrontmatter } from "../util/frontmatter";
  */
 const OWNED_HEADINGS = ["notes", "attachments", "receipt", "outbound", "return", "itinerary"];
 
+/**
+ * The Price Watch note is generated the same way a booking note is, from a
+ * different set of headings. Passing them in beats a second copy of the fence
+ * scanner — getting that wrong is how hand-written prose gets deleted.
+ */
+export const PRICE_WATCH_HEADINGS = ["estimate", "watching", "history", "screenshots"];
+
 const FENCE = /^\s*(`{3,}|~{3,})/;
 
 /**
@@ -105,7 +112,7 @@ export interface KeptParts {
   sections: string;
 }
 
-export function customParts(content: string): KeptParts {
+export function customParts(content: string, owned: readonly string[] = OWNED_HEADINGS): KeptParts {
   const preamble: string[] = [];
   const sections: string[] = [];
   let keeping = false;
@@ -116,7 +123,7 @@ export function customParts(content: string): KeptParts {
       const heading = /^##\s+(.+?)\s*$/.exec(line);
       if (heading) {
         seenHeading = true;
-        keeping = !OWNED_HEADINGS.includes(heading[1].trim().toLowerCase());
+        keeping = !owned.includes(heading[1].trim().toLowerCase());
         if (keeping) sections.push(line);
         continue;
       }
@@ -141,8 +148,8 @@ export function customParts(content: string): KeptParts {
   };
 }
 
-export function customSections(content: string): string {
-  const { preamble, sections } = customParts(content);
+export function customSections(content: string, owned?: readonly string[]): string {
+  const { preamble, sections } = customParts(content, owned);
   return [preamble, sections].filter(Boolean).join("\n\n");
 }
 

@@ -1566,3 +1566,79 @@ body.awty-mobile .awty-pill-x svg {
 body.awty-mobile .awty-pill-tag {
   font-size: 12px;
 }
+
+/* ==========================================================================
+   11. Stages and the price watch
+
+   Added with the trip lifecycle. The desktop layouts here are grids of
+   fixed-minimum columns and rows of small icon targets, both of which are the
+   two things a phone cannot take as written — so each gets a single-column
+   form and a 44px target, on the same body-class gate as everything above.
+   ========================================================================== */
+
+/* Four stages at 190px minimum is a two-column grid on a phone, which puts
+   "Cancelled" next to "Went" and makes the sequence unreadable. One per row
+   keeps the order the point. */
+body.awty-phone .awty-stage-row,
+body.awty-phone .awty-stage-row.is-compact {
+  grid-template-columns: 1fr;
+}
+
+body.awty-mobile .awty-stage-btn {
+  min-height: var(--awty-tap);
+  align-items: center;
+}
+
+/* The description is what makes the stages distinguishable, so on a phone it
+   stays even in the compact picker — there is room for it in one column. */
+body.awty-phone .awty-stage-row.is-compact .awty-stage-desc {
+  display: block;
+}
+
+body.awty-phone .awty-proposal-grid {
+  grid-template-columns: 1fr;
+}
+
+/* A price history row is date, amount, step, provider, link and two icon
+   buttons — six items on a 390px screen. Wrapping keeps them legible instead
+   of crushing the amount, which is the one thing being read. */
+body.awty-phone .awty-quote {
+  flex-wrap: wrap;
+  row-gap: 2px;
+  padding: 0.35em 0;
+}
+
+body.awty-phone .awty-quote-note {
+  padding-left: 0;
+}
+
+/* 13px icons inside a text row are not tappable. The edit and screenshot
+   controls get a real target without growing the row that holds them. */
+body.awty-mobile .awty-quote-shot,
+body.awty-mobile .awty-quote-edit {
+  min-width: var(--awty-tap);
+  min-height: var(--awty-tap);
+  align-items: center;
+  justify-content: center;
+}
+
+body.awty-mobile .awty-quote-shot svg,
+body.awty-mobile .awty-quote-edit svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* The head is title-plus-price side by side; at phone width the price wraps
+   under a long label and loses its right alignment, so it is stacked instead. */
+body.awty-phone .awty-track-head {
+  flex-direction: column;
+  gap: 2px;
+}
+
+body.awty-phone .awty-track-price {
+  text-align: left;
+}
+
+body.awty-mobile .awty-verdict {
+  padding: 0.7em 0.8em;
+}

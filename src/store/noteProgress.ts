@@ -268,6 +268,23 @@ export function analyseNote(id: SubNoteId | null, content: string): NoteProgress
     };
   }
 
+  // A price checked once answers nothing — the question is whether it is
+  // climbing, and that needs a second look. So one quote per thing is a start,
+  // and the note is done when everything being watched has been seen twice.
+  if (id === "prices") {
+    const watched = countRowsUnder(body, "Watching");
+    if (watched <= 0) {
+      return s.proseWords > 0 ? { state: "started", detail: "Notes only", ratio: null } : EMPTY;
+    }
+    const checks = Math.max(countRowsUnder(body, "History"), watched);
+    const ratio = Math.min(checks / (watched * 2), 1);
+    return {
+      state: ratio >= 1 ? "complete" : "started",
+      detail: `${watched} watched · ${checks} check${checks === 1 ? "" : "s"}`,
+      ratio,
+    };
+  }
+
   if (id === "accommodation" || id === "transport") {
     const noun = id === "transport" ? "leg" : "booking";
     if (s.tableRows <= 0 && s.proseWords === 0) return EMPTY;

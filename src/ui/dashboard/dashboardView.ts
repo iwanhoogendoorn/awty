@@ -7,16 +7,18 @@ import { isMobile } from "../../util/platform";
 import type { DashboardContext } from "./common";
 import { renderOverview } from "./tabs/overview";
 import { renderTrips } from "./tabs/trips";
+import { renderPlanning } from "./tabs/planning";
 import { renderItinerary } from "./tabs/itinerary";
 import { renderBookings } from "./tabs/bookings";
 import { renderCosts } from "./tabs/costs";
 import { renderGallery } from "./tabs/gallery";
 import { showTripMenu } from "./tripMenu";
 
-type TabId = "overview" | "trips" | "itinerary" | "bookings" | "costs" | "gallery";
+type TabId = "overview" | "planning" | "trips" | "itinerary" | "bookings" | "costs" | "gallery";
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "layout-dashboard" },
+  { id: "planning", label: "Planning", icon: "compass" },
   { id: "trips", label: "Trips", icon: "plane" },
   { id: "itinerary", label: "Itinerary", icon: "calendar-days" },
   { id: "bookings", label: "Bookings", icon: "ticket" },
@@ -113,6 +115,9 @@ export class AwtyDashboardView extends ItemView {
     switch (this.tab) {
       case "trips":
         renderTrips(content, ctx, (selected) => this.showTrip(selected));
+        break;
+      case "planning":
+        renderPlanning(content, ctx);
         break;
       case "itinerary":
         renderItinerary(content, ctx);

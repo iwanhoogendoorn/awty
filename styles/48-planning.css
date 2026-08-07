@@ -1,0 +1,559 @@
+/* ---------------------------------------------------------------- stages
+ *
+ * A trip's stage is the one thing on a card that has to be readable without
+ * reading: the difference between a holiday you are packing for and one you
+ * cancelled in March is not a detail. Each stage carries its own colour, and
+ * the same colour is used wherever that stage appears — badge, hero, card
+ * border — so the mapping only has to be learned once.
+ */
+
+.awty-stage-strip {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 0.9em 1em;
+  margin-bottom: 1em;
+  background: var(--background-primary-alt);
+}
+
+.awty-stage-head-title {
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+}
+
+.awty-stage-head-note {
+  margin-top: 0.2em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-warning);
+}
+
+.awty-stage-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  margin-top: 0.8em;
+}
+
+.awty-stage-btn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0.6em 0.7em;
+  text-align: left;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+  cursor: pointer;
+  box-shadow: none;
+  height: auto;
+  transition:
+    border-color 90ms ease,
+    background 90ms ease;
+}
+
+.awty-stage-btn:hover {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.awty-stage-icon {
+  display: flex;
+  flex: 0 0 auto;
+  margin-top: 0.1em;
+  color: var(--text-muted);
+}
+
+.awty-stage-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.awty-stage-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  min-width: 0;
+}
+
+.awty-stage-label {
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+}
+
+.awty-stage-desc {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+/* The active stage is filled rather than outlined: an outline reads as
+   "hoverable" and left the current stage ambiguous at a glance. */
+
+.awty-stage-btn.is-active {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+  box-shadow: inset 0 0 0 1px var(--interactive-accent);
+}
+
+.awty-stage-btn.is-active .awty-stage-icon {
+  color: var(--interactive-accent);
+}
+
+.awty-stage-btn.is-going.is-active {
+  box-shadow: inset 0 0 0 1px var(--color-green);
+  border-color: var(--color-green);
+}
+
+.awty-stage-btn.is-going.is-active .awty-stage-icon {
+  color: var(--color-green);
+}
+
+.awty-stage-btn.is-cancelled.is-active {
+  box-shadow: inset 0 0 0 1px var(--color-red);
+  border-color: var(--color-red);
+}
+
+.awty-stage-btn.is-cancelled.is-active .awty-stage-icon {
+  color: var(--color-red);
+}
+
+/* Compact form, for the new-trip modal where the picker is one field of ten. */
+
+.awty-stage-row.is-compact {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 6px;
+}
+
+.awty-stage-row.is-compact .awty-stage-btn {
+  padding: 0.45em 0.6em;
+}
+
+.awty-stage-row.is-compact .awty-stage-desc {
+  display: none;
+}
+
+.awty-stage-note {
+  margin-top: 0.7em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------ stage badge */
+
+.awty-stage-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0.05em 0.55em;
+  border-radius: 999px;
+  font-size: var(--font-ui-smaller);
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.awty-stage-badge-icon {
+  display: flex;
+}
+
+.awty-stage-badge-icon svg {
+  width: 11px;
+  height: 11px;
+}
+
+.awty-stage-badge.is-going,
+.awty-badge.is-stage-going {
+  background: var(--color-green);
+  color: var(--text-on-accent);
+}
+
+.awty-stage-badge.is-planning,
+.awty-badge.is-stage-planning {
+  background: var(--color-yellow);
+  color: var(--text-on-accent);
+}
+
+.awty-stage-badge.is-cancelled,
+.awty-badge.is-stage-cancelled {
+  background: var(--color-red);
+  color: var(--text-on-accent);
+}
+
+.awty-badge.is-stage-going,
+.awty-badge.is-stage-planning,
+.awty-badge.is-stage-cancelled,
+.awty-badge.is-stage-went {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.awty-badge-icon {
+  display: flex;
+}
+
+.awty-badge-icon svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* A cancelled trip stays legible but stops competing for attention. Dimming
+   rather than hiding: it is a record of a decision, not a mistake. */
+
+.awty-card.is-stage-cancelled,
+.awty-trip-wrap.is-stage-cancelled {
+  opacity: 0.55;
+}
+
+.awty-card.is-stage-cancelled .awty-card-title,
+.awty-trip-wrap.is-stage-cancelled .awty-trip-title {
+  text-decoration: line-through;
+  text-decoration-color: var(--color-red);
+}
+
+.awty-card.is-stage-planning {
+  border-style: dashed;
+}
+
+.awty-card-stat.is-estimate {
+  color: var(--text-accent);
+}
+
+.awty-hero-stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 0.5em;
+  padding: 0.15em 0.6em;
+  border-radius: 999px;
+  font-size: var(--font-ui-smaller);
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.awty-hero-stage-icon {
+  display: flex;
+}
+
+.awty-hero-stage-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.awty-hero-stage.is-going {
+  background: var(--color-green);
+  color: var(--text-on-accent);
+}
+
+.awty-hero-stage.is-planning {
+  background: var(--color-yellow);
+  color: var(--text-on-accent);
+}
+
+.awty-hero-stage.is-cancelled {
+  background: var(--color-red);
+  color: var(--text-on-accent);
+}
+
+/* ------------------------------------------------------------- the verdict
+ *
+ * The answer to "can we afford this". Given a whole box rather than a stat
+ * tile because it is a sentence, not a number, and because it is the thing
+ * the tab exists to say.
+ */
+
+.awty-verdict {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 0.8em 1em;
+  border-radius: 8px;
+  margin-bottom: 1em;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary-alt);
+}
+
+.awty-verdict.is-good {
+  border-color: var(--color-green);
+}
+
+.awty-verdict.is-bad {
+  border-color: var(--color-red);
+}
+
+.awty-verdict-icon {
+  display: flex;
+  margin-top: 0.1em;
+  color: var(--text-muted);
+}
+
+.awty-verdict.is-good .awty-verdict-icon {
+  color: var(--color-green);
+}
+
+.awty-verdict.is-bad .awty-verdict-icon {
+  color: var(--color-red);
+}
+
+.awty-verdict-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-verdict-text {
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+  margin-bottom: 0.4em;
+}
+
+.awty-verdict-note {
+  margin-top: 0.4em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+/* ----------------------------------------------------------- the proposals */
+
+.awty-proposal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  margin-bottom: 1.2em;
+}
+
+.awty-proposal {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 0.7em 0.8em;
+  background: var(--background-primary);
+}
+
+.awty-proposal.is-current {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.awty-proposal.is-clickable {
+  cursor: pointer;
+}
+
+.awty-proposal.is-clickable:hover {
+  border-color: var(--interactive-accent);
+}
+
+.awty-proposal-title {
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.awty-proposal-where {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-bottom: 0.4em;
+}
+
+.awty-proposal-cost {
+  font-size: var(--font-ui-medium);
+  font-weight: 600;
+}
+
+.awty-proposal-verdict {
+  margin-top: 0.25em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-proposal-verdict.is-good {
+  color: var(--color-green);
+}
+
+.awty-proposal-verdict.is-bad {
+  color: var(--color-red);
+}
+
+/* --------------------------------------------------------- the price watch
+ *
+ * One card per thing being watched. The direction of travel is the point, so
+ * it gets a coloured edge and a sparkline rather than being one figure in a
+ * column of figures.
+ */
+
+.awty-track-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.awty-track {
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 0.8em 1em;
+  background: var(--background-primary);
+}
+
+.awty-track.is-down {
+  border-left-color: var(--color-green);
+}
+
+.awty-track.is-up {
+  border-left-color: var(--color-red);
+}
+
+.awty-track-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.awty-track-head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-track-title {
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+}
+
+.awty-track-category {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.awty-track-price {
+  text-align: right;
+  flex: 0 0 auto;
+}
+
+.awty-track-amount {
+  font-size: var(--font-ui-medium);
+  font-weight: 600;
+}
+
+.awty-track-when {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.awty-track-trend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 0.5em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-track-trend.is-down {
+  color: var(--color-green);
+}
+
+.awty-track-trend.is-up {
+  color: var(--color-red);
+}
+
+.awty-track-trend-icon {
+  display: flex;
+}
+
+.awty-track-trend-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* Monospace so the blocks line up as a chart rather than drifting. */
+
+.awty-track-spark {
+  font-family: var(--font-monospace);
+  letter-spacing: 1px;
+}
+
+.awty-track-missed {
+  margin-top: 0.4em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-warning);
+}
+
+.awty-track-history {
+  margin-top: 0.7em;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 0.5em;
+}
+
+.awty-quote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.2em 0;
+  font-size: var(--font-ui-smaller);
+}
+
+.awty-quote-date {
+  color: var(--text-muted);
+  min-width: 6.5em;
+}
+
+.awty-quote-amount {
+  font-weight: 600;
+}
+
+.awty-quote-step.is-down {
+  color: var(--color-green);
+}
+
+.awty-quote-step.is-up {
+  color: var(--color-red);
+}
+
+.awty-quote-where,
+.awty-quote-link {
+  color: var(--text-faint);
+}
+
+.awty-quote-shot,
+.awty-quote-edit {
+  display: flex;
+  cursor: pointer;
+  color: var(--text-faint);
+}
+
+.awty-quote-shot:hover,
+.awty-quote-edit:hover {
+  color: var(--text-accent);
+}
+
+.awty-quote-shot svg,
+.awty-quote-edit svg {
+  width: 13px;
+  height: 13px;
+}
+
+.awty-quote-edit {
+  margin-left: auto;
+}
+
+.awty-quote-note {
+  padding: 0 0 0.3em 6.5em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.awty-track-foot {
+  margin-top: 0.6em;
+}
+
+/* The modal's "checking one of these again?" row reuses the settings pill,
+   with room for the price it was last seen at. */
+
+.awty-pill-note {
+  color: var(--text-faint);
+}
+
+.awty-pill.is-active {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}

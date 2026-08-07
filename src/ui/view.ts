@@ -1,7 +1,7 @@
 import { ItemView, Menu, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import type AwtyPlugin from "../main";
 import type { Trip, TripStatus } from "../types";
-import { AWTY_SIDEBAR_TYPE, kindDef } from "../types";
+import { AWTY_SIDEBAR_TYPE, kindDef, stageDef } from "../types";
 import type { SubNote } from "../store/tripStore";
 import type { NoteProgress } from "../store/noteProgress";
 import { joinPlaces, tripCities, tripCountries } from "../types";
@@ -20,6 +20,7 @@ const SUB_NOTE_ICONS: Record<string, string> = {
   transport: "train-front",
   budget: "wallet",
   food: "utensils",
+  prices: "line-chart",
   "event-details": "ticket",
 };
 
@@ -68,7 +69,10 @@ export class AwtySidebarView extends ItemView {
 
     this.renderHeader(container);
 
-    const all = this.plugin.store.getTrips();
+    const visible = this.plugin.settings.showCancelledTrips
+      ? this.plugin.store.getTrips()
+      : this.plugin.store.getTrips().filter((t) => t.stage !== "cancelled");
+    const all = visible;
     const trips = this.filter(all);
 
     if (all.length === 0) {
@@ -165,7 +169,9 @@ export class AwtySidebarView extends ItemView {
 
   private renderTrip(list: HTMLElement, trip: Trip): void {
     const def = kindDef(trip.kind);
-    const wrapper = list.createDiv({ cls: `awty-trip-wrap is-${trip.status}` });
+    const wrapper = list.createDiv({
+      cls: `awty-trip-wrap is-${trip.status} is-stage-${trip.stage}`,
+    });
     const item = wrapper.createDiv({ cls: "awty-trip" });
 
     const isOpen = this.expanded.has(trip.file.path);
@@ -224,7 +230,16 @@ export class AwtySidebarView extends ItemView {
   private renderTripSummary(body: HTMLElement, trip: Trip, subNotes: SubNote[]): void {
     const row = body.createDiv({ cls: "awty-trip-summary" });
 
-    const badge = this.countdown(trip);
+    // The stage always shows; the countdown only when there is something to
+    // count down to. A trip that is not booked has no "12 days to go" — it has
+    // a decision still to make, and saying so is the more useful line.
+    const stage = stageDef(trip.stage);
+    const pill = row.createSpan({ cls: `awty-badge is-stage-${stage.id}` });
+    setIcon(pill.createSpan({ cls: "awty-badge-icon" }), stage.icon);
+    pill.createSpan({ text: stage.badge });
+    pill.setAttribute("title", stage.description);
+
+    const badge = trip.stage === "cancelled" ? null : this.countdown(trip);
     if (badge) row.createSpan({ cls: `awty-badge is-${trip.status}`, text: badge });
 
     if (subNotes.length === 0) return;

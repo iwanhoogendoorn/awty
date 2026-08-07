@@ -3,7 +3,9 @@ import type { DashboardContext } from "../common";
 import { bar, emptyState, readiness, renderToolbar, stateMark, statTiles } from "../common";
 import { showTripMenu } from "../tripMenu";
 import type { Trip } from "../../../types";
-import { joinPlaces, kindDef, tripCities, tripCountries } from "../../../types";
+import { joinPlaces, kindDef, stageDef, tripCities, tripCountries } from "../../../types";
+import { stageBadge } from "./planning";
+import { estimateTotals, trackQuotes } from "../../../planning/priceWatch";
 import { formatTotals, sumMoney } from "../../../util/money";
 import { daysUntil, formatDateRange, formatDuration } from "../../../util/dates";
 
@@ -14,11 +16,16 @@ function renderAllTripsSummary(
   trips: Trip[],
 ): void {
   const { plugin } = ctx;
-  const upcoming = trips.filter((t) => t.status === "upcoming");
-  const current = trips.filter((t) => t.status === "current");
+  // A cancelled trip is a record, not a plan: counting its spend and its
+  // unfinished notes would put a holiday you called off in the same tally as
+  // the one you are packing for.
+  const live = trips.filter((t) => t.stage !== "cancelled");
+  const upcoming = live.filter((t) => t.status === "upcoming" && t.stage !== "planning");
+  const current = live.filter((t) => t.status === "current");
+  const planning = trips.filter((t) => t.stage === "planning");
 
   const spend = sumMoney(
-    trips.flatMap((t) => plugin.bookings.getCostLines(t).filter((l) => l.counted).map((l) => l.money)),
+    live.flatMap((t) => plugin.bookings.getCostLines(t).filter((l) => l.counted).map((l) => l.money)),
   );
 
   // Trips still ahead of you with something unfinished.
@@ -35,7 +42,7 @@ function renderAllTripsSummary(
     {
       label: "Trips",
       value: String(trips.length),
-      detail: `${upcoming.length} upcoming · ${trips.length - upcoming.length - current.length} past`,
+      detail: `${upcoming.length} booked · ${planning.length} being planned`,
       icon: "plane",
     },
     {
@@ -49,6 +56,13 @@ function renderAllTripsSummary(
       value: formatTotals(spend, "—"),
       detail: "Across every trip",
       icon: "wallet",
+    },
+    {
+      label: "Ideas on the table",
+      value: String(planning.length),
+      detail: planning.length === 0 ? "Nothing being weighed up" : "Planned, not booked",
+      icon: "compass",
+      tone: "default",
     },
     {
       label: "Need attention",
@@ -67,7 +81,10 @@ export function renderTrips(
   onSelect: (trip: Trip) => void,
 ): void {
   const { plugin } = ctx;
-  const trips = plugin.store.getTrips();
+  const all = plugin.store.getTrips();
+  const trips = plugin.settings.showCancelledTrips
+    ? all
+    : all.filter((t) => t.stage !== "cancelled");
 
   // The empty state carries its own button, so the toolbar would only ever be a
   // second copy of it.
@@ -87,7 +104,9 @@ export function renderTrips(
   const grid = parent.createDiv({ cls: "awty-trip-grid" });
   for (const trip of trips) {
     const def = kindDef(trip.kind);
-    const card = grid.createDiv({ cls: `awty-card is-${trip.status}` });
+    const card = grid.createDiv({
+      cls: `awty-card is-${trip.status} is-stage-${trip.stage}`,
+    });
 
     const head = card.createDiv({ cls: "awty-card-head" });
     setIcon(head.createDiv({ cls: "awty-card-icon" }), def.icon);
@@ -98,18 +117,23 @@ export function renderTrips(
       text: [joinPlaces(tripCities(trip)), joinPlaces(tripCountries(trip))].filter(Boolean).join(", ") || def.label,
     });
 
+    // A countdown on a trip that is not booked is a promise the trip has not
+    // made. Those get the stage instead, which is the honest answer.
     const until = daysUntil(trip.startDate);
     const badge =
-      trip.status === "current"
-        ? "Now"
-        : trip.status === "past"
-          ? "Done"
-          : until === null
-            ? ""
-            : until === 0
-              ? "Today"
-              : `${until}d`;
+      trip.stage === "cancelled" || trip.stage === "planning"
+        ? ""
+        : trip.status === "current"
+          ? "Now"
+          : trip.status === "past"
+            ? "Done"
+            : until === null
+              ? ""
+              : until === 0
+                ? "Today"
+                : `${until}d`;
     if (badge) card.createDiv({ cls: `awty-card-badge is-${trip.status}`, text: badge });
+    else stageBadge(card, trip.stage).addClass("awty-card-badge");
 
     const meta = card.createDiv({ cls: "awty-card-meta" });
     meta.createDiv({ text: formatDateRange(trip.startDate, trip.endDate) });
@@ -122,6 +146,16 @@ export function renderTrips(
     const foot = card.createDiv({ cls: "awty-card-foot" });
     foot.createSpan({ cls: "awty-card-stat", text: formatTotals(spent, "No costs") });
     foot.createSpan({ cls: "awty-card-stat", text: `${bookings.length} booking${bookings.length === 1 ? "" : "s"}` });
+
+    // What it looks like it will cost, for a trip whose costs are all still
+    // quotes. Without this a proposal reads as free until the day it is booked.
+    if (trip.stage === "planning") {
+      const estimate = estimateTotals(trackQuotes(plugin.readQuotes(trip)));
+      foot.createSpan({
+        cls: "awty-card-stat is-estimate",
+        text: estimate.size === 0 ? "Not priced" : `${formatTotals(estimate)} priced`,
+      });
+    }
 
     const ready = readiness(plugin, trip);
     if (ready.total > 0) {

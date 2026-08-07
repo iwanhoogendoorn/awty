@@ -9,6 +9,88 @@ export type TripKind = "holiday" | "city-break" | "day-trip" | "concert" | "even
 export type TripStatus = "current" | "upcoming" | "past";
 
 /**
+ * Where a trip is in its life, which the calendar cannot tell you.
+ *
+ * `status` says where a trip sits relative to today; it has always been derived
+ * from the dates and cannot distinguish "flights are booked" from "one of four
+ * ideas for October" from "we called it off in May". Those are different things
+ * to a planner, and only the traveller knows which is which — so this is stored,
+ * not computed.
+ */
+export type TripStage = "planning" | "going" | "cancelled" | "went";
+
+export interface StageDef {
+  id: TripStage;
+  label: string;
+  /** Two words at most; this goes in a badge on a card. */
+  badge: string;
+  icon: string;
+  /** Shown under the picker, so the difference between two stages is stated. */
+  description: string;
+  /**
+   * Nothing is committed yet: the trip is a proposal being costed. Price
+   * watching, the estimate and the "can we afford this" verdict live here.
+   */
+  provisional: boolean;
+  /** It is not happening. Kept out of totals, counts and readiness. */
+  dead: boolean;
+}
+
+/**
+ * The order is the journey: an idea becomes a plan, a plan becomes a trip, a
+ * trip becomes a memory — with cancelling as the exit that can happen at any
+ * point. The pickers render them in this order.
+ */
+export const STAGES: readonly StageDef[] = [
+  {
+    id: "planning",
+    label: "Planning",
+    badge: "Planning",
+    icon: "compass",
+    description: "We want to go. Nothing is booked, and it might not happen.",
+    provisional: true,
+    dead: false,
+  },
+  {
+    id: "going",
+    label: "Going",
+    badge: "Going",
+    icon: "plane-takeoff",
+    description: "It is happening. Booked, paid for, or committed to.",
+    provisional: false,
+    dead: false,
+  },
+  {
+    id: "went",
+    label: "Went",
+    badge: "Went",
+    icon: "flag",
+    description: "We went. This one is history now.",
+    provisional: false,
+    dead: false,
+  },
+  {
+    id: "cancelled",
+    label: "Cancelled",
+    badge: "Cancelled",
+    icon: "circle-slash",
+    description: "We planned it and called it off. Kept for the record.",
+    provisional: false,
+    dead: true,
+  },
+];
+
+const STAGE_BY_ID = new Map(STAGES.map((s) => [s.id, s]));
+
+export function stageDef(id: string | undefined): StageDef {
+  return STAGE_BY_ID.get((id ?? "") as TripStage) ?? STAGES[0];
+}
+
+export function isTripStage(value: unknown): value is TripStage {
+  return typeof value === "string" && STAGE_BY_ID.has(value as TripStage);
+}
+
+/**
  * `event-details` is no longer created: a concert is a trip with one headline
  * activity, and having both meant the same venue and tickets could be recorded
  * in two places. The id stays so notes made by older versions still read.
@@ -20,7 +102,8 @@ export type SubNoteId =
   | "budget"
   | "food"
   | "event-details"
-  | "transport";
+  | "transport"
+  | "prices";
 
 export interface KindDef {
   id: TripKind;
@@ -118,6 +201,7 @@ export const CREATABLE_SUB_NOTES: SubNoteId[] = [
   "transport",
   "budget",
   "food",
+  "prices",
 ];
 
 export const SUB_NOTE_LABELS: Record<SubNoteId, string> = {
@@ -128,6 +212,7 @@ export const SUB_NOTE_LABELS: Record<SubNoteId, string> = {
   food: "Food",
   "event-details": "Event Details",
   transport: "Transport",
+  prices: "Price Watch",
 };
 
 /**
@@ -199,6 +284,16 @@ export interface Trip {
   /** ISO YYYY-MM-DD; equal to startDate for single-day kinds. */
   endDate: string;
   status: TripStatus;
+  /**
+   * Where the trip is in its life, with the passage of time already applied:
+   * a trip you were going on, whose last day is behind you, reads as "went"
+   * without anyone having to come back and say so.
+   */
+  stage: TripStage;
+  /** What the note actually says, for the editor and the stage picker. */
+  storedStage: TripStage;
+  /** True when no note said, and the stage was guessed from the dates. */
+  stageImplied: boolean;
   /** Who is going. Drives packing quantities and the per-person cost split. */
   travellers: string[];
   /** Where you are leaving from — a trip has two ends, not one. */
@@ -222,6 +317,7 @@ export interface Trip {
 export interface TripDraft {
   title: string;
   kind: TripKind;
+  stage: TripStage;
   country: string;
   city: string;
   /** Every stop in order; the first is mirrored into country and city. */
@@ -261,6 +357,16 @@ export interface AwtySettings {
   confirmDelete: boolean;
   /** Show past trips in the sidebar. */
   showPastTrips: boolean;
+  /**
+   * Show cancelled trips in the sidebar and on the Trips tab.
+   *
+   * On by default: a trip you called off is a record of a decision, and the
+   * price watch that led to it is worth keeping. Turn it off once the list
+   * gets long — the notes stay either way.
+   */
+  showCancelledTrips: boolean;
+  /** Stage a new trip starts in. Most trips begin as an idea, not a booking. */
+  defaultStage: TripStage;
   /** Currency used when a booking or trip doesn't name its own. */
   defaultCurrency: string;
   /** Subfolder inside a trip where booking and expense notes live. */
@@ -312,6 +418,8 @@ export const DEFAULT_SETTINGS: AwtySettings = {
   foodSpotView: "cards",
   confirmDelete: true,
   showPastTrips: true,
+  showCancelledTrips: true,
+  defaultStage: "planning",
   defaultCurrency: "EUR",
   bookingsFolder: "Bookings",
   attachmentsFolder: "Attachments",

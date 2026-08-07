@@ -46,7 +46,7 @@ export { dayEvents, ongoingOn, BAND } from "./src/store/dayPlan.ts";
 export { itineraryPairs, groupByOrigin } from "./src/travel/routePlan.ts";
 export { readLegs, summariseFlight, summariseJourneys } from "./src/bookings/flightSummary.ts";
 export { renderMarkdown, stripFrontmatter } from "./src/export/markdown.ts";
-export { customSections, customParts, weaveKept, sectionText } from "./src/bookings/noteSections.ts";
+export { customSections, customParts, weaveKept, sectionText, PRICE_WATCH_HEADINGS } from "./src/bookings/noteSections.ts";
 export { bookingBody, expenseBody } from "./src/bookings/noteBody.ts";
 export { budgetPlanTable, budgetLinesTable } from "./src/bookings/budgetTables.ts";
 export { readLegacyFoodTable } from "./src/bookings/legacyFood.ts";
@@ -58,6 +58,10 @@ export { looksLikeMoreJourneys } from "./src/bookings/legs.ts";
 export { zoneForAirport, utcToLocal, localiseLegs } from "./src/flights/localTime.ts";
 export { linkTarget } from "./src/bookings/linkTarget.ts";
 export { pdfPlanFor, pdfFallbackFor, mapSavePlanFor, htmlFallbackMessage, mapSavedInVaultMessage } from "./src/export/exportPlan.ts";
+export { readQuotes, writeQuotes, nextQuoteId, trackQuotes, sparkline, estimateTotals, bestCaseTotals, estimateByCategory, affordability, describeTrend, priceWatchTable, priceHistoryTable, priceWatchBody } from "./src/planning/priceWatch.ts";
+export { impliedStage, effectiveStage } from "./src/util/dates.ts";
+export { STAGES, stageDef, isTripStage } from "./src/types.ts";
+export { splitFrontmatter } from "./src/util/frontmatter.ts";
 `;
 
 const outfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tp-test-")), "bundle.mjs");
@@ -2540,6 +2544,234 @@ test("the mobile notices name the file they are talking about", () => {
   const map = m.mapSavedInVaultMessage(12, "Trips/Japan/Japan.kml");
   assert.match(map, /^12 places/);
   assert.match(map, /Trips\/Japan\/Japan\.kml/);
+});
+
+// ------------------------------------------------------- trip stages
+
+test("a trip whose note never said a stage is read from the calendar", () => {
+  // Every trip written before stages existed is one someone actually made.
+  assert.equal(m.impliedStage("2026-09-01", "2026-09-14", "2026-08-07"), "going");
+  assert.equal(m.impliedStage("2020-09-01", "2020-09-14", "2026-08-07"), "went");
+});
+
+test("a trip you were going on becomes one you went on, by itself", () => {
+  assert.equal(m.effectiveStage("going", "2020-09-01", "2020-09-14", "2026-08-07"), "went");
+  assert.equal(m.effectiveStage("going", "2026-09-01", "2026-09-14", "2026-08-07"), "going");
+});
+
+test("cancelling is a decision, so the calendar never undoes it", () => {
+  assert.equal(m.effectiveStage("cancelled", "2020-09-01", "2020-09-14", "2026-08-07"), "cancelled");
+  // Nor does a plan that was never resolved start claiming you went.
+  assert.equal(m.effectiveStage("planning", "2020-09-01", "2020-09-14", "2026-08-07"), "planning");
+});
+
+test("an unknown stage falls back rather than throwing", () => {
+  assert.equal(m.isTripStage("going"), true);
+  assert.equal(m.isTripStage("maybe"), false);
+  assert.equal(m.stageDef(undefined).id, "planning");
+  assert.equal(m.stageDef("nonsense").id, "planning");
+  // Exactly one stage is dead, and exactly one is provisional.
+  assert.deepEqual(m.STAGES.filter((s) => s.dead).map((s) => s.id), ["cancelled"]);
+  assert.deepEqual(m.STAGES.filter((s) => s.provisional).map((s) => s.id), ["planning"]);
+});
+
+// -------------------------------------------------------- price watch
+
+const QUOTE_FM = [
+  { id: "q1", checked_on: "2026-06-01", category: "Transport", label: "Flights AMS-DPS", amount: 1240, currency: "EUR", provider: "Skyscanner" },
+  { id: "q2", checked_on: "2026-07-01", category: "Transport", label: "Flights AMS-DPS", amount: 1180, currency: "EUR" },
+  { id: "q3", checked_on: "2026-07-20", category: "Transport", label: "Flights AMS-DPS", amount: 1320, currency: "EUR" },
+  { id: "q4", checked_on: "2026-07-02", category: "Accommodation", label: "Villa, 12 nights", amount: 900, currency: "EUR" },
+];
+
+test("a quote without a price is not a price", () => {
+  const quotes = m.readQuotes([...QUOTE_FM, { id: "bad", label: "Free flight", amount: 0 }]);
+  assert.equal(quotes.length, 4);
+  // A zero would sink an estimate silently, which is worse than being absent.
+  assert.ok(!quotes.some((q) => q.amount === 0));
+});
+
+test("frontmatter edited by hand still reads", () => {
+  assert.deepEqual(m.readQuotes(undefined), []);
+  assert.deepEqual(m.readQuotes("not a list"), []);
+  const loose = m.readQuotes([{ label: "Hotel", amount: "1.234,50" }]);
+  assert.equal(loose[0].amount, 1234.5);
+  assert.equal(loose[0].currency, "EUR");
+  assert.equal(loose[0].category, "Misc");
+  assert.equal(loose[0].id, "q1");
+});
+
+test("the same thing priced twice is one track, not two", () => {
+  const tracks = m.trackQuotes(m.readQuotes(QUOTE_FM));
+  assert.equal(tracks.length, 2);
+  // Dearest first: the expensive line is the one worth watching.
+  assert.equal(tracks[0].label, "Flights AMS-DPS");
+  assert.equal(tracks[0].quotes.length, 3);
+  // Oldest first inside a track, whatever order the frontmatter was in.
+  assert.deepEqual(tracks[0].quotes.map((q) => q.checkedOn), ["2026-06-01", "2026-07-01", "2026-07-20"]);
+});
+
+test("the trend is measured from the first check to the latest", () => {
+  const [flights] = m.trackQuotes(m.readQuotes(QUOTE_FM));
+  assert.equal(flights.latest.amount, 1320);
+  assert.equal(flights.first.amount, 1240);
+  assert.equal(flights.best.amount, 1180);
+  assert.equal(flights.delta, 80);
+  assert.equal(flights.direction, "up");
+  // What waiting has cost: today's price against the best ever seen.
+  assert.equal(flights.missed, 140);
+  assert.match(m.describeTrend(flights), /dearer than on 1 Jun 2026/);
+});
+
+test("one check is a number, not a trend", () => {
+  const [only] = m.trackQuotes(m.readQuotes([QUOTE_FM[3]]));
+  assert.equal(only.delta, 0);
+  assert.equal(only.direction, "flat");
+  assert.equal(m.describeTrend(only), "");
+});
+
+test("a flat history is drawn flat, not as an invented cliff", () => {
+  assert.equal(m.sparkline([]), "");
+  assert.equal(m.sparkline([500, 500, 500]), "▄▄▄");
+  const rising = m.sparkline([100, 200, 300]);
+  assert.equal(rising.length, 3);
+  assert.equal(rising[0], "▁");
+  assert.equal(rising[2], "█");
+});
+
+test("the estimate uses the latest price for each thing, not every price", () => {
+  const tracks = m.trackQuotes(m.readQuotes(QUOTE_FM));
+  // 1320 (latest flights) + 900 (villa) — not the sum of all four quotes.
+  assert.equal(m.estimateTotals(tracks).get("EUR"), 2220);
+  // Best case is every cheapest price: 1180 + 900.
+  assert.equal(m.bestCaseTotals(tracks).get("EUR"), 2080);
+  const byCategory = m.estimateByCategory(tracks);
+  assert.equal(byCategory.get("Transport").get("EUR"), 1320);
+  assert.equal(byCategory.get("Accommodation").get("EUR"), 900);
+});
+
+test("a trip that fits says by how much", () => {
+  const estimate = m.estimateTotals(m.trackQuotes(m.readQuotes(QUOTE_FM)));
+  const yes = m.affordability(estimate, 3000, "EUR");
+  assert.equal(yes.fits, true);
+  assert.equal(yes.gap, 780);
+  assert.match(yes.text, /Fits/);
+
+  const no = m.affordability(estimate, 2000, "EUR");
+  assert.equal(no.fits, false);
+  assert.equal(no.gap, -220);
+  assert.match(no.text, /Over by/);
+});
+
+test("mixed currencies get no verdict rather than a converted one", () => {
+  const mixed = m.estimateTotals(
+    m.trackQuotes(
+      m.readQuotes([
+        { id: "a", label: "Flights", amount: 900, currency: "EUR", checked_on: "2026-06-01" },
+        { id: "b", label: "Hotel", amount: 400, currency: "GBP", checked_on: "2026-06-01" },
+      ]),
+    ),
+  );
+  const verdict = m.affordability(mixed, 2000, "EUR");
+  // A rate invented here is a rate someone books a holiday on.
+  assert.equal(verdict.fits, null);
+  assert.match(verdict.text, /more than one currency/);
+});
+
+test("no budget and no prices each say so plainly", () => {
+  assert.match(m.affordability(new Map(), 3000, "EUR").text, /Nothing priced yet/);
+  const priced = m.estimateTotals(m.trackQuotes(m.readQuotes([QUOTE_FM[3]])));
+  assert.match(m.affordability(priced, null, "EUR").text, /no budget set/);
+  // A single-currency estimate in another currency is still two currencies.
+  assert.equal(m.affordability(priced, 3000, "GBP").fits, null);
+});
+
+test("a quote round-trips through frontmatter unchanged", () => {
+  const quotes = m.readQuotes(QUOTE_FM);
+  const written = m.writeQuotes(quotes);
+  assert.deepEqual(m.readQuotes(written), quotes);
+  // Empty fields are left out rather than written blank.
+  assert.ok(!("url" in written[1]), "no blank url");
+  assert.equal(written[0].provider, "Skyscanner");
+});
+
+test("a new quote never reuses an id", () => {
+  assert.equal(m.nextQuoteId([]), "q1");
+  assert.equal(m.nextQuoteId(m.readQuotes(QUOTE_FM)), "q5");
+  // Gaps and hand-written ids do not produce a collision.
+  assert.equal(m.nextQuoteId([{ id: "q7" }, { id: "custom" }]), "q8");
+});
+
+test("the note's tables say what the dashboard says", () => {
+  const tracks = m.trackQuotes(m.readQuotes(QUOTE_FM));
+  const table = m.priceWatchTable(tracks);
+  assert.match(table, /Flights AMS-DPS/);
+  assert.match(table, /€1,320/);
+  assert.match(table, /€1,180/);
+  assert.equal(m.priceWatchTable([]), "_No prices checked yet._");
+
+  const history = m.priceHistoryTable(m.readQuotes(QUOTE_FM));
+  // Newest first, because the last check is the one being looked for.
+  const rows = history.split("\n").slice(2);
+  assert.match(rows[0], /20 Jul 2026/);
+  assert.equal(m.priceHistoryTable([]), "");
+});
+
+test("saving the price note four times leaves it exactly as it was", () => {
+  // The class of bug this guards: a generated paragraph above the first
+  // heading is indistinguishable from one someone typed, so it gets preserved
+  // and re-emitted, growing the note on every save. Everything the generator
+  // writes up there is a title and one table with bolded labels, which
+  // `dropGeneratedTable` recognises as its own.
+  const settings = { defaultCurrency: "EUR" };
+  const trip = {
+    title: "Bali - August - 2026",
+    startDate: "2026-08-17",
+    endDate: "2026-08-31",
+    budgetTotal: 3000,
+    file: { basename: "Bali - August - 2026" },
+  };
+  const quotes = m.readQuotes(QUOTE_FM);
+  const FM = "---\ntype: price-watch\nquotes:\n  - id: q1\n    amount: 1240\n---";
+  const preamble = "Gaurav prefers the morning flight even if it costs more.";
+  const section = "## My own thoughts\n\nWait until the school holidays are over.";
+
+  let note = `${FM}\n\n${m.weaveKept(m.priceWatchBody(settings, trip, quotes), { preamble, sections: section })}\n`;
+  for (let i = 0; i < 3; i += 1) {
+    const { frontmatter } = m.splitFrontmatter(note);
+    const kept = m.customParts(note, m.PRICE_WATCH_HEADINGS);
+    note = `${frontmatter}\n\n${m.weaveKept(m.priceWatchBody(settings, trip, quotes), kept)}\n`;
+  }
+
+  const count = (needle) => note.split(needle).length - 1;
+  assert.equal(count(preamble), 1, "hand-written preamble kept exactly once");
+  assert.equal(count("## My own thoughts"), 1, "hand-written section kept exactly once");
+  assert.equal(count("type: price-watch"), 1, "frontmatter not copied into the body");
+  assert.equal(count("| **Trip** |"), 1, "generated header not duplicated");
+  assert.equal(count("## Estimate"), 1, "generated sections not duplicated");
+  assert.equal(count("a quote is not a booking"), 1, "caveat not duplicated");
+  // The prose stays where it was typed, above the generated sections.
+  assert.ok(note.indexOf(preamble) < note.indexOf("## Estimate"));
+});
+
+// -------------------------------------------------- nested frontmatter
+
+test("frontmatter holding a list of objects is still frontmatter", () => {
+  // Flight legs and price quotes both nest, and requiring keys at column zero
+  // meant the whole YAML block was read as prose and copied into the body.
+  const note = "---\ntype: booking\nlegs:\n  - airline: KLM\n    flight: KL835\n---\n\n# Flight\n\nBody.\n";
+  assert.equal(m.stripFrontmatter(note), "\n# Flight\n\nBody.\n");
+  const split = m.splitFrontmatter(note);
+  assert.ok(split.frontmatter.startsWith("---"));
+  assert.ok(split.frontmatter.endsWith("---"));
+  assert.equal(split.body, "\n# Flight\n\nBody.\n");
+});
+
+test("a note opening with a horizontal rule keeps its first paragraph", () => {
+  const ruled = "---\nThis is prose, not YAML at all.\n---\n\nMore.\n";
+  assert.equal(m.stripFrontmatter(ruled), ruled);
+  assert.equal(m.splitFrontmatter(ruled).frontmatter, "");
+  assert.equal(m.splitFrontmatter(ruled).body, ruled);
 });
 
 console.log(`\n${passed} tests passed`);

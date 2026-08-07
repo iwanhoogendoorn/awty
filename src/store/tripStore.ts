@@ -1,6 +1,6 @@
 import { App, Plugin, TFile, TFolder, normalizePath } from "obsidian";
-import type { SubNoteId, AwtySettings, Trip, TripStatus, TripStop } from "../types";
-import { SUB_NOTE_LABELS, isTripKind } from "../types";
+import type { SubNoteId, AwtySettings, Trip, TripStage, TripStatus, TripStop } from "../types";
+import { SUB_NOTE_LABELS, isTripKind, isTripStage, stageDef } from "../types";
 
 export interface SubNote {
   /** Null for a note the user added that isn't one of ours. */
@@ -8,11 +8,19 @@ export interface SubNote {
   file: TFile;
   label: string;
 }
-import { isValidISODate, todayISO, tripStatus } from "../util/dates";
+import { effectiveStage, impliedStage, isValidISODate, todayISO, tripStatus } from "../util/dates";
 
 type Listener = () => void;
 
 const STATUS_ORDER: Record<TripStatus, number> = { current: 0, upcoming: 1, past: 2 };
+
+/**
+ * Within a date group, what is happening outranks what might.
+ *
+ * A cancelled trip sits last: it is kept for the record, not for the diary, and
+ * having it at the top of Upcoming was the whole reason a stage exists.
+ */
+const STAGE_ORDER: Record<TripStage, number> = { going: 0, planning: 1, went: 2, cancelled: 3 };
 
 function list(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((v) => str(v)).filter(Boolean);
@@ -177,6 +185,13 @@ export class TripStore {
       const rawEnd = str(fm.end_date);
       const endDate = isValidISODate(rawEnd) ? rawEnd : startDate;
       const kind = isTripKind(fm.kind) ? fm.kind : "holiday";
+      // Every trip written before stages existed is a real trip someone made,
+      // so an absent field is read from the calendar rather than defaulted to
+      // "planning" — which would file a vault of finished holidays as ideas.
+      const stageImplied = !isTripStage(fm.stage);
+      const storedStage: TripStage = isTripStage(fm.stage)
+        ? fm.stage
+        : impliedStage(startDate, endDate, today);
 
       trips.push({
         file,
@@ -191,6 +206,9 @@ export class TripStore {
         startDate,
         endDate,
         status: tripStatus(startDate, endDate, today),
+        stage: effectiveStage(storedStage, startDate, endDate, today),
+        storedStage,
+        stageImplied,
         travellers: list(fm.travellers),
         originCity: str(fm.origin_city),
         originAirport: str(fm.origin_airport),
@@ -207,6 +225,9 @@ export class TripStore {
     trips.sort((a, b) => {
       if (STATUS_ORDER[a.status] !== STATUS_ORDER[b.status]) {
         return STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+      }
+      if (STAGE_ORDER[a.stage] !== STAGE_ORDER[b.stage]) {
+        return STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage];
       }
       // Upcoming: soonest first. Past: most recent first.
       const dir = a.status === "past" ? -1 : 1;

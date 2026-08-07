@@ -2,11 +2,12 @@ import { App, Notice, PluginSettingTab, Setting, setIcon } from "obsidian";
 import { TRAVEL_MODES } from "../travel/types";
 import { DISCLAIMER_FULL, OFFICIAL_SOURCES } from "../data/disclaimer";
 import type AwtyPlugin from "../main";
-import type { SubNoteId, TripKind } from "../types";
+import type { SubNoteId, TripKind, TripStage } from "../types";
 import {
   CREATABLE_SUB_NOTES,
   FOODSPOT_PLUGIN_ID,
   KINDS,
+  STAGES,
   SUB_NOTE_LABELS,
   kindDef,
 } from "../types";
@@ -288,6 +289,31 @@ export class AwtySettingTab extends PluginSettingTab {
           this.plugin.refreshViews();
         }),
       );
+
+    new Setting(view.content)
+      .setName("Show cancelled trips")
+      .setDesc(
+        "A trip you called off is a record of a decision, and the prices you watched before making it. Turn off to hide them — the notes stay either way.",
+      )
+      .addToggle((t) =>
+        t.setValue(s.showCancelledTrips).onChange(async (v) => {
+          s.showCancelledTrips = v;
+          await this.save();
+          this.plugin.refreshViews();
+        }),
+      );
+
+    new Setting(view.content)
+      .setName("New trips start as")
+      .setDesc("Most trips are an idea before they are a booking, so planning is the default.")
+      .addDropdown((dd) => {
+        for (const def of STAGES) dd.addOption(def.id, def.label);
+        dd.setValue(s.defaultStage);
+        dd.onChange(async (v) => {
+          s.defaultStage = v as TripStage;
+          await this.save();
+        });
+      });
 
     new Setting(view.content)
       .setName("Confirm before deleting")
