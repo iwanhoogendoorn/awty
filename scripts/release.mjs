@@ -84,10 +84,12 @@ const notes = [
 
 function lastTag() {
   try {
-    return run("git", ["describe", "--tags", "--abbrev=0"]);
+    // stderr is swallowed: with no tags yet this fails, which is the normal
+    // first release and not something to print "fatal" about.
+    return run("git", ["describe", "--tags", "--abbrev=0"], { stdio: ["ignore", "pipe", "ignore"] });
   } catch {
-    // No previous tag: the log range below becomes the whole history, which is
-    // why the first release just says so instead.
+    // No previous tag, so the range below is the whole history — which is why
+    // the first release just says so instead of listing every commit.
     return run("git", ["rev-list", "--max-parents=0", "HEAD"]);
   }
 }
