@@ -380,12 +380,20 @@ body.awty-phone .awty-subnotes {
    6. Dashboard — header and the six-tab strip
    ========================================================================== */
 
+/* The header and the content share one column now, and its horizontal padding
+   comes from a variable rather than from each of them separately — so a phone
+   narrows the column by changing the variable, not by re-padding two elements
+   and hoping they still agree. */
+body.awty-phone .awty-dashboard {
+  --awty-column-pad: 0.75em;
+}
+
 body.awty-phone .awty-dash-header {
-  padding: 0.6em 0.75em 0;
+  padding-block: 0.6em 0;
 }
 
 body.awty-phone .awty-dash-content {
-  padding: 0.9em 0.75em calc(4em + env(safe-area-inset-bottom, 0px));
+  padding-block: 0.9em calc(4em + env(safe-area-inset-bottom, 0px));
 }
 
 /* 50-dashboard.css:28 caps the trip picker at 22em (~352px), which is wider

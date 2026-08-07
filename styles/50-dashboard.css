@@ -1,17 +1,40 @@
 .awty-dashboard {
   padding: 0;
   overflow-y: auto;
+
+  /* One column width for the whole view.
+   *
+   * The header used to span the pane while the content below was capped and
+   * centred, so on any window wider than the cap the two disagreed by whatever
+   * was left over — the trip selector sat at the far left with the itinerary
+   * starting 250px in. They are the same column now, and this is the only
+   * place its width is written down.
+   *
+   * 1500 rather than 1100: this is a dashboard of cards and tables, not prose,
+   * and the narrower cap was throwing away half of a wide window. */
+  --awty-column: 1500px;
+  --awty-column-pad: 1.2em;
 }
 
 /* ------------------------------------------------------------- header */
 
+/* The bar itself spans the pane — a sticky header that stops short of the edge
+   looks detached — but everything inside it sits in the shared column. */
 .awty-dash-header {
   position: sticky;
   top: 0;
   z-index: 5;
   background: var(--background-primary);
   border-bottom: 1px solid var(--background-modifier-border);
-  padding: 0.8em 1.2em 0;
+  padding: 0.8em 0 0;
+}
+
+.awty-dash-top,
+.awty-dash-tabs,
+.awty-dash-content {
+  max-width: var(--awty-column);
+  margin-inline: auto;
+  padding-inline: var(--awty-column-pad);
 }
 
 .awty-dash-top {
@@ -359,11 +382,9 @@
 }
 
 .awty-dash-content {
-  padding: 1.2em 1.2em 4em;
-  max-width: 1100px;
-  /* Without this the column is pinned to the left edge, so anything centred
-     inside it — the empty states in particular — reads as off-centre. */
-  margin-inline: auto;
+  /* Horizontal padding and the cap come from the shared rule above, so this
+     column and the header's cannot drift apart. */
+  padding-block: 1.2em 4em;
 }
 
 .awty-dash-toolbar {
