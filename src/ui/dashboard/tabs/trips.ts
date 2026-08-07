@@ -6,6 +6,7 @@ import type { Trip, TripStage } from "../../../types";
 import { STAGES, joinPlaces, kindDef, stageDef, tripCities, tripCountries } from "../../../types";
 import { stageBadge } from "../stageMenu";
 import { estimateTotals, trackQuotes } from "../../../planning/priceWatch";
+import { renderTripStatistics } from "../tripStatistics";
 import { formatTotals, sumMoney } from "../../../util/money";
 import { daysUntil, formatDateRange, formatDuration } from "../../../util/dates";
 
@@ -298,4 +299,8 @@ export function renderTrips(
       showTripMenu(evt, trip, ctx);
     });
   }
+
+  // Under the cards, and computed over every trip rather than the filtered
+  // set: "countries visited" does not change because you clicked Planning.
+  renderTripStatistics(parent, ctx, trips);
 }

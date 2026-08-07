@@ -276,6 +276,8 @@ export class BookingStore {
           seat: str(fm.seat),
           notes: str(fm.notes),
           journeys: readJourneys(fm, money(fm.cost, fm.currency, fallbackCurrency)?.currency ?? fallbackCurrency),
+          legs: readLegs(fm.legs),
+          returnLegs: readLegs(fm.return_legs),
           attachments: list(fm.attachments),
         });
         continue;

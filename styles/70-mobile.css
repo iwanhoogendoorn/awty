@@ -1688,3 +1688,19 @@ body.awty-mobile .awty-stage-chip {
 body.awty-mobile .awty-stage-filter {
   gap: 8px;
 }
+
+/* One statistics group per row on a phone: at 260px minimum the grid makes two
+   columns that each truncate their labels. */
+body.awty-phone .awty-stat-groups {
+  grid-template-columns: 1fr;
+}
+
+/* The bar label column is 5.5em against a 390px screen, which leaves the bar
+   itself too short to compare anything. Label above, bar full width. */
+body.awty-phone .awty-stat-bar {
+  grid-template-columns: 1fr auto;
+}
+
+body.awty-phone .awty-stat-bar-label {
+  grid-column: 1 / -1;
+}

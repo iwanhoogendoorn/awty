@@ -62,6 +62,7 @@ export { readQuotes, writeQuotes, nextQuoteId, trackQuotes, sparkline, estimateT
 export { impliedStage, effectiveStage } from "./src/util/dates.ts";
 export { STAGES, CREATABLE_STAGES, stageDef, isTripStage, isCreatableStage } from "./src/types.ts";
 export { suggestStage } from "./src/planning/stageSignals.ts";
+export { moneyStats, placeStats, flightStats, planningStats, legDistanceKm, iataOf, formatHours, formatKm } from "./src/stats/tripStats.ts";
 export { splitFrontmatter } from "./src/util/frontmatter.ts";
 `;
 
@@ -2648,6 +2649,226 @@ test("more than one booking is counted, not listed", () => {
   ]);
   // Three committing bookings; the restaurant does not count toward the total.
   assert.match(s.reason, /KL1351 AMS→DBV” and 2 others are booked/);
+});
+
+// ------------------------------------------------------------ statistics
+
+function statTrip(o = {}) {
+  return {
+    title: "A trip", stage: "went", startDate: "2026-08-17", endDate: "2026-08-24",
+    countries: ["Croatia"], cities: ["Dubrovnik"], budgetTotal: null,
+    money: [], categories: [], journeys: [], ...o,
+  };
+}
+const EUR = (amount) => ({ amount, currency: "EUR" });
+
+test("a cancelled trip's money is not what travel cost you", () => {
+  const trips = [
+    statTrip({ money: [EUR(1000)] }),
+    statTrip({ stage: "cancelled", money: [EUR(9999)] }),
+  ];
+  assert.equal(m.moneyStats(trips).total.get("EUR"), 1000);
+  assert.equal(m.moneyStats(trips).tripCount, 1);
+});
+
+test("an idea's deposit has still left the account", () => {
+  // Unlike a cancellation, a trip you are still weighing up has really been
+  // paid for as far as it has been booked.
+  const trips = [statTrip({ stage: "planning", money: [EUR(400)] })];
+  assert.equal(m.moneyStats(trips).total.get("EUR"), 400);
+});
+
+test("spend is grouped by the year the trip departs", () => {
+  const stats = m.moneyStats([
+    statTrip({ startDate: "2025-03-01", endDate: "2025-03-08", money: [EUR(600)] }),
+    statTrip({ startDate: "2026-08-17", endDate: "2026-08-24", money: [EUR(900)] }),
+    statTrip({ startDate: "2026-12-20", endDate: "2026-12-27", money: [EUR(300)] }),
+  ]);
+  assert.equal(stats.byYear.get("2025").get("EUR"), 600);
+  assert.equal(stats.byYear.get("2026").get("EUR"), 1200);
+});
+
+test("an average across two currencies is not a number, so none is given", () => {
+  const mixed = m.moneyStats([
+    statTrip({ money: [EUR(1000)] }),
+    statTrip({ money: [{ amount: 500, currency: "GBP" }] }),
+  ]);
+  assert.equal(mixed.currency, null);
+  assert.equal(mixed.perTrip, null);
+  assert.equal(mixed.perDay, null);
+  assert.equal(mixed.budget, null);
+  // The total still stands — it just has two lines in it.
+  assert.equal(mixed.total.size, 2);
+});
+
+test("cost per day divides by days away, not by trips", () => {
+  const stats = m.moneyStats([
+    statTrip({ startDate: "2026-08-17", endDate: "2026-08-24", money: [EUR(800)] }),
+  ]);
+  // 17th to 24th inclusive is 8 days.
+  assert.equal(stats.perTrip, 800);
+  assert.equal(stats.perDay, 100);
+});
+
+test("budget accuracy only counts trips that set one", () => {
+  const stats = m.moneyStats([
+    statTrip({ budgetTotal: 3000, money: [EUR(2283)] }),
+    statTrip({ budgetTotal: null, money: [EUR(5000)] }),
+  ]);
+  assert.equal(stats.budget.trips, 1);
+  assert.equal(stats.budget.budgeted, 3000);
+  assert.equal(stats.budget.spent, 2283);
+  assert.equal(Math.round(stats.budget.ratio * 100), 76);
+  // But the headline total still includes the unbudgeted trip.
+  assert.equal(stats.total.get("EUR"), 7283);
+});
+
+test("somewhere you thought about going is not somewhere you have been", () => {
+  const stats = m.placeStats([
+    statTrip({ stage: "went", countries: ["Croatia"], cities: ["Dubrovnik"] }),
+    statTrip({ stage: "planning", countries: ["Japan"], cities: ["Kyoto"] }),
+    statTrip({ stage: "cancelled", countries: ["Portugal"], cities: ["Lisbon"] }),
+  ]);
+  assert.deepEqual(stats.countries, ["Croatia"]);
+  assert.deepEqual(stats.cities, ["Dubrovnik"]);
+  assert.equal(stats.tripCount, 1);
+});
+
+test("days away are counted per year, and the longest trip named", () => {
+  const stats = m.placeStats([
+    statTrip({ title: "Short one", startDate: "2026-01-01", endDate: "2026-01-03" }),
+    statTrip({ title: "Long one", startDate: "2026-08-17", endDate: "2026-08-31" }),
+    statTrip({ title: "Last year", startDate: "2025-05-01", endDate: "2025-05-06" }),
+  ]);
+  assert.equal(stats.daysByYear.get("2026"), 3 + 15);
+  assert.equal(stats.daysByYear.get("2025"), 6);
+  assert.equal(stats.totalDays, 24);
+  assert.equal(stats.longest.title, "Long one");
+  assert.equal(stats.longest.days, 15);
+});
+
+test("countries rank by how often you went, not alphabetically", () => {
+  const stats = m.placeStats([
+    statTrip({ countries: ["Italy"] }),
+    statTrip({ countries: ["Croatia"] }),
+    statTrip({ countries: ["Italy"] }),
+  ]);
+  assert.deepEqual(stats.ranking, [
+    { name: "Italy", trips: 2 },
+    { name: "Croatia", trips: 1 },
+  ]);
+});
+
+test("the airport list knows the airports that are actually open", () => {
+  // The generator's source is the OpenFlights database, which stopped being
+  // updated around 2017 — old enough that Berlin Brandenburg was missing while
+  // the three airports it replaced were all still on offer. Corrections live in
+  // scripts/airport-corrections.json; this is what stops them being lost the
+  // next time the list is regenerated.
+  const byCode = new Map(m.AIRPORTS.map((a) => [a.i, a]));
+  assert.ok(byCode.has("BER"), "Berlin Brandenburg, open since 2020");
+  assert.equal(byCode.get("BER").c, "Berlin");
+  assert.equal(byCode.get("BER").z, "Europe/Berlin");
+  for (const closed of ["TXL", "THF", "SXF", "NAY"]) {
+    assert.ok(!byCode.has(closed), `${closed} has closed and should not be offered`);
+  }
+  // And a flight to Berlin can now be measured, which it could not before.
+  const km = m.legDistanceKm("Amsterdam (AMS)", "Berlin (BER)");
+  assert.ok(km > 500 && km < 650, `expected ~577 km AMS-BER, got ${Math.round(km)}`);
+});
+
+test("an airport code is read from either spelling", () => {
+  assert.equal(m.iataOf("Amsterdam (AMS)"), "AMS");
+  assert.equal(m.iataOf("AMS"), "AMS");
+  assert.equal(m.iataOf("Amsterdam"), null);
+  assert.equal(m.iataOf(""), null);
+});
+
+test("distance between airports is the real great-circle one", () => {
+  // AMS to DBV is about 1,400 km; anything wildly off means the maths broke.
+  const km = m.legDistanceKm("Amsterdam (AMS)", "Dubrovnik (DBV)");
+  assert.ok(km > 1300 && km < 1500, `expected ~1400 km, got ${Math.round(km)}`);
+  // Same airport twice is zero, not NaN — the arcsine clamp earns its keep.
+  assert.equal(Math.round(m.legDistanceKm("AMS", "AMS")), 0);
+  // An airport nobody knows gives null rather than a guess.
+  assert.equal(m.legDistanceKm("AMS", "ZZZ"), null);
+});
+
+test("what could not be measured is counted, not quietly dropped", () => {
+  const stats = m.flightStats([
+    // Two separate flights, as the store hands them over: already grouped, so
+    // the sums never have to re-decide what is a connection.
+    statTrip({
+      journeys: [
+        [{ operator: "KLM", number: "KL1351", from: "Amsterdam (AMS)", to: "Dubrovnik (DBV)",
+           date: "2026-08-17", depTime: "10:15", arrDate: "2026-08-17", arrTime: "12:35" }],
+        [{ operator: "KLM", number: "KL9999", from: "Nowhere", to: "Elsewhere",
+           date: "2026-08-24", depTime: "", arrDate: "", arrTime: "" }],
+      ],
+    }),
+  ]);
+  // One leg had known airports, one did not — and the unknown one is reported.
+  assert.equal(stats.legs, 2);
+  assert.equal(stats.kmUnknown, 1);
+  assert.ok(stats.km > 1300 && stats.km < 1500);
+  // One journey had times, one did not.
+  assert.equal(stats.minutes, 140);
+  assert.equal(stats.minutesUnknown, 1);
+  assert.deepEqual(stats.airlines, [{ name: "KLM", flights: 2 }]);
+  assert.deepEqual(stats.airports.slice(0, 2), [
+    { code: "AMS", visits: 1 },
+    { code: "DBV", visits: 1 },
+  ]);
+});
+
+test("a connection is one flight taken, not two", () => {
+  const stats = m.flightStats([
+    statTrip({
+      journeys: [[
+        { operator: "KLM", number: "KL1", from: "AMS", to: "VIE", date: "2026-08-17",
+          depTime: "08:00", arrDate: "2026-08-17", arrTime: "09:30" },
+        { operator: "OS", number: "OS2", from: "VIE", to: "DBV", date: "2026-08-17",
+          depTime: "11:00", arrDate: "2026-08-17", arrTime: "12:15" },
+      ]],
+    }),
+  ]);
+  assert.equal(stats.legs, 2);
+  assert.equal(stats.journeys, 1, "AMS-VIE-DBV is one journey");
+});
+
+test("planning habits count what is there, and refuse what is not", () => {
+  const stats = m.planningStats([
+    statTrip({ stage: "went" }),
+    statTrip({ stage: "planning" }),
+    statTrip({ stage: "planning" }),
+    statTrip({ stage: "cancelled" }),
+  ]);
+  assert.equal(stats.total, 4);
+  assert.equal(stats.byStage.get("planning"), 2);
+  assert.equal(stats.stillIdeas, 2);
+  assert.equal(stats.cancelledShare, 0.25);
+  // A trip records the stage it is in, never the day it changed — so how far
+  // ahead things get booked is not derivable, and the shape says so.
+  assert.equal(stats.lookaheadKnown, false);
+});
+
+test("an empty vault produces nothing rather than zeroes that look like facts", () => {
+  assert.equal(m.moneyStats([]).total.size, 0);
+  assert.equal(m.moneyStats([]).perTrip, null);
+  assert.equal(m.moneyStats([]).budget, null);
+  assert.deepEqual(m.placeStats([]).countries, []);
+  assert.equal(m.placeStats([]).longest, null);
+  assert.equal(m.flightStats([]).journeys, 0);
+  assert.equal(m.planningStats([]).cancelledShare, null);
+});
+
+test("hours and kilometres read as English", () => {
+  assert.equal(m.formatHours(0), "—");
+  assert.equal(m.formatHours(45), "45 min");
+  assert.equal(m.formatHours(120), "2 h");
+  assert.equal(m.formatHours(140), "2 h 20 min");
+  assert.equal(m.formatKm(0), "—");
+  assert.equal(m.formatKm(1399.6), "1,400 km");
 });
 
 // -------------------------------------------------------- price watch

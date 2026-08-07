@@ -852,3 +852,139 @@
   border-color: var(--background-modifier-border);
   color: var(--text-muted);
 }
+
+/* -------------------------------------------------------- the statistics
+ *
+ * Four groups under the trip cards. A group is rows of label-and-value, with
+ * bar charts where a comparison is the point — spend per year is a question
+ * about which year was bigger, and four numbers in a column answer it less
+ * well than four bars do.
+ */
+
+.awty-stat-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-bottom: 1.5em;
+}
+
+.awty-stat-group {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-primary);
+  overflow: hidden;
+}
+
+.awty-stat-group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0.6em 0.9em;
+  background: var(--background-primary-alt);
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+}
+
+.awty-stat-group-icon {
+  display: flex;
+  color: var(--text-accent);
+}
+
+.awty-stat-group-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.awty-stat-group-body {
+  padding: 0.6em 0.9em 0.9em;
+}
+
+.awty-stat-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0.28em 0;
+  font-size: var(--font-ui-small);
+}
+
+.awty-stat-row-label {
+  color: var(--text-muted);
+  flex: 0 1 auto;
+}
+
+/* The value is what gets scanned down the column, so it holds the right edge
+   and the aside sits under it rather than pushing it around. */
+.awty-stat-row-value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.awty-stat-row-note {
+  font-weight: 400;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.awty-stat-sub {
+  margin: 0.8em 0 0.35em;
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Where a number is a floor rather than a total, or a set is narrower than it
+   looks, the caveat sits with it — not in a footnote nobody reads. */
+.awty-stat-caveat {
+  margin-top: 0.6em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  line-height: 1.4;
+}
+
+.awty-stat-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.awty-stat-bar {
+  display: grid;
+  grid-template-columns: 5.5em 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-ui-smaller);
+}
+
+.awty-stat-bar-label {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.awty-stat-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+
+.awty-stat-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--interactive-accent);
+}
+
+.awty-stat-bar-value {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

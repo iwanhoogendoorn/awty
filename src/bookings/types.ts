@@ -1,4 +1,5 @@
 import type { TFile } from "obsidian";
+import type { FlightLeg } from "./legs";
 
 /**
  * Bookings and expenses are stored one-per-note with typed frontmatter, the way
@@ -124,6 +125,15 @@ export interface Booking {
    * flight, on its own day — not one entry spanning the gap between them.
    */
   journeys: FlightJourney[];
+  /**
+   * The raw legs, outbound and return kept apart.
+   *
+   * `journeys` above has already folded connections together, which is what
+   * the timeline wants. Anything measuring the flying itself — hours in the
+   * air, kilometres, which airlines — needs the legs as booked.
+   */
+  legs: FlightLeg[];
+  returnLegs: FlightLeg[];
 }
 
 export interface FlightJourney {

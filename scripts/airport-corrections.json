@@ -1,0 +1,33 @@
+{
+  "_why": [
+    "The generator's source, @nwpr/airport-codes, wraps the OpenFlights database,",
+    "which stopped being meaningfully updated around 2017. That is old enough to",
+    "matter: Berlin Brandenburg opened in 2020 and is absent, while the three",
+    "Berlin airports it replaced are all still listed. Someone planning a flight",
+    "to Berlin was offered a choice of three closed airports and not the open one.",
+    "",
+    "These corrections are applied at generation time. Each carries the date the",
+    "change happened so the next person can tell a deliberate fix from a typo.",
+    "Removing a closed airport does cost something — a historic trip that used it",
+    "loses its distance and timezone — but the statistics report unmeasured legs",
+    "rather than hiding them, and a planner offering a runway that is now a park",
+    "is the worse failure."
+  ],
+  "add": [
+    {
+      "iata": "BER",
+      "city": "Berlin",
+      "name": "Berlin Brandenburg Airport",
+      "country": "Germany",
+      "lat": 52.36667,
+      "lng": 13.50333,
+      "note": "Opened 31 October 2020; replaced TXL and SXF."
+    }
+  ],
+  "remove": [
+    { "iata": "TXL", "note": "Berlin Tegel — closed 8 November 2020." },
+    { "iata": "SXF", "note": "Berlin Schoenefeld — became BER Terminal 5, no longer a separate airport." },
+    { "iata": "THF", "note": "Berlin Tempelhof — closed 30 October 2008, now a public park." },
+    { "iata": "NAY", "note": "Beijing Nanyuan — closed 25 September 2019, traffic moved to PKX." }
+  ]
+}

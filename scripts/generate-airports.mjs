@@ -17,12 +17,25 @@ import pkg from "@nwpr/airport-codes";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const raw = Array.isArray(pkg) ? pkg : (pkg.default ?? Object.values(pkg)[0]);
 
+/*
+ * The source stopped being updated around 2017, which is old enough to be
+ * wrong about real journeys. See scripts/airport-corrections.json for what is
+ * patched and why each entry is there.
+ */
+const corrections = JSON.parse(
+  fs.readFileSync(path.join(ROOT, "scripts", "airport-corrections.json"), "utf8"),
+);
+const dropped = new Set(corrections.remove.map((r) => r.iata));
+
 const seen = new Set();
 const out = [];
 
 for (const a of raw) {
   const iata = String(a.iata ?? "").trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(iata)) continue;
+  // Airports that have since closed. Offering one is worse than omitting it:
+  // a planner is for flights you can still book.
+  if (dropped.has(iata)) continue;
   if (a.type && a.type !== "airport") continue;
   if (seen.has(iata)) continue;
 
@@ -50,6 +63,22 @@ for (const a of raw) {
   });
 }
 
+// Airports the source never had. Added after the loop so a future upstream
+// release that includes them wins, rather than being duplicated.
+for (const add of corrections.add) {
+  if (seen.has(add.iata)) continue;
+  seen.add(add.iata);
+  out.push({
+    i: add.iata,
+    c: add.city || add.name,
+    n: add.name,
+    y: add.country,
+    a: Number(Number(add.lat).toFixed(5)),
+    o: Number(Number(add.lng).toFixed(5)),
+    z: tzlookup(add.lat, add.lng),
+  });
+}
+
 out.sort((x, y) => x.c.localeCompare(y.c) || x.i.localeCompare(y.i));
 
 const header = `// GENERATED FILE — do not edit by hand.\n// Run \`npm run gen:airports\` to regenerate.\n`;
@@ -63,7 +92,10 @@ fs.writeFileSync(
 );
 
 console.log(`airports: ${out.length} written`);
-for (const probe of ["AMS", "DBV", "JFK", "NRT", "LHR"]) {
+console.log(
+  `  corrections: +${corrections.add.length} added, -${corrections.remove.length} closed`,
+);
+for (const probe of ["AMS", "DBV", "JFK", "NRT", "LHR", "BER"]) {
   const hit = out.find((x) => x.i === probe);
   console.log(`  ${probe}: ${hit ? `${hit.c}, ${hit.y} (${hit.a}, ${hit.o})` : "MISSING"}`);
 }
