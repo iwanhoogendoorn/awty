@@ -1,10 +1,12 @@
 import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { bar, emptyState, noTripState, renderToolbar, sectionTitle, statTiles } from "../common";
-import type { Trip, TripStage } from "../../../types";
-import { STAGES, joinPlaces, stageDef, tripCities } from "../../../types";
+import { bar, emptyState, noTripState, sectionTitle, statTiles } from "../common";
+import type { Trip } from "../../../types";
+import { STAGES, joinPlaces, tripCities } from "../../../types";
 import { formatDate, formatDateRange, daysUntil } from "../../../util/dates";
-import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/money";
+import { formatMoney, formatTotals, sumMoney } from "../../../util/money";
+import { stageNudge } from "../stageMenu";
+import { suggestStage } from "../../../planning/stageSignals";
 import type { PriceQuote, PriceTrack } from "../../../planning/priceWatch";
 import {
   affordability,
@@ -104,6 +106,12 @@ function renderStageStrip(parent: HTMLElement, ctx: DashboardContext, trip: Trip
     });
   }
 
+  // What the vault already implies, offered before the manual picker: if a
+  // flight is booked, the question has been answered and this is just asking
+  // whether to write it down.
+  const suggestion = suggestStage(trip.stage, ctx.plugin.bookings.getBookings(trip));
+  if (suggestion) stageNudge(section, ctx.plugin, trip, suggestion, ctx.refresh);
+
   const row = section.createDiv({ cls: "awty-stage-row" });
   for (const def of STAGES) {
     const active = trip.stage === def.id;
@@ -145,7 +153,6 @@ function renderVerdict(
   const booked = sumMoney(
     plugin.bookings.getCostLines(trip).filter((l) => l.counted).map((l) => l.money),
   );
-  const until = daysUntil(trip.startDate);
 
   statTiles(parent, [
     {
@@ -188,7 +195,9 @@ function renderVerdict(
     },
   ]);
 
-  if (!verdict.text) return;
+  // With nothing priced, the verdict is "Nothing priced yet" — which the empty
+  // state below already says, at more length and with the button on it.
+  if (!verdict.text || tracks.length === 0) return;
   const box = parent.createDiv({
     cls: `awty-verdict is-${verdict.fits === null ? "unknown" : verdict.fits ? "good" : "bad"}`,
   });
@@ -386,14 +395,4 @@ function renderHistory(
     if (quote.note) rows.createDiv({ cls: "awty-quote-note", text: quote.note });
     previous = quote;
   }
-}
-
-/** The stage badge, used on cards and in the sidebar. */
-export function stageBadge(parent: HTMLElement, stage: TripStage): HTMLElement {
-  const def = stageDef(stage);
-  const el = parent.createDiv({ cls: `awty-stage-badge is-${def.id}` });
-  setIcon(el.createSpan({ cls: "awty-stage-badge-icon" }), def.icon);
-  el.createSpan({ text: def.badge });
-  el.setAttribute("title", def.description);
-  return el;
 }

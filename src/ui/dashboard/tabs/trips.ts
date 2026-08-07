@@ -1,10 +1,10 @@
 import { setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
-import { bar, emptyState, readiness, renderToolbar, stateMark, statTiles } from "../common";
+import { bar, emptyState, readiness, stateMark, statTiles } from "../common";
 import { showTripMenu } from "../tripMenu";
 import type { Trip } from "../../../types";
-import { joinPlaces, kindDef, stageDef, tripCities, tripCountries } from "../../../types";
-import { stageBadge } from "./planning";
+import { joinPlaces, kindDef, tripCities, tripCountries } from "../../../types";
+import { stageBadge } from "../stageMenu";
 import { estimateTotals, trackQuotes } from "../../../planning/priceWatch";
 import { formatTotals, sumMoney } from "../../../util/money";
 import { daysUntil, formatDateRange, formatDuration } from "../../../util/dates";
@@ -35,21 +35,34 @@ function renderAllTripsSummary(
     if (ready.total > 0 && ready.ratio < 1) unfinished += 1;
   }
 
-  const next = current[0] ?? upcoming[0];
+  // The next trip is the next one that is actually happening — but an idea for
+  // next month is still something in the diary, and reporting "Nothing planned"
+  // with a planned trip on the screen below is just wrong. So a confirmed trip
+  // wins, and an idea fills in behind it, labelled as the idea it is.
+  const confirmed = current[0] ?? upcoming[0];
+  const soonestIdea = planning
+    .filter((t) => t.status !== "past")
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+  const next = confirmed ?? soonestIdea;
   const until = next ? daysUntil(next.startDate) : null;
 
   statTiles(parent, [
     {
-      label: "Trips",
+      label: trips.length === 1 ? "Trip" : "Trips",
       value: String(trips.length),
       detail: `${upcoming.length} booked · ${planning.length} being planned`,
       icon: "plane",
     },
     {
-      label: next ? "Next trip" : "Next trip",
-      value: !next ? "—" : current.length > 0 ? "Now" : until === null ? "—" : `${until}d`,
-      detail: next ? next.title : "Nothing planned",
+      label: "Next trip",
+      value: !next ? "—" : confirmed && current.length > 0 ? "Now" : until === null ? "—" : `${until}d`,
+      detail: !next
+        ? "Nothing planned"
+        : confirmed
+          ? next.title
+          : `${next.title} — not booked yet`,
       icon: "calendar-days",
+      tone: !confirmed && next ? "warn" : "default",
     },
     {
       label: "Total spend",
@@ -95,10 +108,9 @@ export function renderTrips(
     return;
   }
 
-  renderToolbar(parent, [
-    { label: "New trip", icon: "plus", onClick: () => plugin.openNewTripModal() },
-  ]);
-
+  // No toolbar: "New trip" moved into the dashboard header, where it is on
+  // every tab. Leaving it here too would be the same button twice on one
+  // screen, a row apart.
   renderAllTripsSummary(parent, ctx, trips);
 
   const grid = parent.createDiv({ cls: "awty-trip-grid" });
@@ -137,7 +149,7 @@ export function renderTrips(
     } else {
       // The title reserves room for a badge the width of "12d". A stage badge
       // is a word and an icon, so the card has to be told to leave more.
-      stageBadge(card, trip.stage).addClass("awty-card-badge");
+      stageBadge(card, plugin, trip, ctx.refresh).addClass("awty-card-badge");
       card.addClass("has-stage-badge");
     }
 

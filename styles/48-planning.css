@@ -310,6 +310,90 @@
   color: var(--text-on-accent);
 }
 
+/* ------------------------------------------------------------- the nudge
+ *
+ * What the vault has worked out, offered rather than applied. Accented, not
+ * warning-coloured: nothing is wrong, there is just something worth saying
+ * yes to.
+ */
+
+.awty-stage-nudge {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0.8em 0 0;
+  padding: 0.7em 0.9em;
+  border-radius: 8px;
+  border: 1px solid var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.awty-stage-nudge-icon {
+  display: flex;
+  margin-top: 0.1em;
+  color: var(--interactive-accent);
+}
+
+.awty-stage-nudge-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.awty-stage-nudge-text {
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  margin-bottom: 0.5em;
+}
+
+.awty-stage-nudge-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.awty-stage-nudge-note {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-dash-action.is-cta {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+/* A badge that changes the thing it displays has to look pressable. */
+
+.awty-stage-badge.is-clickable {
+  cursor: pointer;
+}
+
+.awty-stage-badge.is-clickable:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 0 0 1px var(--interactive-accent);
+}
+
+.awty-hero-stage {
+  cursor: pointer;
+}
+
+.awty-hero-stage:hover {
+  box-shadow: 0 0 0 1px var(--interactive-accent);
+}
+
+/* The action button inside a notice, which is otherwise unstyled text. */
+
+.awty-notice-btn {
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: var(--radius-s);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+  font-size: var(--font-ui-smaller);
+}
+
 /* ------------------------------------------------------------- the verdict
  *
  * The answer to "can we afford this". Given a whole box rather than a stat

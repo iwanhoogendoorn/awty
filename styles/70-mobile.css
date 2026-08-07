@@ -1642,3 +1642,21 @@ body.awty-phone .awty-track-price {
 body.awty-mobile .awty-verdict {
   padding: 0.7em 0.8em;
 }
+
+/* The nudge stacks: its sentence and its button side by side is two narrow
+   columns on a phone, and the button ends up too small to be worth pressing. */
+body.awty-phone .awty-stage-nudge-actions {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+body.awty-mobile .awty-stage-nudge-actions .awty-dash-action {
+  min-height: var(--awty-tap);
+  justify-content: center;
+}
+
+/* A badge is a tap target now that it opens the stage picker. */
+body.awty-mobile .awty-stage-badge.is-clickable {
+  min-height: 28px;
+  padding-inline: 0.7em;
+}

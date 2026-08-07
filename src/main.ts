@@ -4,6 +4,7 @@ import {
   FOODSPOT_PLUGIN_ID,
   CREATABLE_SUB_NOTES,
   KINDS,
+  STAGES,
   tripCountries,
   stageDef,
   AWTY_DASHBOARD_TYPE,
@@ -74,6 +75,7 @@ import { isMobile, markPlatform } from "./util/platform";
 import { createTrip, deleteTrip, notifyError, setTripStage, updateTrip } from "./store/noteWriter";
 import { readTripQuotes, removeQuote, saveQuote } from "./planning/priceStore";
 import { nextQuoteId, trackQuotes, type PriceQuote } from "./planning/priceWatch";
+import { suggestStage } from "./planning/stageSignals";
 import { AwtySidebarView } from "./ui/view";
 import { TripModal } from "./ui/modals/tripModal";
 import { PriceQuoteModal } from "./ui/modals/priceQuoteModal";
@@ -177,6 +179,33 @@ export default class AwtyPlugin extends Plugin {
         },
       });
     }
+    // The stage of the trip you are looking at, from the keyboard. One command
+    // per stage rather than one that cycles: "make this trip cancelled" is a
+    // thing you mean, not a thing you arrive at by pressing a key three times.
+    for (const def of STAGES) {
+      this.addCommand({
+        id: `stage-${def.id}`,
+        name: `Mark this trip as ${def.label.toLowerCase()}`,
+        checkCallback: (checking) => {
+          const trip = this.contextTrip();
+          if (!trip || trip.stage === def.id) return false;
+          if (!checking) void this.setStage(trip, def.id);
+          return true;
+        },
+      });
+    }
+
+    this.addCommand({
+      id: "log-price-check",
+      name: "Log a price check for this trip",
+      checkCallback: (checking) => {
+        const trip = this.contextTrip();
+        if (!trip) return false;
+        if (!checking) this.openPriceQuoteModal(trip);
+        return true;
+      },
+    });
+
     this.addCommand({
       id: "calculate-travel-times",
       name: "Calculate travel times for this trip",
@@ -520,6 +549,7 @@ export default class AwtyPlugin extends Plugin {
         this.store.invalidate();
         await this.syncTripNotes(trip);
         new Notice(existing ? `Updated “${draft.title}”.` : `Added “${draft.title}”.`);
+        this.offerStageChange(trip);
       },
       existing ? await draftFromBooking(this.app, existing) : undefined,
       existing ? () => this.deleteItem(trip, existing.file, existing.title) : undefined,
@@ -1132,6 +1162,33 @@ export default class AwtyPlugin extends Plugin {
       return;
     }
     openAttachment(this.app, files, wanted);
+  }
+
+  /**
+   * Offers the stage the vault has just implied, at the moment it implies it.
+   *
+   * Booking a flight is the answer to "is this happening?", and the person who
+   * just booked it is the one who can confirm — so the offer is made there and
+   * then, as a button on the notice, rather than waiting for them to notice a
+   * stale badge on a tab they may not open for a fortnight.
+   *
+   * A notice, not a modal: it does not interrupt, and ignoring it costs
+   * nothing. The same offer is on the Overview and Planning tabs for as long as
+   * it applies.
+   */
+  private offerStageChange(trip: Trip): void {
+    // The store was invalidated a moment ago, so re-read rather than trusting
+    // the Trip object the caller is holding.
+    const current = this.store.getTrips().find((t) => t.file.path === trip.file.path) ?? trip;
+    const suggestion = suggestStage(current.stage, this.bookings.getBookings(current));
+    if (!suggestion) return;
+
+    const fragment = document.createDocumentFragment();
+    fragment.createDiv({ text: suggestion.reason });
+    const button = fragment.createEl("button", { cls: "awty-notice-btn" });
+    button.setText(suggestion.action);
+    button.addEventListener("click", () => void this.setStage(current, suggestion.to));
+    new Notice(fragment, 12_000);
   }
 
   /**

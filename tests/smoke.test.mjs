@@ -61,6 +61,7 @@ export { pdfPlanFor, pdfFallbackFor, mapSavePlanFor, htmlFallbackMessage, mapSav
 export { readQuotes, writeQuotes, nextQuoteId, trackQuotes, sparkline, estimateTotals, bestCaseTotals, estimateByCategory, affordability, describeTrend, priceWatchTable, priceHistoryTable, priceWatchBody } from "./src/planning/priceWatch.ts";
 export { impliedStage, effectiveStage } from "./src/util/dates.ts";
 export { STAGES, stageDef, isTripStage } from "./src/types.ts";
+export { suggestStage } from "./src/planning/stageSignals.ts";
 export { splitFrontmatter } from "./src/util/frontmatter.ts";
 `;
 
@@ -2573,6 +2574,60 @@ test("an unknown stage falls back rather than throwing", () => {
   // Exactly one stage is dead, and exactly one is provisional.
   assert.deepEqual(m.STAGES.filter((s) => s.dead).map((s) => s.id), ["cancelled"]);
   assert.deepEqual(m.STAGES.filter((s) => s.provisional).map((s) => s.id), ["planning"]);
+});
+
+test("a booked flight is the answer to whether the trip is happening", () => {
+  const s = m.suggestStage("planning", [
+    { title: "KL1351 AMS→DBV", status: "booked", kind: "flight" },
+  ]);
+  assert.equal(s.to, "going");
+  assert.match(s.reason, /KL1351/);
+  assert.match(s.reason, /still filed as an idea/);
+});
+
+test("a reserved booking is not a decision", () => {
+  // Reserving something is exactly what you do while still deciding, so it
+  // cannot be the evidence that you have decided.
+  assert.equal(m.suggestStage("planning", [{ title: "Villa", status: "reserved", kind: "stay" }]), null);
+  assert.equal(m.suggestStage("planning", [{ title: "Villa", status: "idea", kind: "stay" }]), null);
+  assert.equal(m.suggestStage("planning", [{ title: "Villa", status: "cancelled", kind: "stay" }]), null);
+});
+
+test("a booked table is a Tuesday, not a holiday", () => {
+  // People pencil in restaurants for trips they have not committed to.
+  assert.equal(
+    m.suggestStage("planning", [{ title: "Proto", status: "booked", kind: "restaurant" }]),
+    null,
+  );
+  assert.equal(
+    m.suggestStage("planning", [{ title: "Museum", status: "booked", kind: "activity" }]),
+    null,
+  );
+});
+
+test("nothing is suggested for a trip that has already been decided", () => {
+  const booked = [{ title: "KL1351", status: "booked", kind: "flight" }];
+  for (const stage of ["going", "went", "cancelled"]) {
+    assert.equal(m.suggestStage(stage, booked), null, `${stage} left alone`);
+  }
+});
+
+test("an absence of bookings is never evidence of a cancellation", () => {
+  // Most trips have no bookings for weeks. Demoting on an absence would be
+  // wrong far more often than right, so it is never suggested.
+  assert.equal(m.suggestStage("planning", []), null);
+  assert.equal(m.suggestStage("going", []), null);
+});
+
+test("more than one booking is counted, not listed", () => {
+  const s = m.suggestStage("planning", [
+    { title: "KL1351 AMS→DBV", status: "booked", kind: "flight" },
+    { title: "Villa Kompas", status: "booked", kind: "stay" },
+    { title: "Transfer", status: "booked", kind: "transport" },
+    { title: "Proto", status: "booked", kind: "restaurant" },
+  ]);
+  // Three committing bookings; the restaurant does not count toward the total.
+  assert.match(s.reason, /KL1351 AMS→DBV” and 2 others are booked/);
 });
 
 // -------------------------------------------------------- price watch

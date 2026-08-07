@@ -244,6 +244,19 @@ export class AwtyDashboardView extends ItemView {
       exportBtn.addEventListener("click", () => this.plugin.exportTrip(trip));
     }
 
+    // Always here, on every tab. Starting a trip is the one action that does
+    // not need a trip already selected, and it used to live on the Trips tab
+    // alone — so from Costs or Itinerary the only route to it was the sidebar
+    // or the command palette. With no trip at all it is the primary action,
+    // because there is nothing else worth doing.
+    const newTrip = actions.createEl("button", {
+      cls: `awty-dash-quick-btn${trip ? "" : " is-cta"}`,
+    });
+    setIcon(newTrip.createSpan(), "plus");
+    newTrip.createSpan({ text: "New trip" });
+    newTrip.setAttribute("aria-label", "Create a new trip");
+    newTrip.addEventListener("click", () => this.plugin.openNewTripModal());
+
     const tabs = header.createDiv({ cls: "awty-dash-tabs" });
     let activeTab: HTMLElement | null = null;
     for (const tab of TABS) {

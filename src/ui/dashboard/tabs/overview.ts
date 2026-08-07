@@ -7,6 +7,8 @@ import { renderDocuments } from "../documents";
 import { BOOKING_KINDS, type BookingKind } from "../../../bookings/types";
 import type { SubNoteId } from "../../../types";
 import { joinPlaces, stageDef, tripCities, tripCountries } from "../../../types";
+import { showStageMenu, stageNudge } from "../stageMenu";
+import { suggestStage } from "../../../planning/stageSignals";
 
 import { totalsByCategory } from "../../../bookings/bookingStore";
 import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/money";
@@ -255,10 +257,11 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
   const stagePill = heroMain.createDiv({ cls: `awty-hero-stage is-${stage.id}` });
   setIcon(stagePill.createSpan({ cls: "awty-hero-stage-icon" }), stage.icon);
   stagePill.createSpan({ text: stage.label });
-  stagePill.setAttribute("title", `${stage.description} — click to change it.`);
-  // Straight to the picker rather than the trip editor: changing a stage should
-  // not mean opening a form with ten other fields on it.
-  stagePill.addEventListener("click", () => plugin.selectDashboardTab("planning"));
+  stagePill.setAttribute("title", `${stage.description}\nClick to change.`);
+  stagePill.setAttribute("aria-label", `Stage: ${stage.label}. Click to change.`);
+  // The picker itself, right here. Sending someone to another tab to change one
+  // word that is already on the screen is the long way round.
+  stagePill.addEventListener("click", (evt) => showStageMenu(evt, plugin, trip, ctx.refresh));
 
   const countdown = hero.createDiv({ cls: "awty-hero-countdown" });
   // Counting down to a trip nobody has booked is the dashboard telling a
@@ -280,8 +283,13 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
     countdown.createDiv({ cls: "awty-hero-small", text: "Completed" });
   }
 
-  // ------------------------------------------------------------ stats
+  // A trip filed as an idea with a booked flight on it is the vault
+  // contradicting itself. Said here because this is the tab people land on.
   const bookings = plugin.bookings.getBookings(trip);
+  const suggestion = suggestStage(trip.stage, bookings);
+  if (suggestion) stageNudge(parent, plugin, trip, suggestion, ctx.refresh);
+
+  // ------------------------------------------------------------ stats
   const confirmed = bookings.filter((b) => b.status === "booked").length;
 
   statTiles(parent, [
