@@ -80,7 +80,26 @@ export const STAGES: readonly StageDef[] = [
   },
 ];
 
+/**
+ * Stages a trip can be created in.
+ *
+ * Not "cancelled": creating a trip in order to call it off is not a thing
+ * anyone does. Not "went" either, and that one is not a restriction — a trip
+ * created as going with dates already behind it reads as went the moment it is
+ * saved, because `effectiveStage` applies the calendar. So the option would
+ * only ever be a second way to say the same thing, in the one place where it
+ * is easiest to pick by mistake.
+ */
+export const CREATABLE_STAGES: readonly StageDef[] = STAGES.filter(
+  (s) => s.id === "planning" || s.id === "going",
+);
+
 const STAGE_BY_ID = new Map(STAGES.map((s) => [s.id, s]));
+
+/** Whether a brand-new trip may start in this stage. */
+export function isCreatableStage(value: unknown): value is TripStage {
+  return CREATABLE_STAGES.some((s) => s.id === value);
+}
 
 export function stageDef(id: string | undefined): StageDef {
   return STAGE_BY_ID.get((id ?? "") as TripStage) ?? STAGES[0];

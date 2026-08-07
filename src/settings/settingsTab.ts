@@ -6,8 +6,8 @@ import type { SubNoteId, TripKind, TripStage } from "../types";
 import {
   CREATABLE_SUB_NOTES,
   FOODSPOT_PLUGIN_ID,
+  CREATABLE_STAGES,
   KINDS,
-  STAGES,
   SUB_NOTE_LABELS,
   kindDef,
 } from "../types";
@@ -307,7 +307,9 @@ export class AwtySettingTab extends PluginSettingTab {
       .setName("New trips start as")
       .setDesc("Most trips are an idea before they are a booking, so planning is the default.")
       .addDropdown((dd) => {
-        for (const def of STAGES) dd.addOption(def.id, def.label);
+        // Only the two a trip can be born in; the other two are things that
+        // happen to a trip later.
+        for (const def of CREATABLE_STAGES) dd.addOption(def.id, def.label);
         dd.setValue(s.defaultStage);
         dd.onChange(async (v) => {
           s.defaultStage = v as TripStage;

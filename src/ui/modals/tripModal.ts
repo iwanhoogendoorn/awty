@@ -2,9 +2,11 @@ import { App, ButtonComponent, Modal, Notice, Setting, setIcon } from "obsidian"
 import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { SubNoteId, AwtySettings, Trip, TripDraft, TripKind, TripStage } from "../../types";
 import {
+  CREATABLE_STAGES,
   CREATABLE_SUB_NOTES,
   KINDS,
   STAGES,
+  isCreatableStage,
   SUB_NOTE_LABELS,
   joinPlaces,
   kindDef,
@@ -55,7 +57,18 @@ export class TripModal extends Modal {
       // A new trip starts as an idea. Most do, and promoting one to "going" is
       // a single click — whereas a trip that starts committed has to be
       // demoted, which nobody thinks to do.
-      stage: initial.stage ?? (mode === "create" ? settings.defaultStage : "planning"),
+      //
+      // In create mode the answer is clamped rather than trusted: the default
+      // lives in data.json, which can be hand-edited, and a trip created as
+      // cancelled is nonsense whatever put it there.
+      stage:
+        mode === "create"
+          ? isCreatableStage(initial.stage)
+            ? initial.stage
+            : isCreatableStage(settings.defaultStage)
+              ? settings.defaultStage
+              : "planning"
+          : (initial.stage ?? "planning"),
       country: initial.country ?? (mode === "create" ? settings.defaultCountry : ""),
       city: initial.city ?? "",
       stops:
@@ -204,7 +217,11 @@ export class TripModal extends Modal {
     section.createDiv({ cls: "awty-section-label", text: "Is this happening?" });
     const row = section.createDiv({ cls: "awty-stage-row is-compact" });
 
-    for (const def of STAGES) {
+    // A trip being created has not been cancelled, and does not need "went":
+    // give it dates in the past and it reads as went the moment it is saved.
+    // The editor keeps all four, which is where those answers actually arise.
+    const offered = this.mode === "create" ? CREATABLE_STAGES : STAGES;
+    for (const def of offered) {
       const btn = row.createEl("button", { cls: `awty-stage-btn is-${def.id}` });
       btn.type = "button";
       setIcon(btn.createSpan({ cls: "awty-stage-icon" }), def.icon);
@@ -217,6 +234,15 @@ export class TripModal extends Modal {
         this.syncStageButtons();
       });
       this.stageButtons.set(def.id, btn);
+    }
+
+    // Says why there are only two options, rather than leaving the absence to
+    // look like something missing.
+    if (this.mode === "create") {
+      section.createDiv({
+        cls: "awty-date-readout",
+        text: "Recording a trip you already took? Choose Going and give it the dates — a trip whose last day has passed shows as Went by itself.",
+      });
     }
     this.syncStageButtons();
   }

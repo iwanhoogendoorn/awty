@@ -60,7 +60,7 @@ export { linkTarget } from "./src/bookings/linkTarget.ts";
 export { pdfPlanFor, pdfFallbackFor, mapSavePlanFor, htmlFallbackMessage, mapSavedInVaultMessage } from "./src/export/exportPlan.ts";
 export { readQuotes, writeQuotes, nextQuoteId, trackQuotes, sparkline, estimateTotals, bestCaseTotals, estimateByCategory, affordability, describeTrend, priceWatchTable, priceHistoryTable, priceWatchBody } from "./src/planning/priceWatch.ts";
 export { impliedStage, effectiveStage } from "./src/util/dates.ts";
-export { STAGES, stageDef, isTripStage } from "./src/types.ts";
+export { STAGES, CREATABLE_STAGES, stageDef, isTripStage, isCreatableStage } from "./src/types.ts";
 export { suggestStage } from "./src/planning/stageSignals.ts";
 export { splitFrontmatter } from "./src/util/frontmatter.ts";
 `;
@@ -2574,6 +2574,26 @@ test("an unknown stage falls back rather than throwing", () => {
   // Exactly one stage is dead, and exactly one is provisional.
   assert.deepEqual(m.STAGES.filter((s) => s.dead).map((s) => s.id), ["cancelled"]);
   assert.deepEqual(m.STAGES.filter((s) => s.provisional).map((s) => s.id), ["planning"]);
+});
+
+test("a trip cannot be created cancelled, or already gone on", () => {
+  // Cancelling a trip you are in the middle of creating is not a thing anyone
+  // does. "Went" is not a restriction: a trip created as going with dates in
+  // the past reads as went the moment it is saved, so the option would only be
+  // a second way to say the same thing.
+  assert.deepEqual(m.CREATABLE_STAGES.map((s) => s.id), ["planning", "going"]);
+  assert.equal(m.isCreatableStage("planning"), true);
+  assert.equal(m.isCreatableStage("going"), true);
+  assert.equal(m.isCreatableStage("went"), false);
+  assert.equal(m.isCreatableStage("cancelled"), false);
+  assert.equal(m.isCreatableStage(undefined), false);
+  // The four still exist — this only governs what a brand-new trip may be.
+  assert.equal(m.STAGES.length, 4);
+});
+
+test("a trip created as going with past dates is already a memory", () => {
+  // Which is why "Went" does not need to be offered at creation.
+  assert.equal(m.effectiveStage("going", "2024-05-01", "2024-05-06", "2026-08-07"), "went");
 });
 
 test("a booked flight is the answer to whether the trip is happening", () => {

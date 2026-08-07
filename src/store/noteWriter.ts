@@ -1,6 +1,6 @@
 import { App, Notice, TAbstractFile, TFile, TFolder, normalizePath } from "obsidian";
 import type { SubNoteId, AwtySettings, Trip, TripDraft, TripStage } from "../types";
-import { kindDef } from "../types";
+import { isCreatableStage, kindDef } from "../types";
 import { buildSubNote, buildTripBody, type TemplateContext } from "./templates";
 import { expandFolderPattern, joinPath, sanitizeName } from "../util/paths";
 import { joinPlaces, tripCities, tripCountries, tripStops } from "../types";
@@ -131,6 +131,11 @@ export async function createTrip(
     ...draft,
     title: draft.title.trim(),
     endDate: def.singleDay ? draft.startDate : draft.endDate || draft.startDate,
+    // A trip cannot be born cancelled, and does not need to be born "went" —
+    // give it dates in the past and the calendar makes it that. Clamped here as
+    // well as in the form, because this is the one door every new trip comes
+    // through.
+    stage: isCreatableStage(draft.stage) ? draft.stage : "planning",
   };
 
   const folderPath = uniqueFolder(app, tripFolderPath(settings, normalized));
