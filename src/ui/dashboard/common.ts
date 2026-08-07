@@ -101,7 +101,21 @@ export function emptyState(
 export function noTripState(parent: HTMLElement, ctx: DashboardContext, icon: string): void {
   const any = ctx.plugin.store.getTrips().length > 0;
   if (any) {
-    emptyState(parent, icon, "No trip selected", "Pick a trip from the dropdown above.");
+    // With a button, because "pick a trip" without one is an instruction rather
+    // than a way out — and the tab this lands on is the list itself.
+    emptyState(
+      parent,
+      icon,
+      "No trip selected",
+      "This tab shows one trip at a time. Choose which one.",
+      [
+        {
+          label: "Choose a trip",
+          icon: "plane",
+          onClick: () => ctx.plugin.selectDashboardTab("trips"),
+        },
+      ],
+    );
     return;
   }
   emptyState(parent, icon, "No trips yet", "Create your first trip to get started.", [

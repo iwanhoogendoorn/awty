@@ -1660,3 +1660,11 @@ body.awty-mobile .awty-stage-badge.is-clickable {
   min-height: 28px;
   padding-inline: 0.7em;
 }
+
+/* The rule between Trips and the trip tabs survives the horizontal scroll the
+   tab bar uses on a phone; the extra left margin does not, or the first trip
+   tab drifts out of reach at the end of the strip. */
+body.awty-phone .awty-dash-tab.starts-group {
+  margin-left: 0;
+  padding-left: 0.6em;
+}

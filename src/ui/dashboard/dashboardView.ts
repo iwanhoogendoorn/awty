@@ -16,19 +16,36 @@ import { showTripMenu } from "./tripMenu";
 
 type TabId = "overview" | "planning" | "trips" | "itinerary" | "bookings" | "costs" | "gallery";
 
-const TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: "overview", label: "Overview", icon: "layout-dashboard" },
-  { id: "planning", label: "Planning", icon: "compass" },
+/**
+ * Trips first, and everything after it is about the one trip you picked there.
+ *
+ * The dashboard used to open on Overview with a trip chosen for you, which
+ * meant the first thing it showed was a trip you had not asked about — and on
+ * a vault with several, the one it guessed was as likely to be wrong as right.
+ * `tripScoped` is what draws the divider and what decides whether a tab can
+ * say anything at all with nothing selected.
+ */
+const TABS: { id: TabId; label: string; icon: string; tripScoped?: boolean }[] = [
   { id: "trips", label: "Trips", icon: "plane" },
-  { id: "itinerary", label: "Itinerary", icon: "calendar-days" },
-  { id: "bookings", label: "Bookings", icon: "ticket" },
-  { id: "costs", label: "Costs", icon: "wallet" },
-  { id: "gallery", label: "Gallery", icon: "image" },
+  { id: "overview", label: "Overview", icon: "layout-dashboard", tripScoped: true },
+  { id: "planning", label: "Planning", icon: "compass", tripScoped: true },
+  { id: "itinerary", label: "Itinerary", icon: "calendar-days", tripScoped: true },
+  { id: "bookings", label: "Bookings", icon: "ticket", tripScoped: true },
+  { id: "costs", label: "Costs", icon: "wallet", tripScoped: true },
+  { id: "gallery", label: "Gallery", icon: "image", tripScoped: true },
 ];
 
 export class AwtyDashboardView extends ItemView {
-  private tab: TabId = "overview";
+  private tab: TabId = "trips";
   private tripPath: string | null = null;
+  /**
+   * A trip tab clicked while nothing was selected.
+   *
+   * Held so that picking a trip takes you where you were trying to go. Sending
+   * everyone to Overview would mean clicking Costs, choosing a trip, and
+   * arriving somewhere else entirely.
+   */
+  private pendingTab: TabId | null = null;
   private unsubscribe: (() => void) | null = null;
   private hydrating = false;
 
@@ -62,16 +79,18 @@ export class AwtyDashboardView extends ItemView {
   }
 
   /** Focus a specific trip, e.g. when opened from the sidebar. */
-  showTrip(trip: Trip, tab: TabId = "overview"): void {
+  showTrip(trip: Trip, tab?: TabId): void {
     this.tripPath = trip.file.path;
-    this.tab = tab;
+    this.tab = tab ?? this.pendingTab ?? "overview";
+    this.pendingTab = null;
     this.render();
   }
 
   /** Select a trip by note path, without needing the Trip object. */
   selectByPath(path: string): void {
     this.tripPath = path;
-    this.tab = "overview";
+    this.tab = this.pendingTab ?? "overview";
+    this.pendingTab = null;
     this.render();
   }
 
@@ -97,13 +116,18 @@ export class AwtyDashboardView extends ItemView {
     };
   }
 
+  /**
+   * The trip being looked at, or null because none has been picked.
+   *
+   * It no longer guesses. Choosing one for you meant the dashboard opened
+   * asserting a trip you had not asked about, and every number on the screen —
+   * spend, countdown, what is unfinished — belonged to that guess. Picking a
+   * trip is one click; being shown the wrong one silently is not recoverable
+   * by clicking, because there is nothing to tell you it happened.
+   */
   private currentTrip(): Trip | null {
-    const trips = this.plugin.store.getTrips();
-    if (trips.length === 0) return null;
-    const chosen = trips.find((t) => t.file.path === this.tripPath);
-    if (chosen) return chosen;
-    // Default to whatever you're on, then whatever is next.
-    return trips.find((t) => t.status === "current") ?? trips[0];
+    if (!this.tripPath) return null;
+    return this.plugin.store.getTrips().find((t) => t.file.path === this.tripPath) ?? null;
   }
 
   render(): void {
@@ -112,7 +136,13 @@ export class AwtyDashboardView extends ItemView {
     root.addClass("awty-dashboard");
 
     const trip = this.currentTrip();
-    if (trip) this.tripPath = trip.file.path;
+    // A trip deleted, or renamed out from under the selection, drops you back
+    // to the list rather than leaving a tab that can say nothing.
+    if (!trip && this.tripPath) {
+      this.tripPath = null;
+      this.tab = "trips";
+    }
+    if (!trip && TABS.find((t) => t.id === this.tab)?.tripScoped) this.tab = "trips";
 
     this.renderHeader(root, trip);
 
@@ -181,12 +211,18 @@ export class AwtyDashboardView extends ItemView {
 
     if (trips.length > 0) {
       const select = top.createEl("select", { cls: "awty-dash-select dropdown" });
+      // The way back out. Without an option for "none" the selector could only
+      // ever swap one trip for another, so once you had drilled in there was no
+      // route back to the list except the tab.
+      const none = select.createEl("option", { text: "All trips…", value: "" });
+      if (!trip) none.selected = true;
       for (const t of trips) {
         const option = select.createEl("option", { text: t.title, value: t.file.path });
         if (trip && t.file.path === trip.file.path) option.selected = true;
       }
       select.addEventListener("change", () => {
-        this.tripPath = select.value;
+        this.tripPath = select.value || null;
+        if (!this.tripPath) this.tab = "trips";
         this.render();
       });
     }
@@ -260,14 +296,29 @@ export class AwtyDashboardView extends ItemView {
     const tabs = header.createDiv({ cls: "awty-dash-tabs" });
     let activeTab: HTMLElement | null = null;
     for (const tab of TABS) {
+      // With nothing picked, the trip tabs are dimmed rather than hidden: a tab
+      // bar that changes length as you click around is disorientating, and the
+      // point being made is "these are about a trip", not "these do not exist".
+      const locked = Boolean(tab.tripScoped) && !trip;
       const el = tabs.createDiv({
-        cls: `awty-dash-tab${tab.id === this.tab ? " is-active" : ""}`,
+        cls: `awty-dash-tab${tab.id === this.tab ? " is-active" : ""}${locked ? " is-locked" : ""}`,
       });
+      // A rule after Trips, so the split between "all trips" and "this trip" is
+      // visible rather than something you work out.
+      if (tab.tripScoped && !TABS[TABS.indexOf(tab) - 1]?.tripScoped) el.addClass("starts-group");
       if (tab.id === this.tab) activeTab = el;
       setIcon(el.createSpan({ cls: "awty-dash-tab-icon" }), tab.icon);
       el.createSpan({ text: tab.label });
+      if (locked) el.setAttribute("title", "Pick a trip first");
       el.addEventListener("click", () => {
-        this.tab = tab.id;
+        // Clicking a locked tab is a request for that tab, so remember it and
+        // land there once a trip is chosen rather than swallowing the click.
+        if (locked) {
+          this.pendingTab = tab.id;
+          this.tab = "trips";
+        } else {
+          this.tab = tab.id;
+        }
         this.render();
       });
     }

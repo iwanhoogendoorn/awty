@@ -709,3 +709,29 @@
   border-color: var(--interactive-accent);
   background: var(--background-modifier-hover);
 }
+
+/* ------------------------------------------------- the trip / trips split
+ *
+ * The first tab is every trip; the rest are the one you picked there. A rule
+ * between them makes that visible instead of something you infer after
+ * clicking a tab that turns out to be empty.
+ */
+
+.awty-dash-tab.starts-group {
+  margin-left: 0.5em;
+  padding-left: 0.9em;
+  border-left: 1px solid var(--background-modifier-border);
+}
+
+/* Dimmed, not hidden. A tab bar that changes length as you click around is
+   disorientating, and the point is "this needs a trip", not "this is gone".
+   Still clickable — it takes you to the list and remembers where you were
+   heading. */
+
+.awty-dash-tab.is-locked {
+  opacity: 0.45;
+}
+
+.awty-dash-tab.is-locked:hover {
+  opacity: 0.7;
+}
