@@ -88,11 +88,20 @@ function renderAllTripsSummary(
 }
 
 /**
- * Filter chips, one per stage that actually has trips in it.
+ * A chip per stage, always all of them, always shown.
  *
- * Only stages that exist: an empty "Cancelled (0)" is a control that does
- * nothing, and offering it on a vault where nothing has ever been cancelled
- * makes the row longer without making it more useful.
+ * This used to draw only the stages that had trips in them, and to skip the
+ * row entirely when everything sat in one stage — reasoning that a filter with
+ * one option can only be a no-op. That reasoning was about the filter and not
+ * about the person looking for it: on a vault with a single trip the row
+ * vanished, and a feature that hides itself is indistinguishable from one that
+ * was never built.
+ *
+ * So the whole vocabulary shows, counts and all. It doubles as the answer to
+ * "what stages are there?", which is worth more than the few pixels saved, and
+ * an empty stage is dimmed and unclickable rather than absent — there is a
+ * difference between "no cancelled trips" and "cancelling is not a thing here",
+ * and only one of them is true.
  */
 function renderStageFilter(
   parent: HTMLElement,
@@ -103,34 +112,45 @@ function renderStageFilter(
   const counts = new Map<TripStage, number>();
   for (const trip of trips) counts.set(trip.stage, (counts.get(trip.stage) ?? 0) + 1);
 
-  const present = STAGES.filter((def) => (counts.get(def.id) ?? 0) > 0);
-  // One stage across the whole vault means the filter can only ever be a
-  // no-op or a way to hide everything.
-  if (present.length < 2) return;
-
   const row = parent.createDiv({ cls: "awty-stage-filter" });
 
   const chip = (
     label: string,
     count: number,
     stage: TripStage | null,
-    icon?: string,
+    icon: string,
+    hint: string,
   ): void => {
+    const empty = count === 0;
     const el = row.createEl("button", {
-      cls: `awty-stage-chip${stage ? ` is-${stage}` : ""}${active === stage ? " is-active" : ""}`,
+      cls: [
+        "awty-stage-chip",
+        stage ? `is-${stage}` : "",
+        active === stage ? "is-active" : "",
+        empty ? "is-empty" : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
     });
     el.type = "button";
-    if (icon) setIcon(el.createSpan({ cls: "awty-stage-chip-icon" }), icon);
+    el.disabled = empty;
+    setIcon(el.createSpan({ cls: "awty-stage-chip-icon" }), icon);
     el.createSpan({ text: label });
     el.createSpan({ cls: "awty-stage-chip-count", text: String(count) });
     el.setAttribute("aria-pressed", String(active === stage));
+    // Not "no trips are ${label}": the stage names are not all adjectives, and
+    // that template produces "no trips are went".
+    el.setAttribute("title", empty ? `Nothing at this stage yet — ${hint}` : hint);
+    if (empty) return;
     // Clicking the stage you are already on clears the filter, so the chips
     // are a toggle rather than a trap you need the All chip to escape.
     el.addEventListener("click", () => onChange(active === stage ? null : stage));
   };
 
-  chip("All", trips.length, null, "layers");
-  for (const def of present) chip(def.label, counts.get(def.id) ?? 0, def.id, def.icon);
+  chip("All", trips.length, null, "layers", "Show every trip");
+  for (const def of STAGES) {
+    chip(def.label, counts.get(def.id) ?? 0, def.id, def.icon, def.description);
+  }
 }
 
 /** Every trip as a card — the one view that spans trips rather than drilling in. */

@@ -837,3 +837,18 @@
 /* The top edge of a card carries the stage colour — see 50-dashboard.css,
    where the rules live so that nothing loaded after them can win the edge
    back. Readable from across the grid without reading a word. */
+
+/* A stage with no trips in it is shown and dimmed, not omitted. There is a
+   difference between "no cancelled trips" and "cancelling is not a thing in
+   this plugin", and a row that only ever lists what you already have can only
+   tell you the second. */
+
+.awty-stage-chip.is-empty {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.awty-stage-chip.is-empty:hover {
+  border-color: var(--background-modifier-border);
+  color: var(--text-muted);
+}
