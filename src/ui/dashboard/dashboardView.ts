@@ -75,6 +75,13 @@ export class AwtyDashboardView extends ItemView {
     this.render();
   }
 
+  /** Switches tab from outside, so a control on one tab can open another. */
+  selectTab(tab: string): void {
+    if (!TABS.some((t) => t.id === tab)) return;
+    this.tab = tab as TabId;
+    this.render();
+  }
+
   private context(trip: Trip | null = this.currentTrip()): DashboardContext {
     return {
       app: this.app,

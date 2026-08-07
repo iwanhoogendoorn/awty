@@ -230,14 +230,16 @@ export class AwtySidebarView extends ItemView {
   private renderTripSummary(body: HTMLElement, trip: Trip, subNotes: SubNote[]): void {
     const row = body.createDiv({ cls: "awty-trip-summary" });
 
-    // The stage always shows; the countdown only when there is something to
-    // count down to. A trip that is not booked has no "12 days to go" — it has
-    // a decision still to make, and saying so is the more useful line.
-    const stage = stageDef(trip.stage);
-    const pill = row.createSpan({ cls: `awty-badge is-stage-${stage.id}` });
-    setIcon(pill.createSpan({ cls: "awty-badge-icon" }), stage.icon);
-    pill.createSpan({ text: stage.badge });
-    pill.setAttribute("title", stage.description);
+    // Only the stages that change what a row means get a pill. "Going" on an
+    // upcoming trip and "Went" on a past one say what the date group already
+    // said, and a badge on every row is a badge nobody reads.
+    if (trip.stage === "planning" || trip.stage === "cancelled") {
+      const stage = stageDef(trip.stage);
+      const pill = row.createSpan({ cls: `awty-badge is-stage-${stage.id}` });
+      setIcon(pill.createSpan({ cls: "awty-badge-icon" }), stage.icon);
+      pill.createSpan({ text: stage.badge });
+      pill.setAttribute("title", stage.description);
+    }
 
     const badge = trip.stage === "cancelled" ? null : this.countdown(trip);
     if (badge) row.createSpan({ cls: `awty-badge is-${trip.status}`, text: badge });

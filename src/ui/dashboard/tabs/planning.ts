@@ -34,8 +34,15 @@ export function renderPlanning(parent: HTMLElement, ctx: DashboardContext): void
   const quotes = plugin.readQuotes(trip);
   const tracks = trackQuotes(quotes);
 
-  renderVerdict(parent, ctx, trip, tracks);
-  renderProposals(parent, ctx, trip, tracks);
+  // "Can we afford it" is a question a trip only has while it is still an idea.
+  // On a booked trip with nothing logged, the four tiles and the verdict were
+  // four dashes and a shrug — so they are only drawn when they can answer
+  // something.
+  const worthAsking = trip.stage === "planning" || tracks.length > 0;
+  if (worthAsking) {
+    renderVerdict(parent, ctx, trip, tracks);
+    renderProposals(parent, ctx, trip, tracks);
+  }
 
   sectionTitle(parent, "Price watch", {
     label: "Log a price",
@@ -48,7 +55,9 @@ export function renderPlanning(parent: HTMLElement, ctx: DashboardContext): void
       parent,
       "line-chart",
       "No prices checked yet",
-      "Log what a flight or a hotel costs today, then check it again in a fortnight. One price is a number; the second one tells you which way it is going.",
+      trip.stage === "planning"
+        ? "Log what a flight or a hotel costs today, then check it again in a fortnight. One price is a number; the second one tells you which way it is going."
+        : "Nothing being watched on this trip. You can still log a price — for an excursion you have not booked, or to see whether what you paid has moved since.",
       [{ label: "Log a price", icon: "plus", onClick: () => plugin.openPriceQuoteModal(trip) }],
     );
     return;
@@ -68,7 +77,23 @@ export function renderPlanning(parent: HTMLElement, ctx: DashboardContext): void
 function renderStageStrip(parent: HTMLElement, ctx: DashboardContext, trip: Trip): void {
   const section = parent.createDiv({ cls: "awty-stage-strip" });
   const head = section.createDiv({ cls: "awty-stage-head" });
-  head.createDiv({ cls: "awty-stage-head-title", text: "Where is this trip up to?" });
+  const titleRow = head.createDiv({ cls: "awty-stage-head-row" });
+  titleRow.createDiv({ cls: "awty-stage-head-title", text: "Where is this trip up to?" });
+
+  // The countdown belongs next to the decision, not under the budget: how long
+  // is left is the pressure on the choice being made here.
+  const until = daysUntil(trip.startDate);
+  if (until !== null && trip.stage !== "cancelled" && trip.stage !== "went") {
+    titleRow.createDiv({
+      cls: "awty-stage-head-when",
+      text:
+        until > 0
+          ? `${until} day${until === 1 ? "" : "s"} until it starts`
+          : until === 0
+            ? "Starts today"
+            : "Already under way",
+    });
+  }
 
   // A guess is not an answer, and the difference matters: everything below
   // this reads the stage, so a wrong one quietly misfiles the whole trip.
@@ -148,7 +173,16 @@ function renderVerdict(
     {
       label: "Budget",
       value: trip.budgetTotal ? formatMoney({ amount: trip.budgetTotal, currency }) : "—",
-      detail: until !== null && until >= 0 ? `${until} days until it starts` : "Trip has started",
+      // A tile's detail has to be about its own number. This one used to carry
+      // the countdown, so a trip with no budget read "— / 10 days until it
+      // starts", which answers a question nobody asked of it.
+      detail: !trip.budgetTotal
+        ? "No budget set"
+        : verdict.gap === null
+          ? "Set for the whole trip"
+          : verdict.gap >= 0
+            ? `${formatMoney({ amount: verdict.gap, currency })} still unspent`
+            : `${formatMoney({ amount: -verdict.gap, currency })} over`,
       icon: "wallet",
       tone: verdict.fits === false ? "bad" : verdict.fits === true ? "good" : "default",
     },
@@ -342,7 +376,7 @@ function renderHistory(
     for (const path of quote.screenshots) {
       const shot = row.createSpan({ cls: "awty-quote-shot", attr: { "aria-label": path } });
       setIcon(shot, "image");
-      shot.addEventListener("click", () => ctx.plugin.openScreenshot(path));
+      shot.addEventListener("click", () => ctx.plugin.openScreenshot(trip, path));
     }
 
     const edit = row.createSpan({ cls: "awty-quote-edit", attr: { "aria-label": "Edit this check" } });

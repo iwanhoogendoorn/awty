@@ -47,6 +47,7 @@ import {
 import { travelTable } from "./ui/dashboard/gettingAround";
 import { groupByOrigin, itineraryPairs } from "./travel/routePlan";
 import { ensureFoodSpot } from "./food/foodSpot";
+import { openAttachment } from "./ui/modals/lightbox";
 import {
   MY_MAPS_URL,
   tripKml,
@@ -991,6 +992,14 @@ export default class AwtyPlugin extends Plugin {
     ).open();
   }
 
+  /** Switches every open dashboard to a tab, for links between tabs. */
+  selectDashboardTab(tab: string): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(AWTY_DASHBOARD_TYPE)) {
+      const view = leaf.view;
+      if (view instanceof AwtyDashboardView) view.selectTab(tab);
+    }
+  }
+
   /** Points any open dashboard at a trip, without opening its note. */
   selectTripInDashboard(path: string): void {
     for (const leaf of this.app.workspace.getLeavesOfType(AWTY_DASHBOARD_TYPE)) {
@@ -1080,22 +1089,49 @@ export default class AwtyPlugin extends Plugin {
       initial,
       editingId
         ? () => {
-            void (async () => {
-              await removeQuote(this.app, this.settings, trip, editingId);
-              this.progress.clear();
-              this.store.invalidate();
-              new Notice("Price check removed.");
-            })();
+            // Asked first, like every other delete in the plugin. The history
+            // is the whole value of a price check — losing one silently means
+            // losing the trend it was part of.
+            const going = quotes.find((q) => q.id === editingId);
+            new ConfirmModal(this.app, {
+              title: "Remove this price check?",
+              name: going ? `${going.label} — ${going.checkedOn}` : "This check",
+              detail:
+                "The check goes from the history and the trend is recalculated without it. Any screenshot stays in the vault.",
+              confirmText: "Remove",
+              onConfirm: async () => {
+                await removeQuote(this.app, this.settings, trip, editingId);
+                this.progress.clear();
+                this.store.invalidate();
+                new Notice("Price check removed.");
+              },
+            }).open();
           }
         : undefined,
     ).open();
   }
 
-  /** Opens a screenshot logged with a price check. */
-  openScreenshot(path: string): void {
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (file instanceof TFile) void this.openInWorkspace(file);
-    else new Notice(`Could not find ${path}.`);
+  /**
+   * Opens a screenshot logged with a price check.
+   *
+   * In the lightbox, with every other screenshot on the trip alongside it, so
+   * you can arrow between what a fare looked like in June and in July — which
+   * is the comparison the screenshot was taken for.
+   */
+  openScreenshot(trip: Trip, path: string): void {
+    const files: TFile[] = [];
+    for (const quote of this.readQuotes(trip)) {
+      for (const shot of quote.screenshots) {
+        const file = this.app.vault.getAbstractFileByPath(shot);
+        if (file instanceof TFile) files.push(file);
+      }
+    }
+    const wanted = files.find((f) => f.path === path);
+    if (!wanted) {
+      new Notice(`Could not find ${path}.`);
+      return;
+    }
+    openAttachment(this.app, files, wanted);
   }
 
   /**

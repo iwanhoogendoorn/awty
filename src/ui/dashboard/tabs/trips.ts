@@ -132,8 +132,14 @@ export function renderTrips(
               : until === 0
                 ? "Today"
                 : `${until}d`;
-    if (badge) card.createDiv({ cls: `awty-card-badge is-${trip.status}`, text: badge });
-    else stageBadge(card, trip.stage).addClass("awty-card-badge");
+    if (badge) {
+      card.createDiv({ cls: `awty-card-badge is-${trip.status}`, text: badge });
+    } else {
+      // The title reserves room for a badge the width of "12d". A stage badge
+      // is a word and an icon, so the card has to be told to leave more.
+      stageBadge(card, trip.stage).addClass("awty-card-badge");
+      card.addClass("has-stage-badge");
+    }
 
     const meta = card.createDiv({ cls: "awty-card-meta" });
     meta.createDiv({ text: formatDateRange(trip.startDate, trip.endDate) });

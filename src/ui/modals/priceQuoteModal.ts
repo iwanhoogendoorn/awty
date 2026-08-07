@@ -195,7 +195,7 @@ export class PriceQuoteModal extends Modal {
     const row = section.createDiv({ cls: "awty-pill-row" });
 
     for (const track of this.tracks) {
-      const btn = row.createEl("button", { cls: "awty-pill" });
+      const btn = row.createEl("button", { cls: "awty-pill is-quote" });
       btn.type = "button";
       btn.createSpan({ text: track.label });
       btn.createSpan({

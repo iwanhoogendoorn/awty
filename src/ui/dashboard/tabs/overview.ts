@@ -255,8 +255,10 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
   const stagePill = heroMain.createDiv({ cls: `awty-hero-stage is-${stage.id}` });
   setIcon(stagePill.createSpan({ cls: "awty-hero-stage-icon" }), stage.icon);
   stagePill.createSpan({ text: stage.label });
-  stagePill.setAttribute("title", stage.description);
-  stagePill.addEventListener("click", () => plugin.openEditTripModal(trip));
+  stagePill.setAttribute("title", `${stage.description} — click to change it.`);
+  // Straight to the picker rather than the trip editor: changing a stage should
+  // not mean opening a form with ten other fields on it.
+  stagePill.addEventListener("click", () => plugin.selectDashboardTab("planning"));
 
   const countdown = hero.createDiv({ cls: "awty-hero-countdown" });
   // Counting down to a trip nobody has booked is the dashboard telling a

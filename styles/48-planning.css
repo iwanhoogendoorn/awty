@@ -15,9 +15,22 @@
   background: var(--background-primary-alt);
 }
 
+.awty-stage-head-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .awty-stage-head-title {
   font-weight: 600;
   font-size: var(--font-ui-small);
+}
+
+.awty-stage-head-when {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
 }
 
 .awty-stage-head-note {
@@ -33,12 +46,21 @@
   margin-top: 0.8em;
 }
 
+/* Obsidian's own `button` rule sets `white-space: nowrap`, `height:
+   var(--input-height)` and `justify-content: center` — all three written for a
+   button with one word on it. A card with a sentence in it has to opt out of
+   every one of them, or the sentence runs straight out of the card and over
+   the top of its neighbour. */
+
 .awty-stage-btn {
   display: flex;
   align-items: flex-start;
+  justify-content: flex-start;
   gap: 8px;
   padding: 0.6em 0.7em;
   text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
   background: var(--background-primary);
@@ -71,7 +93,10 @@
   display: flex;
   flex-direction: column;
   gap: 0.15em;
+  /* Without this a flex item refuses to shrink below its content width, so the
+     description sets the column width instead of wrapping inside it. */
   min-width: 0;
+  white-space: normal;
 }
 
 .awty-stage-label {
@@ -212,6 +237,36 @@
 
 .awty-card.is-stage-planning {
   border-style: dashed;
+}
+
+/* `.awty-card-title` reserves 3.2em on its right for the countdown badge —
+   the width of "12d". A stage badge carries an icon and a word, so the title
+   is given room for that instead of being run underneath it. This file loads
+   before 50-dashboard.css, so the two-class selector is doing the work, not
+   the source order. */
+
+.awty-card.has-stage-badge .awty-card-title {
+  padding-right: 7.5em;
+}
+
+.awty-card .awty-card-badge.awty-stage-badge {
+  padding: 0.1em 0.55em;
+  background: var(--background-modifier-border);
+}
+
+.awty-card .awty-card-badge.awty-stage-badge.is-planning {
+  background: var(--color-yellow);
+  color: var(--text-on-accent);
+}
+
+.awty-card .awty-card-badge.awty-stage-badge.is-cancelled {
+  background: var(--color-red);
+  color: var(--text-on-accent);
+}
+
+.awty-card .awty-card-badge.awty-stage-badge.is-going {
+  background: var(--color-green);
+  color: var(--text-on-accent);
 }
 
 .awty-card-stat.is-estimate {
@@ -547,7 +602,20 @@
 }
 
 /* The modal's "checking one of these again?" row reuses the settings pill,
-   with room for the price it was last seen at. */
+   with room for the price it was last seen at. A quote's label is a sentence
+   — "Return flights AMS→DPS, 17–31 Aug, 2 adults" — so unlike every other
+   pill in the plugin this one has to wrap. Scoped to a modifier rather than
+   loosening `.awty-pill`, which everywhere else is one word and should stay
+   on one line. */
+
+.awty-pill.is-quote {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+  height: auto;
+  max-width: 100%;
+  padding: 5px 10px;
+}
 
 .awty-pill-note {
   color: var(--text-faint);
