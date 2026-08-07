@@ -1704,3 +1704,24 @@ body.awty-phone .awty-stat-bar {
 body.awty-phone .awty-stat-bar-label {
   grid-column: 1 / -1;
 }
+
+/* The map keeps its aspect ratio, so on a phone it is short — but the legend
+   below it stacks rather than squeezing the total onto the same line. */
+body.awty-phone .awty-map-legend {
+  gap: 8px;
+}
+
+body.awty-phone .awty-map-legend-note {
+  margin-left: 0;
+  flex-basis: 100%;
+}
+
+/* Arcs at 1.8px are hairlines on a phone; the routes are the point of the
+   screen, so they get the weight the land does not need. */
+body.awty-phone .awty-map-arc {
+  stroke-width: 2.4;
+}
+
+body.awty-phone .awty-map-airports circle {
+  r: 4;
+}

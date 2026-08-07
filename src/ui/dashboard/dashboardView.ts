@@ -8,13 +8,14 @@ import type { DashboardContext } from "./common";
 import { renderOverview } from "./tabs/overview";
 import { renderTrips } from "./tabs/trips";
 import { renderPlanning } from "./tabs/planning";
+import { renderFlightMap } from "./flightMap";
 import { renderItinerary } from "./tabs/itinerary";
 import { renderBookings } from "./tabs/bookings";
 import { renderCosts } from "./tabs/costs";
 import { renderGallery } from "./tabs/gallery";
 import { showTripMenu } from "./tripMenu";
 
-type TabId = "overview" | "planning" | "trips" | "itinerary" | "bookings" | "costs" | "gallery";
+type TabId = "overview" | "planning" | "trips" | "map" | "itinerary" | "bookings" | "costs" | "gallery";
 
 /**
  * Trips first, and everything after it is about the one trip you picked there.
@@ -27,6 +28,9 @@ type TabId = "overview" | "planning" | "trips" | "itinerary" | "bookings" | "cos
  */
 const TABS: { id: TabId; label: string; icon: string; tripScoped?: boolean }[] = [
   { id: "trips", label: "Trips", icon: "plane" },
+  // Not trip-scoped: with nothing selected it draws every flight you have,
+  // which is the version of this map worth having on the wall.
+  { id: "map", label: "Map", icon: "globe" },
   { id: "overview", label: "Overview", icon: "layout-dashboard", tripScoped: true },
   { id: "planning", label: "Planning", icon: "compass", tripScoped: true },
   { id: "itinerary", label: "Itinerary", icon: "calendar-days", tripScoped: true },
@@ -166,6 +170,9 @@ export class AwtyDashboardView extends ItemView {
             this.render();
           },
         });
+        break;
+      case "map":
+        renderFlightMap(content, ctx);
         break;
       case "planning":
         renderPlanning(content, ctx);

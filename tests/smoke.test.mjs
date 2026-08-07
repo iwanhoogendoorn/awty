@@ -63,6 +63,10 @@ export { impliedStage, effectiveStage } from "./src/util/dates.ts";
 export { STAGES, CREATABLE_STAGES, stageDef, isTripStage, isCreatableStage } from "./src/types.ts";
 export { suggestStage } from "./src/planning/stageSignals.ts";
 export { moneyStats, placeStats, flightStats, planningStats, legDistanceKm, iataOf, formatHours, formatKm } from "./src/stats/tripStats.ts";
+export { project, fitToBox, WORLD_HALF_WIDTH, WORLD_HALF_HEIGHT } from "./src/map/projection.ts";
+export { greatCirclePath, interpolate as gcInterpolate, distanceKm, angularDistance } from "./src/map/greatCircle.ts";
+export { worldRings, RING_COUNT } from "./src/data/worldMap.ts";
+export { routesFrom, airportPoint } from "./src/map/flightRoutes.ts";
 export { splitFrontmatter } from "./src/util/frontmatter.ts";
 `;
 
@@ -2649,6 +2653,187 @@ test("more than one booking is counted, not listed", () => {
   ]);
   // Three committing bookings; the restaurant does not count toward the total.
   assert.match(s.reason, /KL1351 AMS→DBV” and 2 others are booked/);
+});
+
+// ------------------------------------------------------------------- map
+
+test("the projection puts the world where a world map puts it", () => {
+  const origin = m.project(0, 0);
+  assert.ok(Math.abs(origin.x) < 1e-9 && Math.abs(origin.y) < 1e-9, "0,0 is the centre");
+  // The date line sits at the full half-width, the poles at the full height.
+  assert.ok(Math.abs(m.project(180, 0).x - m.WORLD_HALF_WIDTH) < 1e-9);
+  assert.ok(Math.abs(m.project(-180, 0).x + m.WORLD_HALF_WIDTH) < 1e-9);
+  assert.ok(Math.abs(m.project(0, 90).y + m.WORLD_HALF_HEIGHT) < 1e-9, "north is up, so negative y");
+  assert.ok(Math.abs(m.project(0, -90).y - m.WORLD_HALF_HEIGHT) < 1e-9);
+});
+
+test("Robinson narrows the parallels towards the poles", () => {
+  // The point of the projection: a degree of longitude is worth less near the
+  // pole than at the equator, which is what stops Greenland eating Africa.
+  const atEquator = m.project(90, 0).x;
+  const atSixty = m.project(90, 60).x;
+  const atPole = m.project(90, 90).x;
+  assert.ok(atSixty < atEquator, "60N is narrower than the equator");
+  assert.ok(atPole < atSixty, "the pole is narrower still");
+  // But not to a point, which is the difference from Mercator's cousins.
+  assert.ok(atPole > atEquator * 0.4, "the poles are lines, not points");
+});
+
+test("fitting to a box keeps the map inside it and centred", () => {
+  const at = m.fitToBox(900, 500, 10);
+  const middle = at(0, 0);
+  assert.equal(Math.round(middle.x), 450);
+  assert.equal(Math.round(middle.y), 250);
+  for (const [lng, lat] of [[-180, -90], [180, 90], [0, 90], [-180, 0]]) {
+    const p = at(lng, lat);
+    assert.ok(p.x >= -0.01 && p.x <= 900.01, `x ${p.x} inside`);
+    assert.ok(p.y >= -0.01 && p.y <= 500.01, `y ${p.y} inside`);
+  }
+});
+
+test("a great circle bends the way an aeroplane does", () => {
+  // Amsterdam to Tokyo goes over the Arctic. The midpoint of a straight line
+  // would sit around 47N; the real route is far further north.
+  const AMS = { lat: 52.31, lng: 4.76 };
+  const NRT = { lat: 35.76, lng: 140.39 };
+  const mid = m.gcInterpolate(AMS, NRT, 0.5);
+  assert.ok(mid.lat > 65, `expected the midpoint over the Arctic, got ${mid.lat.toFixed(1)}N`);
+});
+
+test("the ends of a path are the airports themselves", () => {
+  const AMS = { lat: 52.31, lng: 4.76 };
+  const DBV = { lat: 42.56, lng: 18.27 };
+  const runs = m.greatCirclePath(AMS, DBV, 16);
+  assert.equal(runs.length, 1, "a short European hop does not cross the date line");
+  const first = runs[0][0];
+  const last = runs[0][runs[0].length - 1];
+  assert.ok(Math.abs(first.lat - AMS.lat) < 0.01 && Math.abs(first.lng - AMS.lng) < 0.01);
+  assert.ok(Math.abs(last.lat - DBV.lat) < 0.01 && Math.abs(last.lng - DBV.lng) < 0.01);
+});
+
+test("a Pacific crossing is split rather than drawn back across the map", () => {
+  // Tokyo to Los Angeles crosses the date line. Left as one run, the projected
+  // line would shoot from +180 back to -180 straight through Europe.
+  const NRT = { lat: 35.76, lng: 140.39 };
+  const LAX = { lat: 33.94, lng: -118.41 };
+  const runs = m.greatCirclePath(NRT, LAX, 64);
+  assert.equal(runs.length, 2, "one run each side of the date line");
+  // And each run reaches the edge, so there is no gap at the seam.
+  assert.equal(Math.abs(Math.round(runs[0][runs[0].length - 1].lng)), 180);
+  assert.equal(Math.abs(Math.round(runs[1][0].lng)), 180);
+  // No run may itself contain a jump.
+  for (const run of runs) {
+    for (let i = 1; i < run.length; i += 1) {
+      assert.ok(Math.abs(run[i].lng - run[i - 1].lng) <= 180, "no jump inside a run");
+    }
+  }
+});
+
+test("two airports in the same place do not divide by zero", () => {
+  const AMS = { lat: 52.31, lng: 4.76 };
+  const same = m.gcInterpolate(AMS, { ...AMS }, 0.5);
+  assert.ok(Number.isFinite(same.lat) && Number.isFinite(same.lng));
+  assert.equal(m.distanceKm(AMS, { ...AMS }), 0);
+});
+
+test("great-circle distance agrees with the flight statistics", () => {
+  // Two implementations of the same maths in the codebase; if they disagree,
+  // the map and the statistics are telling different stories about one flight.
+  const AMS = { lat: 52.3086, lng: 4.76389 };
+  const DBV = { lat: 42.5614, lng: 18.2682 };
+  const fromMap = m.distanceKm(AMS, DBV);
+  const fromStats = m.legDistanceKm("AMS", "DBV");
+  assert.ok(Math.abs(fromMap - fromStats) < 1, `map ${fromMap.toFixed(0)} vs stats ${fromStats.toFixed(0)}`);
+});
+
+test("the world outline survived being packed", () => {
+  const rings = m.worldRings();
+  assert.equal(rings.length, m.RING_COUNT);
+  assert.ok(rings.length > 200, "every country and its islands");
+  let points = 0;
+  for (const ring of rings) {
+    assert.equal(ring.points.length % 2, 0, "flat pairs");
+    points += ring.points.length / 2;
+    for (let i = 0; i < ring.points.length; i += 2) {
+      assert.ok(ring.points[i] >= -180.1 && ring.points[i] <= 180.1, "longitude in range");
+      assert.ok(ring.points[i + 1] >= -90.1 && ring.points[i + 1] <= 90.1, "latitude in range");
+    }
+  }
+  assert.ok(points > 10000, `expected the full outline, got ${points} points`);
+});
+
+function routeInput(o = {}) {
+  return { tripTitle: "A trip", stage: "going", status: "booked", journeys: [], ...o };
+}
+const LEG = (from, to) => ({ operator: "KLM", number: "KL1", from, to, date: "2026-08-17",
+  depTime: "10:00", arrDate: "2026-08-17", arrTime: "12:00" });
+
+test("a return trip is one line on the map, not two", () => {
+  // Drawn per direction, every round trip would render twice as dark as a
+  // one-way for no reason anyone could name.
+  const set = m.routesFrom([
+    routeInput({ journeys: [[LEG("Amsterdam (AMS)", "Dubrovnik (DBV)")], [LEG("Dubrovnik (DBV)", "Amsterdam (AMS)")]] }),
+  ]);
+  assert.equal(set.routes.length, 1);
+  assert.equal(set.routes[0].flights, 2);
+  assert.equal(set.points.length, 2);
+});
+
+test("a proposed flight is not drawn like a booked one", () => {
+  const proposed = m.routesFrom([
+    routeInput({ status: "reserved", journeys: [[LEG("AMS", "DBV")]] }),
+  ]);
+  assert.equal(proposed.routes[0].booked, false);
+
+  // A trip still being weighed up is a proposal however booked the flight is:
+  // you cannot have committed to a flight on a trip you have not committed to.
+  const stillAnIdea = m.routesFrom([
+    routeInput({ stage: "planning", status: "booked", journeys: [[LEG("AMS", "DBV")]] }),
+  ]);
+  assert.equal(stillAnIdea.routes[0].booked, false);
+
+  const real = m.routesFrom([routeInput({ journeys: [[LEG("AMS", "DBV")]] })]);
+  assert.equal(real.routes[0].booked, true);
+});
+
+test("one booked flight along a pair makes the route real", () => {
+  // The hop exists; what else is being considered along it does not undo that.
+  const set = m.routesFrom([
+    routeInput({ status: "reserved", journeys: [[LEG("AMS", "DBV")]] }),
+    routeInput({ tripTitle: "Another", journeys: [[LEG("DBV", "AMS")]] }),
+  ]);
+  assert.equal(set.routes.length, 1);
+  assert.equal(set.routes[0].booked, true);
+  assert.deepEqual(set.routes[0].trips, ["A trip", "Another"]);
+});
+
+test("cancelled flights and cancelled trips are not on the map", () => {
+  assert.equal(m.routesFrom([routeInput({ status: "cancelled", journeys: [[LEG("AMS","DBV")]] })]).routes.length, 0);
+  assert.equal(m.routesFrom([routeInput({ stage: "cancelled", journeys: [[LEG("AMS","DBV")]] })]).routes.length, 0);
+});
+
+test("a leg the airport list does not know is counted, not silently dropped", () => {
+  const set = m.routesFrom([
+    routeInput({ journeys: [[LEG("AMS", "DBV"), LEG("Nowhere", "Elsewhere")]] }),
+  ]);
+  assert.equal(set.routes.length, 1);
+  assert.equal(set.unknown, 1);
+  // A leg that starts and ends at the same airport is not a route either.
+  assert.equal(m.routesFrom([routeInput({ journeys: [[LEG("AMS", "AMS")]] })]).unknown, 1);
+});
+
+test("routes draw longest first, so short hops are not buried", () => {
+  const set = m.routesFrom([
+    routeInput({ journeys: [[LEG("AMS", "DBV")], [LEG("AMS", "Tokyo (NRT)")], [LEG("AMS", "London (LHR)")]] }),
+  ]);
+  assert.deepEqual(set.routes.map((r) => r.to.code), ["NRT", "DBV", "LHR"]);
+});
+
+test("an airport label resolves however it is written", () => {
+  assert.equal(m.airportPoint("Amsterdam (AMS)").code, "AMS");
+  assert.equal(m.airportPoint("AMS").city, "Amsterdam");
+  assert.equal(m.airportPoint("Berlin (BER)").country, "Germany");
+  assert.equal(m.airportPoint("Nowhere"), null);
 });
 
 // ------------------------------------------------------------ statistics
