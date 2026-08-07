@@ -74,9 +74,17 @@ plugin's settings, and on every exported document.
 npm run build          # check the version, typecheck, bundle, concatenate styles
 npm test               # smoke tests over the pure modules
 npm run install-local  # copy the build into the vault
-npm run bump -- patch  # or minor / major — manifest, package.json, versions.json
-npm run release        # build, then cut a GitHub release with the three assets
+npm run release -- patch   # or minor / major: bump, commit, push, build, release
+npm run release            # release the version already in manifest.json
+npm run bump -- patch      # just the version numbers, if you want them separately
 ```
+
+`release` does the whole thing and refuses to do half of it: it will not tag a
+dirty tree, it pushes before it tags so the tag points at something fetchable,
+and it always builds from scratch rather than trusting whatever `main.js`
+happens to be on disk. The bump level is never guessed — patch, minor and major
+are a promise to the people installing this, and a script has no evidence with
+which to make it.
 
 `main.js` and `styles.css` are generated and not tracked; they ship as release
 assets, which is where BRAT looks for them. `manifest.json` is tracked, because

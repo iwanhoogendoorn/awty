@@ -37,18 +37,53 @@ function fail(message) {
   process.exit(1);
 }
 
-const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8"));
-const version = manifest.version;
-const tag = version;
+/**
+ * An optional bump level, so shipping is one command rather than three.
+ *
+ * The level itself is never guessed. patch/minor/major is a promise to the
+ * people installing this — that nothing broke, or that something new arrived —
+ * and a script deriving it from commit counts or file names would be making
+ * that promise on evidence it does not have.
+ */
+const level = process.argv[2];
+if (level && !/^(patch|minor|major|\d+\.\d+\.\d+)$/.test(level)) {
+  fail(`unknown bump level "${level}" — use patch, minor, major, or an exact 1.2.3`);
+}
 
 // A release built from uncommitted work is a release nobody can reproduce.
 if (run("git", ["status", "--porcelain"])) {
   fail("working tree is dirty — commit first, so the tag points at the code that shipped.");
 }
 
+// Tags are created on GitHub by `gh release create`, so a clone that has only
+// ever released has no local tags at all — and the changelog below, which asks
+// git for the previous tag, would fall back to the whole history and list every
+// commit ever made as "changes in this release".
+try {
+  run("git", ["fetch", "--tags", "--quiet"], { stdio: ["ignore", "pipe", "ignore"] });
+} catch {
+  fail("could not reach the remote to fetch tags.");
+}
+
+if (level) {
+  console.log(`release: bumping ${level}`);
+  run("npm", ["run", "bump", "--", level], { stdio: "inherit" });
+  const bumped = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8")).version;
+  run("git", ["add", "manifest.json", "package.json", "versions.json"]);
+  run("git", ["commit", "-m", `Release ${bumped}`]);
+}
+
+const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8"));
+const version = manifest.version;
+const tag = version;
+
+// Pushed before tagged, so the tag always points at a commit someone else can
+// fetch. The bump above makes a commit, so this pushes it rather than refusing.
 const branch = run("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
-const ahead = run("git", ["log", "--oneline", `origin/${branch}..HEAD`]);
-if (ahead) fail(`${ahead.split("\n").length} commit(s) not pushed — push first, or the tag will dangle.`);
+if (run("git", ["log", "--oneline", `origin/${branch}..HEAD`])) {
+  console.log("release: pushing commits first");
+  run("git", ["push", "origin", branch], { stdio: "inherit" });
+}
 
 let existing = "";
 try {
