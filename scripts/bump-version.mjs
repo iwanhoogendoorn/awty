@@ -12,7 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MANIFEST = path.join(ROOT, "awty", "manifest.json");
+const MANIFEST = path.join(ROOT, "manifest.json");
 const PACKAGE = path.join(ROOT, "package.json");
 const VERSIONS = path.join(ROOT, "versions.json");
 
@@ -54,4 +54,4 @@ versions[next] = manifest.minAppVersion;
 write(VERSIONS, versions);
 
 console.log(`version: ${parts.join(".")} -> ${next}`);
-console.log(`  awty/manifest.json, package.json, versions.json`);
+console.log(`  manifest.json, package.json, versions.json`);

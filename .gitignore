@@ -2,8 +2,12 @@ node_modules/
 .DS_Store
 *.log
 
-# Build output. The manifest is the source of truth for the id, name and
-# version, so it stays tracked; main.js and styles.css are generated on every
-# build and a 3 MB bundle per commit is not history worth keeping.
-/awty/*
-!/awty/manifest.json
+# Build output.
+#
+# The layout Obsidian expects: manifest.json, main.js and styles.css at the
+# root of the repo. The manifest is the source of truth for the id and version
+# so it stays tracked; main.js and styles.css are generated on every build and
+# ship as assets on a GitHub release, which is where BRAT looks for them. A
+# 3 MB bundle committed per version is not history worth keeping.
+/main.js
+/styles.css

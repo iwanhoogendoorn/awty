@@ -11,12 +11,12 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => JSON.parse(fs.readFileSync(path.join(ROOT, p), "utf8"));
 
-const manifest = read("awty/manifest.json");
+const manifest = read("manifest.json");
 const pkg = read("package.json");
 
 if (manifest.version !== pkg.version) {
   console.error(
-    `version mismatch: awty/manifest.json is ${manifest.version}, package.json is ${pkg.version}.\n` +
+    `version mismatch: manifest.json is ${manifest.version}, package.json is ${pkg.version}.\n` +
       `Run \`npm run bump -- patch\` to move both.`,
   );
   process.exit(1);

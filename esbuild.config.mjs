@@ -6,7 +6,10 @@ import path from "path";
 
 const prod = process.argv[2] === "production";
 
-const OUT_DIR = "awty";
+// The repo root, which is where Obsidian expects a plugin's manifest.json,
+// main.js and styles.css to sit — and where BRAT looks when a repo has no
+// release yet.
+const OUT_DIR = ".";
 
 const banner = `/*
 Travel Planner — bundled by esbuild. Source: src/ in this repository.

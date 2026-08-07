@@ -14,7 +14,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const OUT_DIR = path.join(ROOT, "awty");
+const OUT_DIR = ROOT;
 const PLUGIN_ID = "awty";
 const FILES = ["main.js", "manifest.json", "styles.css"];
 
