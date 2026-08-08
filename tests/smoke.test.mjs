@@ -26,6 +26,7 @@ export { fold, rankMatches, flattenByRank, flattenGroups, replaceLastToken } fro
 export { checkVisa, iso2ForCountry, exceedsAllowance } from "./src/travel/visa.ts";
 export { entryExtrasFor, entryExtrasChecked, ENTRY_EXTRAS, ENTRY_EXTRAS_COMING, ENTRY_EXTRAS_VERIFIED } from "./src/data/entryExtras.ts";
 export { allCategories, COST_CATEGORIES, BOOKING_KINDS } from "./src/bookings/types.ts";
+export { readPorts, portsToFrontmatter, orderPorts, portLabel, portOn, isPortCall, minutesAshore, formatAshore, portCountries, cruiseShape, weekdayOf, portTable, cruiseWhereOptions, isAboard, emptyPort, ABOARD } from "./src/bookings/cruise.ts";
 export { CREATABLE_SUB_NOTES, SUB_NOTE_LABELS, KINDS, tripStops, tripCities, tripCountries, joinPlaces, entryKey } from "./src/types.ts";
 export { parseAdviceColour, adviceUrlFor, isStale, ADVICE_TTL_MS } from "./src/travel/adviceData.ts";
 export { AIRPORTS } from "./src/data/airports.ts";
@@ -3595,9 +3596,16 @@ test("a category says which kind of booking it means, and admits when it cannot"
   // would file half of them wrong. The caller is expected to ask.
   assert.deepEqual(m.kindsForCategory("Transport").sort(), ["flight", "transport"]);
 
+  // A cruise and its excursions each have their own line, because on a cruise
+  // trip "what did the fare cover and what was extra" is the whole question.
+  assert.deepEqual(m.kindsForCategory("Cruise"), ["cruise"]);
+  assert.deepEqual(m.kindsForCategory("Excursions"), ["excursion"]);
+
   // A category nobody mapped offers everything rather than refusing to convert.
-  assert.equal(m.kindsForCategory("Shopping").length, 5);
-  assert.equal(m.kindsForCategory("Whatever I invented").length, 5);
+  // Counted from the table, so adding a kind does not fail an unrelated test.
+  const all = m.BOOKING_KINDS.length;
+  assert.equal(m.kindsForCategory("Shopping").length, all);
+  assert.equal(m.kindsForCategory("Whatever I invented").length, all);
 });
 
 test("a quote fills in a booking without inventing the parts it cannot know", () => {
@@ -4135,6 +4143,200 @@ test("a two-character symbol is not matched as the one inside it", () => {
     pattern.lastIndex = 0;
     assert.equal(pattern.exec(printed)[0], printed);
   }
+});
+
+
+// -------------------------------------------------- a cruise
+
+/** The Seven Seas Prestige, Miami round trip, exactly as the line prints it. */
+const CARIBBEAN = [
+  { date: "2026-12-28", port: "Miami", country: "United States", departs: "17:00" },
+  { date: "2026-12-29", port: "Cruising the Florida Straits", at_sea: "true" },
+  { date: "2026-12-30", port: "Progreso", country: "Mexico", arrives: "08:00", departs: "18:00" },
+  { date: "2026-12-31", port: "Cruising the Caribbean Sea", at_sea: "true" },
+  { date: "2027-01-01", port: "Santo Tomas de Castilla", country: "Guatemala", arrives: "10:00", departs: "18:00" },
+  { date: "2027-01-02", port: "Harvest Caye", country: "Belize", arrives: "08:00", departs: "17:00" },
+  { date: "2027-01-03", port: "Roatan", country: "Honduras", arrives: "08:00", departs: "17:00" },
+  { date: "2027-01-04", port: "Cruising the Caribbean Sea", at_sea: "true" },
+  { date: "2027-01-05", port: "Falmouth", country: "Jamaica", arrives: "07:00", departs: "16:00" },
+  { date: "2027-01-06", port: "George Town", country: "Cayman Islands", arrives: "07:00", departs: "16:00" },
+  { date: "2027-01-07", port: "Cruising the Straits of Florida", at_sea: "true" },
+  { date: "2027-01-08", port: "Miami", country: "United States", arrives: "07:00" },
+];
+
+test("a cruise itinerary reads back exactly as it was written", () => {
+  const ports = m.readPorts(CARIBBEAN);
+  assert.equal(ports.length, 12);
+  assert.equal(m.portsToFrontmatter(ports).length, 12);
+  // Round trip: nothing invented, nothing dropped.
+  assert.deepEqual(m.portsToFrontmatter(ports), CARIBBEAN);
+});
+
+test("a sea day is said, never inferred from missing times", () => {
+  const ports = m.readPorts(CARIBBEAN);
+  const sailing = ports.find((p) => p.date === "2026-12-28");
+  // Boarding day has no arrival — you were already there — and is not at sea.
+  assert.equal(sailing.arrives, "");
+  assert.equal(sailing.atSea, false);
+  assert.equal(m.isPortCall(sailing), true);
+
+  const atSea = ports.find((p) => p.date === "2026-12-29");
+  assert.equal(atSea.atSea, true);
+  assert.equal(m.isPortCall(atSea), false);
+  assert.equal(m.minutesAshore(atSea), null, "there is no ashore on a sea day");
+
+  // A port whose times nobody has filled in is still a port.
+  const unknown = m.readPorts([{ date: "2027-02-01", port: "Cozumel", country: "Mexico" }])[0];
+  assert.equal(unknown.atSea, false);
+  assert.equal(m.isPortCall(unknown), true);
+  assert.equal(m.minutesAshore(unknown), null, "and says nothing rather than guessing");
+});
+
+test("the hours ashore are the window an excursion has to fit inside", () => {
+  const ports = m.readPorts(CARIBBEAN);
+  const ashore = (date) => m.minutesAshore(m.portOn(ports, date));
+  assert.equal(ashore("2026-12-30"), 10 * 60, "Progreso 08:00–18:00");
+  assert.equal(ashore("2027-01-01"), 8 * 60, "Santo Tomas 10:00–18:00");
+  assert.equal(ashore("2027-01-05"), 9 * 60, "Falmouth 07:00–16:00");
+  assert.equal(m.formatAshore(10 * 60), "10 h");
+  assert.equal(m.formatAshore(9 * 60 + 30), "9 h 30 min");
+
+  // Boarding and disembarking days have only one time, so there is no window.
+  assert.equal(ashore("2026-12-28"), null);
+  assert.equal(ashore("2027-01-08"), null);
+});
+
+test("a cruise adds up to nights, calls, sea days and countries", () => {
+  const shape = m.cruiseShape(m.readPorts(CARIBBEAN));
+  assert.equal(shape.nights, 11, "28 Dec to 8 Jan");
+  assert.equal(shape.calls, 8);
+  assert.equal(shape.seaDays, 4);
+  assert.equal(shape.from, "2026-12-28");
+  assert.equal(shape.to, "2027-01-08");
+  // In the order the ship calls, and Miami counted once for both ends.
+  assert.deepEqual(shape.countries, [
+    "United States", "Mexico", "Guatemala", "Belize", "Honduras", "Jamaica", "Cayman Islands",
+  ]);
+});
+
+test("the itinerary table says the day of the week the confirmation says", () => {
+  // 28 December 2026 really is a Monday, and 1 January 2027 a Friday.
+  assert.equal(m.weekdayOf("2026-12-28"), "Mon");
+  assert.equal(m.weekdayOf("2026-12-30"), "Wed");
+  assert.equal(m.weekdayOf("2027-01-01"), "Fri");
+  assert.equal(m.weekdayOf("2027-01-08"), "Fri");
+  assert.equal(m.weekdayOf("not a date"), "");
+
+  const table = m.portTable(m.readPorts(CARIBBEAN));
+  assert.equal(table.length, 14, "header, rule, twelve days");
+  assert.match(table[2], /2026-12-28 \| Mon \| Miami, United States \| — \| 17:00/);
+  assert.match(table[3], /Cruising the Florida Straits \| — \| — \|/);
+  assert.match(table[4], /Progreso, Mexico \| 08:00 \| 18:00 \| 10 h/);
+});
+
+test("out-of-order days are sorted, because a cruise is a sequence", () => {
+  const jumbled = m.readPorts([CARIBBEAN[4], CARIBBEAN[0], CARIBBEAN[2]]);
+  assert.deepEqual(
+    m.orderPorts(jumbled).map((p) => p.date),
+    ["2026-12-28", "2026-12-30", "2027-01-01"],
+  );
+});
+
+test("a booking on a cruise can be on the ship or ashore, never at sea", () => {
+  const options = m.cruiseWhereOptions(m.readPorts(CARIBBEAN));
+  assert.equal(options[0], m.ABOARD, "the ship first — it is always an option");
+  assert.ok(options.includes("Progreso, Mexico"));
+  assert.ok(options.includes("George Town, Cayman Islands"));
+  // There is no gangway on a sea day, so there is nothing to book ashore.
+  assert.ok(!options.some((o) => /Cruising/.test(o)));
+  // Miami is both ends of the round trip and offered once.
+  assert.equal(options.filter((o) => o === "Miami, United States").length, 1);
+  assert.equal(m.isAboard("On board"), true);
+  assert.equal(m.isAboard("on board"), true);
+  assert.equal(m.isAboard("Progreso, Mexico"), false);
+});
+
+test("a call that runs past midnight is a long day, not a negative one", () => {
+  const overnight = m.readPorts([
+    { date: "2027-02-01", port: "Ibiza", country: "Spain", arrives: "14:00", departs: "02:00" },
+  ])[0];
+  assert.equal(m.minutesAshore(overnight), 12 * 60);
+});
+
+
+const EMPTY_DOC = {
+  title: "Trip", dates: "", duration: "", where: "", origin: "", travellers: [],
+  facts: [], documents: [], bookings: [], days: [], packing: [], restaurants: [],
+  notes: [], images: [], travel: { origin: "", groups: [] },
+  costs: { lines: [], total: "", budget: "", byCategory: [] },
+  banner: "", disclaimer: "", generatedOn: "2026-08-09",
+};
+
+const EMPTY_BOOKING = {
+  kind: "", kindLabel: "", title: "", status: "booked", date: "", endDate: "",
+  time: "", endTime: "", from: "", to: "", address: "", reference: "", seat: "",
+  cost: "", notes: "", legs: [], returnLegs: [], journey: "", returnJourney: "",
+  ports: [], portSummary: "", portCountries: "", where: "",
+};
+
+// -------------------------------------------------- the PDF keeps up
+
+test("a cruise prints its itinerary, not just its cover", () => {
+  // The itinerary is the booking. A cruise printed as title-and-dates is a
+  // receipt, and this document is meant to work when the phone is flat and the
+  // ship sails at four whether you are on it or not.
+  const port = (date, day, name, arrives, departs, ashore) => ({ date, day, port: name, arrives, departs, ashore });
+  const html = m.renderTripDocument({
+    ...EMPTY_DOC,
+    bookings: [
+      {
+        ...EMPTY_BOOKING,
+        kind: "cruise", kindLabel: "Cruise", title: "Seven Seas Prestige",
+        date: "2026-12-28", endDate: "2027-01-08", seat: "Serenity Suite 712 (F2)",
+        portSummary: "11 nights · 8 ports of call · 4 days at sea",
+        portCountries: "United States, Mexico, Guatemala",
+        ports: [
+          port("2026-12-28", "Mon", "Miami, United States", "—", "17:00", ""),
+          port("2026-12-30", "Wed", "Progreso, Mexico", "08:00", "18:00", "10 h"),
+        ],
+      },
+    ],
+  });
+  assert.match(html, /Itinerary/);
+  assert.match(html, /11 nights · 8 ports of call · 4 days at sea/);
+  assert.match(html, /Progreso, Mexico/);
+  assert.match(html, /10 h/);
+  assert.match(html, /Countries — United States, Mexico, Guatemala/);
+  // A cruise's cabin is not a seat.
+  assert.match(html, /Cabin/);
+  assert.ok(!/&gt;Seat&lt;/.test(html));
+});
+
+test("something booked on the ship says so on paper", () => {
+  const html = m.renderTripDocument({
+    ...EMPTY_DOC,
+    bookings: [
+      { ...EMPTY_BOOKING, kind: "excursion", kindLabel: "Excursion",
+        title: "Mayan ruins at Uxmal", date: "2026-12-30", where: "Progreso, Mexico" },
+      { ...EMPTY_BOOKING, kind: "restaurant", kindLabel: "Restaurant",
+        title: "Compass Rose", date: "2026-12-31", where: "On board" },
+    ],
+  });
+  assert.match(html, /Where/);
+  assert.match(html, /Progreso, Mexico/);
+  assert.match(html, /On board/);
+});
+
+test("a document built before cruises existed still renders", () => {
+  // The renderer takes whatever it is handed, including a document assembled
+  // by a version that had never heard of a port.
+  const old = { ...EMPTY_BOOKING, kind: "stay", kindLabel: "Accommodation", title: "Sentral Wynwood" };
+  delete old.ports;
+  delete old.where;
+  delete old.portSummary;
+  delete old.portCountries;
+  const html = m.renderTripDocument({ ...EMPTY_DOC, bookings: [old] });
+  assert.match(html, /Sentral Wynwood/);
 });
 
 console.log(`\n${passed} tests passed`);

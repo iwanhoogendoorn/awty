@@ -17,6 +17,16 @@ export interface DocLeg {
   arrTime: string;
 }
 
+/** One day of a cruise, already formatted for print. */
+export interface DocPort {
+  date: string;
+  day: string;
+  port: string;
+  arrives: string;
+  departs: string;
+  ashore: string;
+}
+
 export interface DocBooking {
   kind: string;
   kindLabel: string;
@@ -38,6 +48,14 @@ export interface DocBooking {
   /** "2 h 20 min · direct · lands 12:35", when the legs say enough. */
   journey: string;
   returnJourney: string;
+  /** A cruise's days. The itinerary is the booking, so it has to print. */
+  ports: DocPort[];
+  /** "11 nights · 8 ports of call · 4 days at sea". */
+  portSummary: string;
+  /** Countries the ship calls at, for the entry requirements to be checked. */
+  portCountries: string;
+  /** For something booked on a cruise: "On board", or the port it is at. */
+  where: string;
 }
 
 export interface DocDay {
@@ -149,14 +167,18 @@ function legRows(legs: DocLeg[]): string[][] {
 }
 
 function bookingBlock(booking: DocBooking): string {
+  // Read defensively: this renders whatever document it is handed, including
+  // ones assembled by a version that had never heard of a cruise.
+  const ports = booking.ports ?? [];
   const meta: [string, string][] = [
     ["When", booking.endDate && booking.endDate !== booking.date ? `${booking.date} → ${booking.endDate}` : booking.date],
     ["Time", [booking.time, booking.endTime].filter(Boolean).join(" → ")],
     ["From", booking.from],
     ["To", booking.to],
     ["Address", booking.address],
+    ["Where", booking.where ?? ""],
     ["Reference", booking.reference],
-    ["Seat", booking.seat],
+    [booking.kind === "cruise" ? "Cabin" : "Seat", booking.seat],
     ["Cost", booking.cost],
     ["Status", booking.status],
   ].filter(([, value]) => value.length > 0) as [string, string][];
@@ -166,6 +188,25 @@ function bookingBlock(booking: DocBooking): string {
     `<h3>${escapeHtml(booking.title)} <span class="kind">${escapeHtml(booking.kindLabel)}</span></h3>`,
     table(["", ""], meta.map(([k, v]) => [k, v])),
   ];
+
+  // A cruise is the one booking that is also an itinerary. Printing it without
+  // the twelve days is printing the cover of the confirmation — and this
+  // document is meant to work when the phone is flat and the ship sails at
+  // four whether you are on it or not.
+  if (ports.length > 0) {
+    parts.push(
+      `<h4>Itinerary${
+        booking.portSummary ? ` <span class="kind">${escapeHtml(booking.portSummary)}</span>` : ""
+      }</h4>`,
+      table(
+        ["Date", "Day", "Port", "Arrives", "Departs", "Ashore"],
+        ports.map((p) => [p.date, p.day, p.port, p.arrives, p.departs, p.ashore]),
+      ),
+    );
+    if (booking.portCountries) {
+      parts.push(`<p class="notes">Countries — ${escapeHtml(booking.portCountries)}</p>`);
+    }
+  }
 
   if (booking.legs.length > 0) {
     parts.push(

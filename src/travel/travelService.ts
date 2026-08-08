@@ -102,6 +102,10 @@ export class TravelService {
 
   /** Best address string we can build for a booking. */
   private addressFor(booking: Booking, trip: Trip): string {
+    // Nothing on a ship has an address, and a cruise is not one place. Asking a
+    // geocoder about either spends real money to be told about a town that
+    // shares the name — so these are never looked up.
+    if (booking.kind === "cruise" || booking.where) return "";
     if (booking.kind === "flight") {
       // The destination airport is what matters for "airport to hotel", and
       // nothing else will do: the origin is where you started, not where you

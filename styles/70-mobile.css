@@ -303,9 +303,10 @@ body.awty-phone .awty-modal textarea,
 /* No `textarea` or `input[type="number"]` in the settings selectors here or
    below: settingsTab.ts has no `addTextArea` and no numeric field, so those
    would be dead the same way `.awty-doc-row` is. Both live only in modals
-   (foodModal.ts:72, tripModal.ts:141, eventDetailsModal.ts:65/:72,
-   bookingWizard.ts:333, packingModal.ts:209/:271), which the modal selectors
-   above already cover. */
+   (tripModal, eventDetailsModal, bookingWizard, packingModal), which the modal
+   selectors above already cover. Named without line numbers on purpose: the
+   old list cited foodModal.ts, which has since been deleted, and line numbers
+   in a comment are wrong the moment anybody edits the file above them. */
 body.awty-phone .awty-settings input,
 body.awty-phone .awty-settings select,
 body.awty-phone .awty-dashboard input,

@@ -8,6 +8,7 @@ import { composeAddress } from "./postalAddress";
  * a module that only runs inside the app.
  */
 import { groupJourneys, layoverMinutes, formatLayover, type FlightLeg } from "./legs";
+import { cruiseShape, portTable } from "./cruise";
 import { formatMoney } from "../util/money";
 import type { BookingDraft } from "./bookingWriter";
 
@@ -28,8 +29,9 @@ export function bookingBody(draft: BookingDraft, attachmentLinks: string[]): str
   add("From address", composeAddress(draft.fromPostal));
   add("To", draft.to);
   add(draft.kind === "transport" ? "To address" : "Address", composeAddress(draft.postal));
-  add("Operator", draft.operator);
-  add("Seat", draft.seat);
+  add(draft.kind === "cruise" ? "Cruise line" : "Operator", draft.operator);
+  add(draft.kind === "cruise" ? "Cabin" : "Seat", draft.seat);
+  add("Where", draft.where);
   add("Reference", draft.reference);
 
   const out = [`# ${draft.title}`, ""];
@@ -69,6 +71,22 @@ export function bookingBody(draft: BookingDraft, attachmentLinks: string[]): str
     }
     if (layovers.length) out.push("**Layovers**", "", ...layovers, "");
   };
+
+  // Read defensively: this renders whatever draft it is handed, including ones
+  // written by a version that had never heard of a cruise.
+  const ports = draft.ports ?? [];
+  if (ports.length > 0) {
+    const shape = cruiseShape(ports);
+    out.push("## Itinerary", "");
+    out.push(...portTable(ports), "");
+    const summary = [
+      `${shape.nights} night${shape.nights === 1 ? "" : "s"}`,
+      `${shape.calls} port${shape.calls === 1 ? "" : "s"} of call`,
+      shape.seaDays > 0 ? `${shape.seaDays} day${shape.seaDays === 1 ? "" : "s"} at sea` : "",
+    ].filter(Boolean);
+    out.push(summary.join(" · "), "");
+    if (shape.countries.length) out.push(`**Countries** — ${shape.countries.join(", ")}`, "");
+  }
 
   if (draft.legs.length > 1 || draft.returnLegs.length > 0) {
     itinerary(draft.legs, draft.returnLegs.length > 0 ? "Outbound" : "Itinerary");

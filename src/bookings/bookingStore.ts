@@ -11,6 +11,7 @@ import type {
 } from "./types";
 import { BOOKING_KINDS, isBookingStatus } from "./types";
 import { composeAddress, readAddress } from "./postalAddress";
+import { readPorts } from "./cruise";
 import type { AwtySettings, Trip } from "../types";
 import { linkTarget } from "./linkTarget";
 import { groupJourneys } from "./legs";
@@ -297,6 +298,9 @@ export class BookingStore {
           journeys: readJourneys(fm, money(fm.cost, fm.currency, fallbackCurrency)?.currency ?? fallbackCurrency),
           legs: readLegs(fm.legs),
           returnLegs: readLegs(fm.return_legs),
+          ports: readPorts(fm.ports),
+          where: str(fm.where),
+          cruise: str(fm.cruise),
           attachments: list(fm.attachments),
         });
         continue;

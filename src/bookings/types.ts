@@ -1,6 +1,7 @@
 import type { TFile } from "obsidian";
 import type { FlightLeg } from "./legs";
 import type { PostalAddress } from "./postalAddress";
+import type { CruisePort } from "./cruise";
 
 /**
  * Bookings and expenses are stored one-per-note with typed frontmatter, the way
@@ -8,7 +9,14 @@ import type { PostalAddress } from "./postalAddress";
  * metadata cache hands back frontmatter synchronously, so totals and charts need
  * no table parsing and nothing can silently break when a separator row is edited.
  */
-export type BookingKind = "flight" | "stay" | "activity" | "transport" | "restaurant";
+export type BookingKind =
+  | "flight"
+  | "stay"
+  | "activity"
+  | "transport"
+  | "restaurant"
+  | "cruise"
+  | "excursion";
 
 export type BookingStatus = "idea" | "reserved" | "booked" | "cancelled";
 
@@ -45,6 +53,20 @@ export const BOOKING_KINDS: {
     category: "Food & drink",
     folder: "Bookings",
   },
+  // A cruise is the one booking that is also an itinerary, and it is neither
+  // transport nor accommodation but a fortnight of both on one confirmation.
+  // Its own category, because the whole point of a cruise trip is knowing what
+  // the fare covered and what was extra.
+  { id: "cruise", label: "Cruise", icon: "ship", category: "Cruise", folder: "Bookings" },
+  {
+    id: "excursion",
+    label: "Excursion",
+    icon: "compass",
+    // The extras, kept apart from the fare. On a cruise "what did we spend on
+    // top" is the question, and rolling them into Activities buries it.
+    category: "Excursions",
+    folder: "Bookings",
+  },
 ];
 
 /** Whether a frontmatter string is one of the four, for notes edited by hand. */
@@ -63,6 +85,8 @@ export const BOOKING_STATUSES: { id: BookingStatus; label: string; color: string
 export const COST_CATEGORIES = [
   "Transport",
   "Accommodation",
+  "Cruise",
+  "Excursions",
   "Food & drink",
   "Activities",
   "Shopping",
@@ -148,6 +172,17 @@ export interface Booking {
    */
   legs: FlightLeg[];
   returnLegs: FlightLeg[];
+  /** A cruise's itinerary: which day the ship is where, and for how long. */
+  ports: CruisePort[];
+  /**
+   * For a booking made on a cruise, where on it: the ship, or a port call.
+   *
+   * Shared by excursions and by restaurants aboard, because it is one question
+   * — the alternative was two nearly-identical fields that would drift apart.
+   */
+  where: string;
+  /** The cruise this hangs off, as a wikilink target, when it hangs off one. */
+  cruise: string;
 }
 
 export interface FlightJourney {

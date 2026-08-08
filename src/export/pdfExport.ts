@@ -4,6 +4,7 @@ import type { Trip } from "../types";
 import { SUB_NOTE_LABELS, kindDef, stageDef } from "../types";
 import { joinPlaces, tripCities, tripCountries } from "../types";
 import { BOOKING_KINDS } from "../bookings/types";
+import type { Booking } from "../bookings/types";
 import { fileFromLink, totalsByCategory } from "../bookings/bookingStore";
 import { checkVisa } from "../travel/visa";
 import { ADVICE_MEANING } from "../travel/adviceData";
@@ -23,9 +24,18 @@ import {
   type DocDay,
   type DocNote,
   type DocPlace,
+  type DocPort,
   type DocRestaurant,
   type TripDocument,
 } from "./tripDocument";
+import {
+  cruiseShape,
+  formatAshore,
+  minutesAshore,
+  orderPorts,
+  portLabel,
+  weekdayOf,
+} from "../bookings/cruise";
 import { renderMarkdown, stripFrontmatter } from "./markdown";
 import {
   htmlFallbackMessage,
@@ -59,6 +69,45 @@ function journeyOf(value: unknown): string {
   return [summary.label, ...summary.layovers, summary.arrival ? `lands ${summary.arrival}` : ""]
     .filter(Boolean)
     .join(" · ");
+}
+
+/**
+ * A cruise's days, formatted for print.
+ *
+ * The itinerary is the booking — a cruise confirmation without its ports is a
+ * receipt, not a plan — so it is carried into the document rather than left to
+ * the day-by-day pages. On paper you want both: the whole voyage on one page,
+ * and each day where the rest of that day is.
+ */
+function cruiseOf(booking: Booking): {
+  ports: DocPort[];
+  portSummary: string;
+  portCountries: string;
+} {
+  const ports = orderPorts(booking.ports ?? []);
+  if (ports.length === 0) return { ports: [], portSummary: "", portCountries: "" };
+  const shape = cruiseShape(ports);
+  return {
+    ports: ports.map((port) => {
+      const ashore = minutesAshore(port);
+      return {
+        date: port.date,
+        day: weekdayOf(port.date),
+        port: portLabel(port) || (port.atSea ? "At sea" : ""),
+        arrives: port.arrives || "—",
+        departs: port.departs || "—",
+        ashore: ashore === null ? "" : formatAshore(ashore),
+      };
+    }),
+    portSummary: [
+      `${shape.nights} night${shape.nights === 1 ? "" : "s"}`,
+      `${shape.calls} port${shape.calls === 1 ? "" : "s"} of call`,
+      shape.seaDays > 0 ? `${shape.seaDays} day${shape.seaDays === 1 ? "" : "s"} at sea` : "",
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    portCountries: shape.countries.join(", "),
+  };
 }
 
 /** The same, for whichever end of a return ticket this day belongs to. */
@@ -182,6 +231,8 @@ export async function buildTripDocument(
       returnLegs: readLegs(fm?.return_legs),
       journey: journeyOf(fm?.legs),
       returnJourney: journeyOf(fm?.return_legs),
+      ...cruiseOf(booking),
+      where: booking.where,
     };
   });
 

@@ -5,6 +5,7 @@ import { tripCities } from "../types";
 import { formatMoney } from "../util/money";
 import { parseLocation } from "../travel/types";
 import { airportPoint } from "./flightRoutes";
+import { isAboard } from "../bookings/cruise";
 import type { PlaceKind, TripPlace } from "./tripPlaces";
 
 /**
@@ -32,6 +33,8 @@ function kindOf(booking: Booking): PlaceKind {
       return "transport";
     case "restaurant":
       return "restaurant";
+    case "excursion":
+      return "activity";
     default:
       return "activity";
   }
@@ -105,6 +108,12 @@ export function readTripPlaces(app: App, trip: Trip, bookings: Booking[]): TripP
       }
       continue;
     }
+
+    // A cruise is a fortnight of somewheres and belongs to the itinerary, not
+    // to a pin; and anything booked on the ship has no address at all. Neither
+    // is a place waiting to be geocoded, and counting them as such would show
+    // a standing "3 places could not be placed" that no amount of work clears.
+    if (booking.kind === "cruise" || isAboard(booking.where) || booking.where) continue;
 
     const coord = parseLocation(
       app.metadataCache.getFileCache(booking.file)?.frontmatter?.location,

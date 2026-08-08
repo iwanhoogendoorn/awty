@@ -145,6 +145,9 @@ export async function migrateFoodTables(
         attachments: [],
         legs: [],
         returnLegs: [],
+        ports: [],
+        where: "",
+        cruise: "",
       });
       migrated += 1;
     }

@@ -1,6 +1,7 @@
 import type { TFile } from "obsidian";
 import type { Booking, BookingKind, DaySlot } from "../bookings/types";
 import { BOOKING_KINDS } from "../bookings/types";
+import { formatAshore, minutesAshore, portLabel, portOn } from "../bookings/cruise";
 import { formatMoney } from "../util/money";
 import { datesInRange } from "../util/dates";
 
@@ -116,6 +117,39 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
         band: BAND.CheckOut,
       });
     }
+    return out;
+  }
+
+  if (booking.kind === "cruise") {
+    // A cruise is a fortnight of somewheres on one confirmation, so it earns a
+    // row on each of those days rather than one row spanning the lot. A sea day
+    // is a real day of the trip — it is where you are, and knowing there is no
+    // port is exactly what you want the itinerary to tell you.
+    const port = portOn(booking.ports, date);
+    if (!port) return out;
+    const ashore = minutesAshore(port);
+    const first = date === booking.date;
+    const last = date === booking.endDate && booking.endDate !== booking.date;
+    out.push({
+      ...base,
+      // The time that matters is the one you can miss. Arriving somewhere is a
+      // fact; sailing again is a deadline.
+      time: port.departs || port.arrives,
+      title: booking.title,
+      detail: [
+        port.atSea ? "At sea" : portLabel(port),
+        port.atSea
+          ? ""
+          : [port.arrives, port.departs].filter(Boolean).join("–") +
+            (ashore === null ? "" : ` · ${formatAshore(ashore)} ashore`),
+        first ? "Embark" : last ? "Disembark" : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      // The fare is paid once, and it shows on the day you board.
+      cost: first ? cost : "",
+      band: first ? BAND.CheckIn : last ? BAND.CheckOut : BAND.During,
+    });
     return out;
   }
 

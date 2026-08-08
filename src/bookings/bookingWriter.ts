@@ -7,6 +7,7 @@ import type { AwtySettings, Trip } from "../types";
 import { joinPath, sanitizeName } from "../util/paths";
 import { airportFromLabel } from "../ui/components/suggest";
 import { legsToFrontmatter, layoverMinutes, formatLayover, type FlightLeg } from "./legs";
+import { portsToFrontmatter, readPorts, type CruisePort } from "./cruise";
 import { readLegs as legsFromFrontmatter } from "./flightSummary";
 import type { Booking } from "./types";
 import { fileFromLink } from "./bookingStore";
@@ -40,6 +41,12 @@ export interface BookingDraft {
   legs: FlightLeg[];
   /** The way home, on the same ticket. Empty for a one-way. */
   returnLegs: FlightLeg[];
+  /** A cruise's ports of call, in date order. Empty for everything else. */
+  ports: CruisePort[];
+  /** For something booked on a cruise: "On board", or a port call. */
+  where: string;
+  /** The cruise note this hangs off, as a path. */
+  cruise: string;
   /** "lat,lng" already known, so travel times skip a billed geocode. */
   location?: string;
 }
@@ -158,6 +165,7 @@ const BOOKING_KEYS = [
   "end_date", "time", "end_time", "cost", "currency", "reference", "from", "to",
   ...addressKeys(), ...addressKeys("from"),
   "operator", "seat", "legs", "return_legs", "attachments", "location",
+  "ports", "where", "cruise",
 ];
 
 function writeBookingFrontmatter(
@@ -213,6 +221,11 @@ function writeBookingFrontmatter(
   // Stored even for a direct flight: without it the outbound arrival has to
   // be inferred from the booking's end, which on a return ticket is when you
   // land back home — an outbound "journey" of seven days.
+  if (draft.ports.length > 0) fm.ports = portsToFrontmatter(draft.ports);
+  // Where on the cruise, and which cruise. Only written when there is one, so a
+  // restaurant ashore does not carry an empty "where" that reads as an answer.
+  if (draft.where) fm.where = draft.where;
+  if (draft.cruise) fm.cruise = draft.cruise;
   if (draft.legs.length > 0) fm.legs = legsToFrontmatter(draft.legs);
   if (draft.returnLegs.length > 0) fm.return_legs = legsToFrontmatter(draft.returnLegs);
   if (links.length) fm.attachments = links;
@@ -293,6 +306,9 @@ export async function draftFromBooking(
     attachments: attachmentPaths(app, booking.attachments, booking.file.path),
     legs: legsFromFrontmatter(fm?.legs),
     returnLegs: legsFromFrontmatter(fm?.return_legs),
+    ports: readPorts(fm?.ports),
+    where: booking.where,
+    cruise: booking.cruise,
   };
 }
 

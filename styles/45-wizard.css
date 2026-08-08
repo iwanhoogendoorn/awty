@@ -858,3 +858,68 @@
   width: 14px;
   height: 14px;
 }
+
+/* ---------------------------------------------------------------- cruise
+
+   The ports editor borrows the legs editor's boxes wholesale: it is the same
+   shape of problem — a repeating row with dates and times — and two editors
+   that look different for no reason is two things to learn. */
+
+.awty-ports {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+
+.awty-ports .awty-leg-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 700px) {
+  .awty-ports .awty-leg-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.awty-leg-title {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+/* What the day gives you, said next to where you are entering it: the window
+   an excursion has to fit into, or the reason there is no window. */
+
+.awty-leg-note {
+  margin-left: auto;
+  margin-right: 0.5em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+/* A day at sea is a real day of the trip, so it is dimmed rather than hidden —
+   and its box loses the fields that would claim the ship docked. */
+
+.awty-leg-box.is-at-sea {
+  background: var(--background-primary-alt);
+  border-style: dashed;
+}
+
+.awty-leg-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  margin-top: 0.5em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-leg-toggle label {
+  cursor: pointer;
+}
+
+.awty-cruise-summary {
+  margin-top: 0.6em;
+}

@@ -16,6 +16,18 @@ import {
 } from "../components/suggest";
 import { tripEndpoints, transferShortcuts, type Endpoint } from "../../bookings/tripEndpoints";
 import { LegsField } from "../components/legsField";
+import { PortsField } from "../components/portsField";
+import {
+  ABOARD,
+  cruiseShape,
+  cruiseWhereOptions,
+  emptyPort,
+  formatAshore,
+  minutesAshore,
+  orderPorts,
+  portLabel,
+  type CruisePort,
+} from "../../bookings/cruise";
 import { airportFromLabel } from "../components/suggest";
 import { parseConfirmation, type ParsedConfirmation } from "../../flights/parseConfirmation";
 import { localiseLegs } from "../../flights/localTime";
@@ -50,7 +62,8 @@ type FieldKey =
   | "seat"
   | "title"
   | "address"
-  | "fromAddress";
+  | "fromAddress"
+  | "where";
 
 /**
  * The keys that really are a single string on the draft.
@@ -58,7 +71,7 @@ type FieldKey =
  * `address` and `fromAddress` name a group of boxes rather than one, so the
  * generic "read a field, write a field" code must never reach for them.
  */
-type TextFieldKey = Exclude<FieldKey, "address" | "fromAddress">;
+type TextFieldKey = Exclude<FieldKey, "address" | "fromAddress" | "where">;
 
 export type StarKind = "airline" | "airport";
 
@@ -111,10 +124,28 @@ const FIELDS: Record<BookingKind, FieldSpec[]> = {
   ],
   restaurant: [
     { key: "title", label: "Restaurant", placeholder: "Nautika", required: true },
+    // Only rendered on a trip that has a cruise; on every other trip a
+    // restaurant is simply somewhere, and asking would be noise.
+    { key: "where", label: "Where", placeholder: "" },
     { key: "address", label: "Address", placeholder: "Brsalje ul. 3" },
     { key: "operator", label: "Booked by", placeholder: "Optional" },
     { key: "reference", label: "Reservation reference", placeholder: "Optional" },
     { key: "seat", label: "Table", placeholder: "By the window" },
+  ],
+  cruise: [
+    { key: "operator", label: "Cruise line", placeholder: "Regent Seven Seas" },
+    { key: "title", label: "Ship", placeholder: "Seven Seas Prestige", required: true },
+    { key: "from", label: "Embarks at", placeholder: "Miami, Florida", required: true },
+    { key: "to", label: "Disembarks at", placeholder: "Miami, Florida" },
+    { key: "seat", label: "Cabin", placeholder: "Concierge Suite 812" },
+    { key: "reference", label: "Booking reference", placeholder: "ABC123" },
+  ],
+  excursion: [
+    { key: "title", label: "Excursion", placeholder: "Mayan ruins at Uxmal", required: true },
+    { key: "where", label: "Where", placeholder: "" },
+    { key: "operator", label: "Operator", placeholder: "Booked through the ship" },
+    { key: "seat", label: "Meeting point", placeholder: "Deck 4, midship" },
+    { key: "reference", label: "Booking reference", placeholder: "ABC123" },
   ],
   transport: [
     { key: "operator", label: "Carrier", placeholder: "FlixBus" },
@@ -136,6 +167,9 @@ function markRequired(setting: Setting): void {
 
 const STEPS = ["Details", "When", "Cost", "Attachments"] as const;
 const FLIGHT_STEPS = ["Flights", "Cost", "Attachments"] as const;
+// A cruise's dates come out of its itinerary, so asking for them separately
+// would be asking the same question twice and inviting the two to disagree.
+const CRUISE_STEPS = ["Details", "Itinerary", "Cost", "Attachments"] as const;
 
 /**
  * Step-by-step booking capture.
@@ -155,6 +189,8 @@ export class BookingWizard extends Modal {
   private nextBtn!: ButtonComponent;
   private amountRaw = "";
   private legsField: LegsField | null = null;
+  private portsField: PortsField | null = null;
+  private cruiseSummaryEl: HTMLElement | null = null;
   /** What the last confirmation yielded, shown in place of the hint. */
   private readSummary = "";
   private pasteHandler: ((evt: ClipboardEvent) => void) | null = null;
@@ -174,7 +210,9 @@ export class BookingWizard extends Modal {
 
   /** Flights hold their dates on each leg, so they skip the separate When step. */
   private get steps(): readonly string[] {
-    return this.draft.kind === "flight" ? FLIGHT_STEPS : STEPS;
+    if (this.draft.kind === "flight") return FLIGHT_STEPS;
+    if (this.draft.kind === "cruise") return CRUISE_STEPS;
+    return STEPS;
   }
 
   constructor(
@@ -225,6 +263,11 @@ export class BookingWizard extends Modal {
       // The trip already knows where you are leaving from; no reason to ask twice.
     legs: kind === "flight" ? [{ ...emptyLeg(start), from: trip.originAirport }] : [],
       returnLegs: [],
+      // One row to start with, so the itinerary is somewhere to type rather
+      // than a button you have to find first.
+      ports: kind === "cruise" ? [emptyPort(start)] : [],
+      where: "",
+      cruise: "",
       ...initial,
     };
     this.hasReturn = (this.draft.returnLegs?.length ?? 0) > 0;
@@ -382,6 +425,7 @@ export class BookingWizard extends Modal {
     this.bodyEl.empty();
     const name = this.steps[this.step];
     if (name === "Details" || name === "Flights") this.renderDetails();
+    else if (name === "Itinerary") this.renderPorts();
     else if (name === "When") this.renderWhen();
     else if (name === "Cost") this.renderCost();
     else this.renderAttachments();
@@ -410,6 +454,12 @@ export class BookingWizard extends Modal {
         this.renderAddressField(spec);
         continue;
       }
+      if (spec.key === "where") {
+        // An excursion is always part of a cruise, so it always asks. Anything
+        // else asks only when there is a ship to be on.
+        if (this.draft.kind === "excursion" || this.hasCruise()) this.renderWhereField(spec);
+        continue;
+      }
       const setting = new Setting(this.bodyEl).setName(spec.label);
       if (spec.required) markRequired(setting);
       setting.addText((t) => {
@@ -420,6 +470,153 @@ export class BookingWizard extends Modal {
     }
 
     this.renderStatusAndNotes();
+  }
+
+  /**
+   * The cruise itinerary: a row per day, and the dates that fall out of it.
+   *
+   * The booking's own start and end are taken from the first and last rows
+   * rather than asked for. A cruise that says it runs to the 8th while its last
+   * port is the 9th is a booking arguing with itself, and the argument is
+   * always won by the itinerary — that is the bit copied off the confirmation.
+   */
+  private renderPorts(): void {
+    const intro = new Setting(this.bodyEl).setName("Itinerary").setHeading();
+    intro.setDesc(
+      "One row per day, the way the cruise line prints it. Days at sea count — they are days you are on the ship with nothing ashore to book.",
+    );
+
+    const host = this.bodyEl.createDiv();
+    this.portsField = new PortsField({
+      app: this.app,
+      container: host,
+      ports: this.draft.ports,
+      defaultDate: this.draft.date || todayISO(),
+      onChange: () => {
+        this.draft.ports = this.portsField?.getPorts() ?? [];
+        this.syncCruiseDates();
+        this.paintCruiseSummary();
+      },
+    });
+    this.draft.ports = this.portsField.getPorts();
+    this.syncCruiseDates();
+
+    this.cruiseSummaryEl = this.bodyEl.createDiv({ cls: "awty-dash-hint awty-cruise-summary" });
+    this.paintCruiseSummary();
+  }
+
+  /** Boarding to getting off, read off the itinerary rather than asked twice. */
+  private syncCruiseDates(): void {
+    const dated = orderPorts(this.draft.ports).filter((p) => p.date);
+    if (dated.length === 0) return;
+    this.draft.date = dated[0].date;
+    this.draft.endDate = dated[dated.length - 1].date;
+    this.draft.time = dated[0].departs || this.draft.time;
+    this.draft.endTime = dated[dated.length - 1].arrives || this.draft.endTime;
+  }
+
+  private paintCruiseSummary(): void {
+    const el = this.cruiseSummaryEl;
+    if (!el) return;
+    el.empty();
+    const shape = cruiseShape(this.draft.ports);
+    if (shape.calls === 0 && shape.seaDays === 0) {
+      el.setText("Add the ports and this will say what the cruise adds up to.");
+      return;
+    }
+    const bits = [
+      `${shape.nights} night${shape.nights === 1 ? "" : "s"}`,
+      `${shape.calls} port${shape.calls === 1 ? "" : "s"} of call`,
+      shape.seaDays > 0 ? `${shape.seaDays} day${shape.seaDays === 1 ? "" : "s"} at sea` : "",
+      shape.countries.length > 0 ? shape.countries.join(", ") : "",
+    ].filter(Boolean);
+    el.setText(bits.join(" · "));
+  }
+
+  /**
+   * Where on a cruise this happens: the ship, or one of its ports.
+   *
+   * Offered as a list rather than a box, because the answers are known — they
+   * are on the cruise booking already — and typing "Progresso" where the
+   * itinerary says "Progreso" is a mismatch nothing downstream can repair.
+   * Sea days are absent: there is no gangway, so there is nothing to book.
+   */
+  private hasCruise(): boolean {
+    return (this.tripBookings?.() ?? []).some((b) => b.kind === "cruise");
+  }
+
+  private renderWhereField(spec: FieldSpec): void {
+    const cruises = (this.tripBookings?.() ?? []).filter((b) => b.kind === "cruise");
+    const ports = cruises.flatMap((c) => c.ports);
+    const options = cruiseWhereOptions(ports);
+
+    const setting = new Setting(this.bodyEl).setName(spec.label);
+    if (cruises.length === 0) {
+      setting.setDesc("Add the cruise to this trip first and its ports will be offered here.");
+      setting.addText((t) => {
+        t.setPlaceholder("Ashore, or on board");
+        t.setValue(this.draft.where);
+        t.onChange((v) => (this.draft.where = v.trim()));
+      });
+      return;
+    }
+
+    setting.setDesc("On the ship, or ashore at one of its ports.");
+    setting.addDropdown((dd) => {
+      dd.addOption("", "Not said");
+      for (const option of options) dd.addOption(option, option);
+      // A value typed before the cruise existed is kept rather than silently
+      // swapped for the first port in the list.
+      if (this.draft.where && !options.includes(this.draft.where)) {
+        dd.addOption(this.draft.where, `${this.draft.where} (not on the itinerary)`);
+      }
+      dd.setValue(this.draft.where);
+      dd.onChange((v) => {
+        this.draft.where = v;
+        // Which cruise this hangs off, so the note can point back at it.
+        this.draft.cruise = cruises[0]?.file.path ?? "";
+        this.applyPortDay(ports);
+        this.renderBody();
+      });
+    });
+
+    this.renderAshoreHint(ports);
+  }
+
+  /**
+   * Move an excursion onto the day its port is, and say how long there is.
+   *
+   * A shore excursion happens on exactly one day — the day the ship is there —
+   * so making you look that up and type it in is asking you to copy a fact the
+   * plugin already holds, with the chance of getting it wrong.
+   */
+  private applyPortDay(ports: CruisePort[]): void {
+    if (!this.draft.where || this.draft.where === ABOARD) return;
+    const match = orderPorts(ports).find((p) => portLabel(p) === this.draft.where);
+    if (!match?.date) return;
+    this.draft.date = match.date;
+    this.draft.endDate = match.date;
+  }
+
+  private renderAshoreHint(ports: CruisePort[]): void {
+    if (!this.draft.where) return;
+    if (this.draft.where === ABOARD) {
+      this.bodyEl.createDiv({
+        cls: "awty-dash-hint",
+        text: "On the ship. Nothing to get ashore for, and no tender to miss.",
+      });
+      return;
+    }
+    const match = orderPorts(ports).find((p) => portLabel(p) === this.draft.where);
+    if (!match) return;
+    const ashore = minutesAshore(match);
+    this.bodyEl.createDiv({
+      cls: "awty-dash-hint",
+      text:
+        ashore === null
+          ? `${match.date} — the itinerary has no times for this port yet.`
+          : `${match.date}, alongside ${match.arrives}–${match.departs}. ${formatAshore(ashore)} ashore, and the ship does not wait.`,
+    });
   }
 
   /** A field's value as text, whichever shape it is stored in. */
