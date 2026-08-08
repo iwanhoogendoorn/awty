@@ -167,10 +167,22 @@ export interface PlaceScope {
  * One entry per place, however many days it appears on: an airport you fly into
  * and back out of is one airport.
  */
+/**
+ * The id a place is known by once it is offered in a menu.
+ *
+ * Not `TripPlace.id`, which is per-appearance — an airport you fly into and
+ * back out of has two of those, and a menu wants one entry. Exported because
+ * anything that resolves a choice back to a place has to compute it the same
+ * way; when only the menu knew how, every picker silently matched nothing.
+ */
+export function scopeIdOf(place: TripPlace): string {
+  return `${place.label}@${place.lat.toFixed(4)},${place.lng.toFixed(4)}`;
+}
+
 export function placeScopes(places: TripPlace[]): PlaceScope[] {
   const byPlace = new Map<string, PlaceScope>();
   for (const place of places) {
-    const key = `${place.label}@${place.lat.toFixed(4)},${place.lng.toFixed(4)}`;
+    const key = scopeIdOf(place);
     if (byPlace.has(key)) continue;
     byPlace.set(key, {
       id: key,
@@ -186,24 +198,108 @@ export function placeScopes(places: TripPlace[]): PlaceScope[] {
   );
 }
 
-/** How many of each kind there are, so a filter chip can say what it hides. */
-export function countByKind(places: TripPlace[]): Map<PlaceKind, number> {
-  const counts = new Map<PlaceKind, number>();
-  for (const place of places) counts.set(place.kind, (counts.get(place.kind) ?? 0) + 1);
-  return counts;
+/**
+ * Visible places the route cannot reach, because nothing says when you go.
+ *
+ * The route is built from dates and times on your bookings — there is nowhere
+ * to wire one place to another by hand, and there should not be. But a place
+ * with no date silently vanishing from the route is a rule nobody can see and
+ * nobody can act on, so these come back to be named on screen.
+ */
+export function unscheduled(places: TripPlace[], visible: Set<PlaceKind>): TripPlace[] {
+  return orderPlaces(places).filter((p) => !p.date && visible.has(p.kind));
 }
 
 /**
- * The days the route spans, for labelling each leg.
+ * How many of each kind there are, counting places rather than appearances.
  *
- * A trip's ground route is not one journey but a sequence of them, and the day
- * is what separates them: the line from the last restaurant on Tuesday to the
- * first thing on Wednesday is you going to bed, not you travelling.
+ * An airport you fly into and back out of is one airport on two days. Counting
+ * the appearances made the chip say "Airports 4" over two pins, and drew the
+ * second of each pair exactly on top of the first.
  */
-export function legsOf(route: TripPlace[]): { from: TripPlace; to: TripPlace; sameDay: boolean }[] {
-  const legs: { from: TripPlace; to: TripPlace; sameDay: boolean }[] = [];
-  for (let i = 1; i < route.length; i += 1) {
-    legs.push({ from: route[i - 1], to: route[i], sameDay: route[i - 1].date === route[i].date });
+export function countByKind(places: TripPlace[]): Map<PlaceKind, number> {
+  const counts = new Map<PlaceKind, number>();
+  const seen = new Set<string>();
+  for (const place of places) {
+    const id = scopeIdOf(place);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    counts.set(place.kind, (counts.get(place.kind) ?? 0) + 1);
   }
-  return legs;
+  return counts;
+}
+
+export interface Connection {
+  from: TripPlace;
+  to: TripPlace;
+  /** Travelled in both directions, so it earns a dot going each way. */
+  bothWays: boolean;
+}
+
+function pairKey(a: TripPlace, b: TripPlace): string {
+  const one = `${a.lat.toFixed(4)},${a.lng.toFixed(4)}`;
+  const two = `${b.lat.toFixed(4)},${b.lng.toFixed(4)}`;
+  return one < two ? `${one}|${two}` : `${two}|${one}`;
+}
+
+/**
+ * The roads a trip travels, each drawn once.
+ *
+ * Consecutive places make a journey; a pair travelled both ways — out to the
+ * hotel and back to the airport a week later — is one road, not two lines on
+ * top of each other. Drawing both put two dots on what looked like one line,
+ * moving at different speeds in opposite directions, which reads as the
+ * animation being broken rather than as a return trip.
+ *
+ * There is deliberately no "overnight" here any more. It marked a leg whose
+ * ends fell on different dates, which sounded like the gap between two days
+ * but in practice caught the run to the airport on the last morning — a real
+ * journey, drawn as though you had slept through it. A hotel is dated once, at
+ * check-in, so almost everything after it crossed a date and was mislabelled.
+ */
+export function connectionsOf(route: TripPlace[]): Connection[] {
+  const byPair = new Map<string, Connection>();
+  const headings = new Map<string, Set<string>>();
+
+  for (let i = 1; i < route.length; i += 1) {
+    const from = route[i - 1];
+    const to = route[i];
+    // Two airports in a row is a flight, and the flight is already on the map
+    // as a great circle. Drawing it again as a ground connection put a thick
+    // straight road from Amsterdam to Dubrovnik alongside the arc — a drive
+    // nobody made, running parallel to the flight that actually happened.
+    if (from.kind === "airport" && to.kind === "airport") continue;
+    const key = pairKey(from, to);
+    const seen = headings.get(key) ?? new Set<string>();
+    seen.add(`${from.id}>${to.id}`);
+    headings.set(key, seen);
+    if (!byPair.has(key)) byPair.set(key, { from, to, bothWays: false });
+  }
+
+  for (const [key, connection] of byPair) {
+    connection.bothWays = (headings.get(key)?.size ?? 0) > 1;
+  }
+  return [...byPair.values()];
+}
+
+/**
+ * One connection between any two places, whether or not the trip makes it.
+ *
+ * For asking "show me the hotel and the airport and nothing else". A pair the
+ * route does not travel is still drawn — you asked for it — but the caller is
+ * expected to say so rather than let it pass as an itinerary.
+ */
+export function connectionBetween(
+  places: TripPlace[],
+  fromId: string,
+  toId: string,
+): { connection: Connection; onRoute: boolean } | null {
+  const from = places.find((p) => scopeIdOf(p) === fromId);
+  const to = places.find((p) => scopeIdOf(p) === toId);
+  if (!from || !to || pairKey(from, to) === pairKey(from, from)) return null;
+
+  const travelled = connectionsOf(orderPlaces(places).filter((p) => p.date)).some(
+    (c) => pairKey(c.from, c.to) === pairKey(from, to),
+  );
+  return { connection: { from, to, bothWays: false }, onRoute: travelled };
 }

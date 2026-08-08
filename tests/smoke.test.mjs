@@ -67,7 +67,7 @@ export { greatCirclePath, interpolate as gcInterpolate, distanceKm, angularDista
 export { worldRings, RING_COUNT } from "./src/data/worldMap.ts";
 export { routesFrom, airportPoint, scopesFor } from "./src/map/flightRoutes.ts";
 export { kindsForCategory, bookingFromQuote, bookingNoteFrom } from "./src/planning/bookFromQuote.ts";
-export { PLACE_KINDS, placeKindDef, orderPlaces, routeThrough, countByKind, legsOf, placeScopes, zoomForKind, MAX_MAP_ZOOM } from "./src/map/tripPlaces.ts";
+export { PLACE_KINDS, placeKindDef, orderPlaces, routeThrough, countByKind, connectionsOf, connectionBetween, placeScopes, scopeIdOf, zoomForKind, MAX_MAP_ZOOM, unscheduled } from "./src/map/tripPlaces.ts";
 export { bookedTotals, openTracks, unbookMissing, rebindBooking } from "./src/planning/priceWatch.ts";
 export { worldPolygons } from "./src/map/baseLayer.ts";
 export { splitFrontmatter } from "./src/util/frontmatter.ts";
@@ -2927,7 +2927,7 @@ test("two places at one address do not become a leg of length nothing", () => {
     PLACE({ label: "Hotel", kind: "stay", date: "2026-08-17", lat: 42.65, lng: 18.09 }),
     PLACE({ label: "Hotel restaurant", kind: "restaurant", date: "2026-08-17", time: "20:00", lat: 42.65, lng: 18.09 }),
   ];
-  assert.equal(m.legsOf(m.routeThrough(sameSpot, new Set(["stay", "restaurant"]))).length, 0);
+  assert.equal(m.connectionsOf(m.routeThrough(sameSpot, new Set(["stay", "restaurant"]))).length, 0);
 });
 
 test("staying put is not a journey, but going back is", () => {
@@ -2951,16 +2951,97 @@ test("staying put is not a journey, but going back is", () => {
   );
 });
 
-test("a leg that crosses midnight is marked as one", () => {
-  const legs = m.legsOf(m.routeThrough(DAY, new Set(["airport", "stay", "activity", "restaurant"])));
+test("a place with no date is named, not silently dropped from the route", () => {
+  // The rule is that a route needs dates to put places in an order. Applying it
+  // in silence left a dot joined to nothing and no way to know why — which
+  // reads as the drawing being broken rather than the diary being thin.
+  const all = new Set(["airport", "stay", "transport", "activity", "restaurant"]);
+  const loose = m.unscheduled(DAY, all);
+  assert.deepEqual(loose.map((p) => p.label), ["Nautika"]);
+  // Exactly the ones the route left out.
+  const onRoute = new Set(m.routeThrough(DAY, all).map((p) => p.label));
+  for (const p of loose) assert.ok(!onRoute.has(p.label), `${p.label} is on the route after all`);
+
+  // Hidden kinds are not complained about: you asked for them to be gone.
+  assert.deepEqual(m.unscheduled(DAY, new Set(["stay"])), []);
+  // And a trip where everything is scheduled says nothing at all.
+  assert.deepEqual(m.unscheduled(DAY.filter((p) => p.date), all), []);
+});
+
+test("a road travelled both ways is one line, with a dot going each way", () => {
+  // Drawn per direction, the airport run out and back sat exactly on top of
+  // itself: two dots on what looked like one line, moving opposite ways at
+  // different speeds, which reads as the animation being broken.
+  const outAndBack = [
+    PLACE({ label: "DBV", kind: "airport", date: "2026-08-17", time: "12:00", lat: 42.56, lng: 18.27 }),
+    PLACE({ label: "Hotel", kind: "stay", date: "2026-08-17", time: "14:00", lat: 42.65, lng: 18.09 }),
+    PLACE({ label: "DBV", kind: "airport", date: "2026-08-24", time: "10:00", lat: 42.56, lng: 18.27 }),
+  ];
+  const cons = m.connectionsOf(m.routeThrough(outAndBack, new Set(["airport", "stay"])));
+  assert.equal(cons.length, 1, "one road, not two lines on top of each other");
+  assert.equal(cons[0].bothWays, true);
+
+  // A one-way road gets one dot.
+  const oneWay = m.connectionsOf(m.routeThrough(DAY, new Set(["airport", "stay", "activity", "restaurant"])));
   assert.deepEqual(
-    legs.map((l) => `${l.from.label} -> ${l.to.label} ${l.sameDay ? "same-day" : "overnight"}`),
-    [
-      "DBV — Dubrovnik -> Villa Kompas same-day",
-      "Villa Kompas -> Proto same-day",
-      "Proto -> City walls overnight",
-    ],
+    oneWay.map((c) => `${c.from.label} -> ${c.to.label}${c.bothWays ? " (both ways)" : ""}`),
+    ["DBV — Dubrovnik -> Villa Kompas", "Villa Kompas -> Proto", "Proto -> City walls"],
   );
+});
+
+test("the way between two airports is the flight, not a road", () => {
+  // The arc is already drawn as a great circle. Drawing the same pair again as
+  // a ground connection laid a straight road from Amsterdam to Dubrovnik right
+  // alongside it — a drive nobody made.
+  const flown = [
+    PLACE({ label: "AMS", kind: "airport", date: "2026-08-17", time: "10:00", lat: 52.31, lng: 4.76 }),
+    PLACE({ label: "DBV", kind: "airport", date: "2026-08-17", time: "12:00", lat: 42.56, lng: 18.27 }),
+    PLACE({ label: "Hotel", kind: "stay", date: "2026-08-17", time: "14:00", lat: 42.65, lng: 18.09 }),
+    PLACE({ label: "DBV", kind: "airport", date: "2026-08-24", time: "10:00", lat: 42.56, lng: 18.27 }),
+    PLACE({ label: "AMS", kind: "airport", date: "2026-08-24", time: "12:20", lat: 52.31, lng: 4.76 }),
+  ];
+  const cons = m.connectionsOf(m.routeThrough(flown, new Set(["airport", "stay"])));
+  assert.deepEqual(
+    cons.map((c) => `${c.from.label} -> ${c.to.label}`),
+    ["DBV -> Hotel"],
+  );
+  // And it is still one road, travelled both ways.
+  assert.equal(cons[0].bothWays, true);
+
+  // A transfer that genuinely runs between two airports is not an airport pair:
+  // it is a transport booking with its own place, and keeps its connections.
+  const viaCoach = [
+    PLACE({ label: "LGW", kind: "airport", date: "2026-08-17", time: "08:00", lat: 51.15, lng: -0.18 }),
+    PLACE({ label: "Coach", kind: "transport", date: "2026-08-17", time: "09:00", lat: 51.3, lng: -0.3 }),
+    PLACE({ label: "LHR", kind: "airport", date: "2026-08-17", time: "11:00", lat: 51.47, lng: -0.45 }),
+  ];
+  assert.equal(m.connectionsOf(m.routeThrough(viaCoach, new Set(["airport", "transport"]))).length, 2);
+});
+
+test("any two places can be asked for, and it says when that is not a journey", () => {
+  // The whole point of the From/To pickers: the airport and the hotel, and
+  // nothing else — whether or not the itinerary happens to join them up.
+  // Addressed the way the menu addresses them, not by whatever the fixture
+  // happens to call them — a test that invents its own ids cannot catch a
+  // picker whose values match nothing.
+  const idOf = (label) => m.scopeIdOf(DAY.find((p) => p.label === label));
+  const onRoute = m.connectionBetween(DAY, idOf("DBV — Dubrovnik"), idOf("Villa Kompas"));
+  assert.equal(onRoute.onRoute, true);
+  assert.equal(onRoute.connection.from.label, "DBV — Dubrovnik");
+
+  // A pair the trip never travels is still drawn — you asked — but flagged, so
+  // it cannot pass as part of the itinerary.
+  const invented = m.connectionBetween(DAY, idOf("DBV — Dubrovnik"), idOf("Proto"));
+  assert.equal(invented.onRoute, false);
+  assert.ok(invented.connection);
+
+  // Nonsense in, nothing out.
+  assert.equal(m.connectionBetween(DAY, idOf("DBV — Dubrovnik"), idOf("DBV — Dubrovnik")), null);
+  assert.equal(m.connectionBetween(DAY, "nowhere", idOf("Villa Kompas")), null);
+  // The menu's ids and the resolver's ids are the same ids.
+  for (const scope of m.placeScopes(DAY)) {
+    assert.ok(DAY.some((p) => m.scopeIdOf(p) === scope.id), `${scope.label} resolves to nothing`);
+  }
 });
 
 test("the map offers to take you to each place once, grouped by kind", () => {
@@ -3014,6 +3095,15 @@ test("every place kind has a colour, a label and an icon", () => {
   assert.equal(counts.get("restaurant"), 2);
   assert.equal(counts.get("airport"), 1);
   assert.equal(counts.get("transport"), undefined);
+
+  // One airport, twice: flown into and back out of. The chip counts places,
+  // not appearances — otherwise it says four over two pins.
+  const bothWays = [
+    ...DAY,
+    PLACE({ label: "DBV — Dubrovnik", kind: "airport", date: "2026-08-24", lat: 42.56, lng: 18.27 }),
+  ];
+  assert.equal(m.countByKind(bothWays).get("airport"), 1);
+  assert.equal(m.placeScopes(bothWays).filter((s) => s.kind === "airport").length, 1);
 });
 
 test("an airport label resolves however it is written", () => {

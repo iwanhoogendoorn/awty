@@ -129,6 +129,14 @@ export function readTripPlaces(app: App, trip: Trip, bookings: Booking[]): TripP
   // coordinates, so they cost nothing to place — and a restaurant you have not
   // booked is somewhere you might go, which is worth a dot even though it is
   // not on the route.
+  // A restaurant you have booked on this trip is already above, with its date
+  // and its cost. Its Food Spot note is the same restaurant, and without this
+  // it arrives a second time as an undated suggestion — two pins on one
+  // doorway, and a standing complaint that the place has no date when it does.
+  const booked = new Set(
+    places.filter((p) => p.kind === "restaurant").map((p) => p.label.trim().toLowerCase()),
+  );
+
   const cities = new Set(tripCities(trip).map((c) => c.trim().toLowerCase()));
   if (cities.size > 0) {
     for (const file of app.vault.getMarkdownFiles()) {
@@ -137,9 +145,11 @@ export function readTripPlaces(app: App, trip: Trip, bookings: Booking[]): TripP
       if (!cities.has(String(fm.city ?? "").trim().toLowerCase())) continue;
       const coord = parseLocation(fm.location);
       if (!coord) continue;
+      const name = String(fm.name ?? file.basename);
+      if (booked.has(name.trim().toLowerCase())) continue;
       push({
         id: file.path,
-        label: String(fm.name ?? file.basename),
+        label: name,
         kind: "restaurant",
         lat: coord.lat,
         lng: coord.lng,
