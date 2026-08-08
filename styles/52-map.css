@@ -23,15 +23,15 @@
 
 .awty-map-canvas {
   width: 100%;
-  aspect-ratio: 16 / 9;
-  min-height: 320px;
-  max-height: 70vh;
+  /* The height is measured against the pane in script, so the whole component
+     fits without scrolling. This is only the floor it starts from and falls
+     back to if the measurement finds nothing to measure against. */
+  height: 420px;
+  min-height: 260px;
   border-radius: 6px;
   /* Leaflet paints its container behind the tiles, and its own default is a
      light grey that flashes on every pan in a dark theme. */
   background: var(--background-secondary);
-  /* Vertical scrolling still belongs to the pane; only a pinch is ours. */
-  touch-action: pan-x pan-y;
 }
 
 .awty-map-canvas:focus-visible {
@@ -155,11 +155,208 @@
   }
 }
 
+/* The way home, along the same line the other way. */
+
+.awty-map-plane.is-return {
+  animation-direction: reverse;
+}
+
+/* The dot that walks a ground leg, matching the plane that flies an arc. Its
+   colour is where it is heading, so it says what it is on its way to. */
+
+.awty-map-hop {
+  fill: var(--awty-hop, var(--text-accent));
+  stroke: var(--background-primary);
+  stroke-width: 1.2;
+  offset-rotate: auto;
+  animation: awty-fly 3.4s linear infinite backwards;
+}
+
+.awty-map-hop.is-airport {
+  --awty-hop: var(--awty-airport, var(--color-blue));
+}
+.awty-map-hop.is-stay {
+  --awty-hop: var(--awty-stay, var(--color-purple));
+}
+.awty-map-hop.is-transport {
+  --awty-hop: var(--awty-transport, var(--color-cyan));
+}
+.awty-map-hop.is-activity {
+  --awty-hop: var(--awty-activity, var(--color-green));
+}
+.awty-map-hop.is-restaurant {
+  --awty-hop: var(--awty-restaurant, var(--color-orange));
+}
+
 .awty-map-airport {
   fill: var(--text-accent);
   fill-opacity: 1;
   stroke: var(--background-secondary);
   stroke-width: 1.2;
+}
+
+/* -------------------------------------------------------- a trip's places */
+
+/* One colour per kind, defined once and used by the pin, the chip and nothing
+   else — so orange means "somewhere you eat" wherever you meet it. */
+
+.awty-map-pin-wrap,
+.awty-map-hops,
+.awty-map-kinds {
+  --awty-airport: var(--color-blue);
+  --awty-stay: var(--color-purple);
+  --awty-transport: var(--color-cyan);
+  --awty-activity: var(--color-green);
+  --awty-restaurant: var(--color-orange);
+}
+
+.awty-map-pin-wrap {
+  background: none;
+  border: none;
+}
+
+/* The same shape Food Spot marks its spots with: a filled dot, a white collar
+   so it reads over any tile, and a drop as it arrives. */
+
+.awty-map-pin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--awty-pin, var(--interactive-accent));
+  box-shadow:
+    0 0 0 2.5px var(--background-primary),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+  animation: awty-pin-drop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  transition: transform 0.12s ease;
+}
+
+.awty-map-pin:hover {
+  transform: scale(1.35);
+}
+
+.awty-map-pin.is-airport {
+  --awty-pin: var(--awty-airport);
+}
+.awty-map-pin.is-stay {
+  --awty-pin: var(--awty-stay);
+}
+.awty-map-pin.is-transport {
+  --awty-pin: var(--awty-transport);
+}
+.awty-map-pin.is-activity {
+  --awty-pin: var(--awty-activity);
+}
+.awty-map-pin.is-restaurant {
+  --awty-pin: var(--awty-restaurant);
+}
+
+@keyframes awty-pin-drop {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* The ground you cover between them. Drawn in, like the flight arcs, because
+   the drawing is what says which way round the day went. */
+
+.awty-map-leg {
+  fill: none;
+  stroke: var(--text-accent);
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: awty-arc-draw 1.1s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+  animation-delay: var(--awty-arc-delay, 0s);
+}
+
+/* A leg that crosses midnight is you going to bed, not you travelling, so it
+   is drawn as the gap it is. */
+
+.awty-map-leg.is-overnight {
+  stroke: var(--text-faint);
+  stroke-dasharray: 0.012 0.012;
+  stroke-dashoffset: 0;
+  opacity: 0.7;
+  animation: awty-leg-appear 0.5s ease-out backwards;
+}
+
+@keyframes awty-leg-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.7;
+  }
+}
+
+/* The chips. Same colours as the pins they switch on and off. */
+
+.awty-map-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 0.2em 0.55em;
+}
+
+.awty-map-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: auto;
+  padding: 3px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.awty-map-kind-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--awty-chip, var(--interactive-accent));
+}
+
+.awty-map-kind.is-airport {
+  --awty-chip: var(--awty-airport);
+}
+.awty-map-kind.is-stay {
+  --awty-chip: var(--awty-stay);
+}
+.awty-map-kind.is-transport {
+  --awty-chip: var(--awty-transport);
+}
+.awty-map-kind.is-activity {
+  --awty-chip: var(--awty-activity);
+}
+.awty-map-kind.is-restaurant {
+  --awty-chip: var(--awty-restaurant);
+}
+
+.awty-map-kind-count {
+  color: var(--text-faint);
+}
+
+/* Switched off: still legible, obviously not counting. */
+
+.awty-map-kind.is-off {
+  opacity: 0.45;
+  background: var(--background-secondary);
+}
+
+.awty-map-kind.is-off .awty-map-kind-dot {
+  background: var(--text-faint);
 }
 
 /* ----------------------------------------- Leaflet's own furniture, themed */
@@ -238,6 +435,25 @@
   stroke-width: 1.5;
 }
 
+/* The country jump. Above the map, where a scope control belongs — reading it
+   after the thing it scopes is reading the caption before the photograph. */
+
+.awty-map-scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0.2em 0.55em;
+}
+
+.awty-map-scope-label {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-map-scope-select {
+  max-width: 22em;
+}
+
 .awty-map-hint {
   padding: 0.45em 0.3em 0;
   font-size: var(--font-ui-smaller);
@@ -292,6 +508,12 @@
   color: var(--text-faint);
 }
 
+.awty-map-caveat-action {
+  color: var(--text-accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .awty-map-credit {
   display: flex;
   align-items: center;
@@ -322,7 +544,19 @@
     stroke-dasharray: none;
   }
 
-  .awty-map-plane {
+  .awty-map-plane,
+  .awty-map-hop {
     display: none;
+  }
+
+  .awty-map-leg,
+  .awty-map-pin {
+    animation: none;
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+
+  .awty-map-leg.is-same-day {
+    stroke-dasharray: none;
   }
 }

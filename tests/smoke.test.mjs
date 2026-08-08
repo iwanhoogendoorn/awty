@@ -63,11 +63,10 @@ export { impliedStage, effectiveStage } from "./src/util/dates.ts";
 export { STAGES, CREATABLE_STAGES, stageDef, isTripStage, isCreatableStage } from "./src/types.ts";
 export { suggestStage } from "./src/planning/stageSignals.ts";
 export { moneyStats, placeStats, flightStats, planningStats, legDistanceKm, iataOf, formatHours, formatKm } from "./src/stats/tripStats.ts";
-export { project, fitToBox, WORLD_HALF_WIDTH, WORLD_HALF_HEIGHT } from "./src/map/projection.ts";
 export { greatCirclePath, interpolate as gcInterpolate, distanceKm, angularDistance } from "./src/map/greatCircle.ts";
 export { worldRings, RING_COUNT } from "./src/data/worldMap.ts";
-export { routesFrom, airportPoint } from "./src/map/flightRoutes.ts";
-export { viewBox, viewBoxAttr, clampView, wholeWorld, isWholeWorld, zoomAt, zoomBy, panBy, centreOn, MIN_ZOOM, MAX_ZOOM } from "./src/map/viewport.ts";
+export { routesFrom, airportPoint, scopesFor } from "./src/map/flightRoutes.ts";
+export { PLACE_KINDS, placeKindDef, orderPlaces, routeThrough, countByKind, legsOf, placeScopes, zoomForKind, MAX_MAP_ZOOM } from "./src/map/tripPlaces.ts";
 export { worldPolygons } from "./src/map/baseLayer.ts";
 export { splitFrontmatter } from "./src/util/frontmatter.ts";
 `;
@@ -2659,40 +2658,6 @@ test("more than one booking is counted, not listed", () => {
 
 // ------------------------------------------------------------------- map
 
-test("the projection puts the world where a world map puts it", () => {
-  const origin = m.project(0, 0);
-  assert.ok(Math.abs(origin.x) < 1e-9 && Math.abs(origin.y) < 1e-9, "0,0 is the centre");
-  // The date line sits at the full half-width, the poles at the full height.
-  assert.ok(Math.abs(m.project(180, 0).x - m.WORLD_HALF_WIDTH) < 1e-9);
-  assert.ok(Math.abs(m.project(-180, 0).x + m.WORLD_HALF_WIDTH) < 1e-9);
-  assert.ok(Math.abs(m.project(0, 90).y + m.WORLD_HALF_HEIGHT) < 1e-9, "north is up, so negative y");
-  assert.ok(Math.abs(m.project(0, -90).y - m.WORLD_HALF_HEIGHT) < 1e-9);
-});
-
-test("Robinson narrows the parallels towards the poles", () => {
-  // The point of the projection: a degree of longitude is worth less near the
-  // pole than at the equator, which is what stops Greenland eating Africa.
-  const atEquator = m.project(90, 0).x;
-  const atSixty = m.project(90, 60).x;
-  const atPole = m.project(90, 90).x;
-  assert.ok(atSixty < atEquator, "60N is narrower than the equator");
-  assert.ok(atPole < atSixty, "the pole is narrower still");
-  // But not to a point, which is the difference from Mercator's cousins.
-  assert.ok(atPole > atEquator * 0.4, "the poles are lines, not points");
-});
-
-test("fitting to a box keeps the map inside it and centred", () => {
-  const at = m.fitToBox(900, 500, 10);
-  const middle = at(0, 0);
-  assert.equal(Math.round(middle.x), 450);
-  assert.equal(Math.round(middle.y), 250);
-  for (const [lng, lat] of [[-180, -90], [180, 90], [0, 90], [-180, 0]]) {
-    const p = at(lng, lat);
-    assert.ok(p.x >= -0.01 && p.x <= 900.01, `x ${p.x} inside`);
-    assert.ok(p.y >= -0.01 && p.y <= 500.01, `y ${p.y} inside`);
-  }
-});
-
 test("a great circle bends the way an aeroplane does", () => {
   // Amsterdam to Tokyo goes over the Arctic. The midpoint of a straight line
   // would sit around 47N; the real route is far further north.
@@ -2779,6 +2744,29 @@ test("a return trip is one line on the map, not two", () => {
   assert.equal(set.routes.length, 1);
   assert.equal(set.routes[0].flights, 2);
   assert.equal(set.points.length, 2);
+  // But the fold must not lose the fact that you came home: without this the
+  // animation shows a plane leaving and never arriving back.
+  assert.equal(set.routes[0].bothWays, true);
+});
+
+test("a one-way is not animated as though you flew home", () => {
+  const oneWay = m.routesFrom([routeInput({ journeys: [[LEG("AMS", "DBV")]] })]);
+  assert.equal(oneWay.routes[0].bothWays, false);
+
+  // Two people flying the same way on the same pair is still one direction.
+  const sameWayTwice = m.routesFrom([
+    routeInput({ journeys: [[LEG("AMS", "DBV")]] }),
+    routeInput({ tripTitle: "Another", journeys: [[LEG("AMS", "DBV")]] }),
+  ]);
+  assert.equal(sameWayTwice.routes[0].flights, 2);
+  assert.equal(sameWayTwice.routes[0].bothWays, false);
+
+  // And separate trips that between them cover both directions do count.
+  const outAndBackAcrossTrips = m.routesFrom([
+    routeInput({ journeys: [[LEG("AMS", "DBV")]] }),
+    routeInput({ tripTitle: "Another", journeys: [[LEG("DBV", "AMS")]] }),
+  ]);
+  assert.equal(outAndBackAcrossTrips.routes[0].bothWays, true);
 });
 
 test("a proposed flight is not drawn like a booked one", () => {
@@ -2869,97 +2857,161 @@ test("the bundled world comes out as latitude and longitude, in that order", () 
   assert.ok(east > 179 && west < -179, `longitudes span ${west}..${east}`);
 });
 
-// ------------------------------------------------------------ map viewport
+test("the map only offers to take you where it can actually go", () => {
+  // Built from the airports drawn, not the trips' destinations: a country you
+  // drove to has no airport here, and a menu entry that goes nowhere is worse
+  // than no menu entry.
+  const set = m.routesFrom([
+    routeInput({ journeys: [[LEG("AMS", "DBV")], [LEG("AMS", "Tokyo (NRT)")]] }),
+  ]);
+  const scopes = m.scopesFor(set);
+  assert.deepEqual(scopes.map((s) => s.label), ["Croatia", "Japan", "Netherlands"]);
+  assert.deepEqual(scopes.map((s) => s.points.length), [1, 1, 1]);
 
-const W = 1000;
-const H = 560;
+  // Two airports in one country are one entry, not two.
+  const two = m.scopesFor(m.routesFrom([
+    routeInput({ journeys: [[LEG("AMS", "New York (JFK)"), LEG("New York (JFK)", "Los Angeles (LAX)")]] }),
+  ]));
+  const usa = two.find((s) => s.points.length === 2);
+  assert.ok(usa, `expected the two American airports grouped, got ${JSON.stringify(two.map((s) => [s.label, s.points.length]))}`);
+  assert.deepEqual(usa.points.map((p) => p.code).sort(), ["JFK", "LAX"]);
+});
 
-test("zoomed all the way out is the whole world, exactly", () => {
-  const home = m.wholeWorld(W, H);
-  assert.deepEqual(m.viewBox(home, W, H), { x: 0, y: 0, w: W, h: H });
-  assert.ok(m.isWholeWorld(home));
+// ------------------------------------------------------------ trip places
 
-  // Every way back out lands on the same place rather than near it: a reset
-  // that leaves a two-pixel sliver of ocean off the edge is a reset that failed.
-  const wandered = m.centreOn(m.zoomBy(home, 6, W, H), 120, 90, W, H);
-  for (const back of [m.zoomBy(wandered, 1 / 100, W, H), m.wholeWorld(W, H)]) {
-    assert.deepEqual(m.viewBox(back, W, H), { x: 0, y: 0, w: W, h: H });
+const PLACE = (o) => ({ id: o.label, label: o.label, kind: o.kind, lat: o.lat ?? 42.65,
+  lng: o.lng ?? 18.09, date: o.date ?? "", time: o.time ?? "", path: o.label + ".md", cost: "", ...o });
+
+const DAY = [
+  PLACE({ label: "Villa Kompas", kind: "stay", date: "2026-08-17", lat: 42.65, lng: 18.09 }),
+  PLACE({ label: "DBV — Dubrovnik", kind: "airport", date: "2026-08-17", lat: 42.56, lng: 18.27 }),
+  PLACE({ label: "Proto", kind: "restaurant", date: "2026-08-17", time: "20:00", lat: 42.64, lng: 18.11 }),
+  PLACE({ label: "City walls", kind: "activity", date: "2026-08-18", time: "09:00", lat: 42.6415, lng: 18.1075 }),
+  PLACE({ label: "Nautika", kind: "restaurant", date: "", lat: 42.64, lng: 18.10 }),
+];
+
+test("a day reads landing, then checking in, then dinner", () => {
+  // Times settle it where they exist. Where they do not, the kind does: you
+  // land before you check in, whatever order the notes happen to be in.
+  const order = m.orderPlaces(DAY).map((p) => p.label);
+  assert.deepEqual(order, ["Nautika", "DBV — Dubrovnik", "Villa Kompas", "Proto", "City walls"]);
+  // The undated one sorts first and is excluded from the route below, which is
+  // the point: it is a suggestion, not an appointment.
+});
+
+test("the route only threads through places the trip actually visits", () => {
+  const all = new Set(["airport", "stay", "transport", "activity", "restaurant"]);
+  const route = m.routeThrough(DAY, all).map((p) => p.label);
+  // Nautika has no date, so no line is drawn to it — inventing that journey is
+  // exactly the failure this guards against.
+  assert.deepEqual(route, ["DBV — Dubrovnik", "Villa Kompas", "Proto", "City walls"]);
+  assert.ok(!route.includes("Nautika"));
+});
+
+test("hiding a kind redraws the route without it, rather than stranding the line", () => {
+  const noFood = new Set(["airport", "stay", "transport", "activity"]);
+  assert.deepEqual(
+    m.routeThrough(DAY, noFood).map((p) => p.label),
+    ["DBV — Dubrovnik", "Villa Kompas", "City walls"],
+  );
+  const nothing = m.routeThrough(DAY, new Set());
+  assert.equal(nothing.length, 0);
+});
+
+test("two places at one address do not become a leg of length nothing", () => {
+  // A restaurant inside the hotel is still its own dot, but the line does not
+  // detour to it and back without going anywhere.
+  const sameSpot = [
+    PLACE({ label: "Hotel", kind: "stay", date: "2026-08-17", lat: 42.65, lng: 18.09 }),
+    PLACE({ label: "Hotel restaurant", kind: "restaurant", date: "2026-08-17", time: "20:00", lat: 42.65, lng: 18.09 }),
+  ];
+  assert.equal(m.legsOf(m.routeThrough(sameSpot, new Set(["stay", "restaurant"]))).length, 0);
+});
+
+test("staying put is not a journey, but going back is", () => {
+  // Three nights at one hotel is not three legs of length nought...
+  const stay = [
+    PLACE({ label: "Hotel", kind: "stay", date: "2026-08-17", lat: 42.65, lng: 18.09 }),
+    PLACE({ label: "Hotel", kind: "stay", date: "2026-08-18", lat: 42.65, lng: 18.09 }),
+    PLACE({ label: "Hotel", kind: "stay", date: "2026-08-19", lat: 42.65, lng: 18.09 }),
+  ];
+  assert.equal(m.routeThrough(stay, new Set(["stay"])).length, 1);
+
+  // ...but leaving and coming back is two real journeys.
+  const outAndBack = [
+    stay[0],
+    PLACE({ label: "Museum", kind: "activity", date: "2026-08-18", time: "10:00", lat: 42.70, lng: 18.20 }),
+    PLACE({ label: "Hotel", kind: "stay", date: "2026-08-18", time: "18:00", lat: 42.65, lng: 18.09 }),
+  ];
+  assert.deepEqual(
+    m.routeThrough(outAndBack, new Set(["stay", "activity"])).map((p) => p.label),
+    ["Hotel", "Museum", "Hotel"],
+  );
+});
+
+test("a leg that crosses midnight is marked as one", () => {
+  const legs = m.legsOf(m.routeThrough(DAY, new Set(["airport", "stay", "activity", "restaurant"])));
+  assert.deepEqual(
+    legs.map((l) => `${l.from.label} -> ${l.to.label} ${l.sameDay ? "same-day" : "overnight"}`),
+    [
+      "DBV — Dubrovnik -> Villa Kompas same-day",
+      "Villa Kompas -> Proto same-day",
+      "Proto -> City walls overnight",
+    ],
+  );
+});
+
+test("the map offers to take you to each place once, grouped by kind", () => {
+  // An airport you fly into and back out of is one airport, not two entries.
+  const withReturn = [
+    ...DAY,
+    PLACE({ label: "DBV — Dubrovnik", kind: "airport", date: "2026-08-24", lat: 42.56, lng: 18.27 }),
+  ];
+  const scopes = m.placeScopes(withReturn);
+  assert.deepEqual(
+    scopes.map((s) => `${s.kind}:${s.label}`),
+    [
+      "airport:DBV — Dubrovnik",
+      "stay:Villa Kompas",
+      "activity:City walls",
+      "restaurant:Nautika",
+      "restaurant:Proto",
+    ],
+  );
+
+  // Kind order first, so the hotel is never buried under the restaurants.
+  const kinds = scopes.map((s) => s.kind);
+  assert.deepEqual(kinds, [...kinds].sort(
+    (a, b) => m.PLACE_KINDS.findIndex((k) => k.id === a) - m.PLACE_KINDS.findIndex((k) => k.id === b),
+  ));
+});
+
+test("an airport is approached from further out than a restaurant", () => {
+  // A terminal is kilometres of tarmac; a table is a doorway. One zoom for both
+  // either loses the airport or drops you three towns from dinner.
+  assert.ok(m.zoomForKind("airport") < m.zoomForKind("restaurant"));
+  // And never past what the map allows. Asking to go closer than the ceiling is
+  // silently clamped, so the two numbers drifting apart makes "zoom to Proto"
+  // stop short of the street without anything saying so.
+  for (const def of m.PLACE_KINDS) {
+    const z = m.zoomForKind(def.id);
+    assert.ok(z >= 10, `${def.id} zooms to ${z}`);
+    assert.ok(z <= m.MAX_MAP_ZOOM, `${def.id} asks for ${z}, past the ${m.MAX_MAP_ZOOM} ceiling`);
   }
 });
 
-test("zooming under the pointer leaves that place under the pointer", () => {
-  // The whole trick of a map that does not feel slippery. Point at Reykjavik,
-  // zoom, and Reykjavik has not moved.
-  const at = { x: 261, y: 118 };
-  let view = m.wholeWorld(W, H);
-  const where = (v) => {
-    const box = m.viewBox(v, W, H);
-    return { fx: (at.x - box.x) / box.w, fy: (at.y - box.y) / box.h };
-  };
-  const before = where(view);
-
-  for (const factor of [1.6, 1.6, 1.6, 1 / 1.6]) {
-    view = m.zoomAt(view, factor, at.x, at.y, W, H);
-    const now = where(view);
-    assert.ok(Math.abs(now.fx - before.fx) < 1e-9, `x drifted to ${now.fx} from ${before.fx}`);
-    assert.ok(Math.abs(now.fy - before.fy) < 1e-9, `y drifted to ${now.fy} from ${before.fy}`);
+test("every place kind has a colour, a label and an icon", () => {
+  // The chips, the pins and the legend are all driven off this one list, so a
+  // kind missing from it is a dot nobody can switch off.
+  assert.equal(m.PLACE_KINDS.length, 5);
+  for (const def of m.PLACE_KINDS) {
+    assert.ok(def.id && def.label && def.icon, `incomplete kind: ${JSON.stringify(def)}`);
+    assert.equal(m.placeKindDef(def.id).label, def.label);
   }
-});
-
-test("the world cannot be dragged off the edge of its own box", () => {
-  const view = m.zoomBy(m.wholeWorld(W, H), 4, W, H);
-  for (const [dx, dy] of [[9999, 9999], [-9999, -9999], [9999, -9999], [0, 4000]]) {
-    const box = m.viewBox(m.panBy(view, dx, dy, W, H), W, H);
-    assert.ok(box.x >= -1e-9, `left edge escaped to ${box.x}`);
-    assert.ok(box.y >= -1e-9, `top edge escaped to ${box.y}`);
-    assert.ok(box.x + box.w <= W + 1e-9, `right edge escaped to ${box.x + box.w}`);
-    assert.ok(box.y + box.h <= H + 1e-9, `bottom edge escaped to ${box.y + box.h}`);
-  }
-});
-
-test("when holding the anchor would leave the world, the world wins", () => {
-  // Zooming *out* from a corner is the case where the two rules disagree: the
-  // anchor wants a box hanging off the right-hand edge. The place under the
-  // pointer is allowed to move rather than the map showing empty space.
-  const corner = m.centreOn(m.zoomBy(m.wholeWorld(W, H), 8, W, H), W, H, W, H);
-  const box = m.viewBox(m.zoomAt(corner, 1 / 4, m.viewBox(corner, W, H).x, m.viewBox(corner, W, H).y, W, H), W, H);
-  assert.equal(+(box.x + box.w).toFixed(6), W);
-  assert.equal(+(box.y + box.h).toFixed(6), H);
-});
-
-test("no sequence of zooms and drags can show the edge of the world", () => {
-  // The clamp is easy to get right in the cases you think of and wrong in the
-  // ones you do not, so this walks a few thousand of them.
-  let seed = 20260807;
-  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
-  let view = m.wholeWorld(W, H);
-  for (let i = 0; i < 4000; i += 1) {
-    const roll = rnd();
-    if (roll < 0.4) view = m.zoomAt(view, 0.25 + rnd() * 4, rnd() * W, rnd() * H, W, H);
-    else if (roll < 0.7) view = m.panBy(view, (rnd() - 0.5) * 2000, (rnd() - 0.5) * 2000, W, H);
-    else if (roll < 0.9) view = m.zoomBy(view, rnd() < 0.5 ? 1.6 : 1 / 1.6, W, H);
-    else view = m.centreOn(view, (rnd() - 0.5) * 3000, (rnd() - 0.5) * 3000, W, H);
-
-    const box = m.viewBox(view, W, H);
-    const inside =
-      box.x >= -1e-9 && box.y >= -1e-9 && box.x + box.w <= W + 1e-9 && box.y + box.h <= H + 1e-9;
-    assert.ok(inside, `step ${i} escaped: ${JSON.stringify(box)}`);
-    assert.ok(view.zoom >= m.MIN_ZOOM && view.zoom <= m.MAX_ZOOM, `step ${i} zoom ${view.zoom}`);
-  }
-});
-
-test("zoom stops where the outlines stop being outlines", () => {
-  let view = m.wholeWorld(W, H);
-  for (let i = 0; i < 40; i += 1) view = m.zoomBy(view, 2, W, H);
-  assert.equal(view.zoom, m.MAX_ZOOM);
-
-  for (let i = 0; i < 40; i += 1) view = m.zoomBy(view, 0.5, W, H);
-  assert.equal(view.zoom, m.MIN_ZOOM);
-});
-
-test("the viewBox attribute is a viewBox", () => {
-  const view = m.zoomBy(m.wholeWorld(W, H), 2, W, H);
-  assert.equal(m.viewBoxAttr(view, W, H), "250.00 140.00 500.00 280.00");
+  const counts = m.countByKind(DAY);
+  assert.equal(counts.get("restaurant"), 2);
+  assert.equal(counts.get("airport"), 1);
+  assert.equal(counts.get("transport"), undefined);
 });
 
 test("an airport label resolves however it is written", () => {

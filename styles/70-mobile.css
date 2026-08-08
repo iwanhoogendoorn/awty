@@ -1726,11 +1726,10 @@ body.awty-phone .awty-map-airport {
   stroke-width: 1.6;
 }
 
-/* A map that is 16:9 on a phone is a letterbox. Taller, so there is something
-   to pan around in. */
+/* On a phone the pane is short, so the measured height can get very small.
+   This is the floor, and the map scrolls with the page below it. */
 body.awty-phone .awty-map-canvas {
-  aspect-ratio: 3 / 4;
-  max-height: 60vh;
+  min-height: 320px;
 }
 
 /* Leaflet's zoom buttons are 26px, which is under the touch target everything

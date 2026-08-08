@@ -47,6 +47,15 @@ export interface Route {
   flights: number;
   km: number;
   kind: RouteKind;
+  /**
+   * Whether this pair was flown in both directions.
+   *
+   * The line is drawn once whichever way round you went — two arcs on top of
+   * each other would make every return trip twice as dark as a one-way. But
+   * "did you come back" is a real fact about the journey, and without it a
+   * return trip animates as a plane leaving and never arriving home.
+   */
+  bothWays: boolean;
   /** Titles of the trips this hop belongs to, for the tooltip. */
   trips: string[];
 }
@@ -79,9 +88,39 @@ function pairKey(a: MapPoint, b: MapPoint): string {
   return [a.code, b.code].sort().join("-");
 }
 
+/** A place the map can be told to go, and the airports that define it. */
+export interface Scope {
+  /** "" for everything, otherwise the country name. */
+  id: string;
+  label: string;
+  points: MapPoint[];
+}
+
+/**
+ * The countries the map can actually take you to.
+ *
+ * Built from the airports that are drawn, not from the trips' destinations: a
+ * country you drove to has no airport on this map, and offering to fly you
+ * there would be a menu entry that goes nowhere. Everything listed is somewhere
+ * the map can genuinely frame.
+ */
+export function scopesFor(set: RouteSet): Scope[] {
+  const byCountry = new Map<string, MapPoint[]>();
+  for (const point of set.points) {
+    const list = byCountry.get(point.country);
+    if (list) list.push(point);
+    else byCountry.set(point.country, [point]);
+  }
+  return [...byCountry.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([country, points]) => ({ id: country, label: country, points }));
+}
+
 export function routesFrom(inputs: RouteInput[]): RouteSet {
   const byPair = new Map<string, Route>();
   const points = new Map<string, MapPoint>();
+  // Which way round each pair was actually flown, before the fold loses it.
+  const headings = new Map<string, Set<string>>();
   let unknown = 0;
 
   for (const input of inputs) {
@@ -112,6 +151,10 @@ export function routesFrom(inputs: RouteInput[]): RouteSet {
         points.set(to.code, to);
 
         const key = pairKey(from, to);
+        const heading = headings.get(key) ?? new Set<string>();
+        heading.add(`${from.code}>${to.code}`);
+        headings.set(key, heading);
+
         const existing = byPair.get(key);
         if (existing) {
           existing.flights += 1;
@@ -126,11 +169,16 @@ export function routesFrom(inputs: RouteInput[]): RouteSet {
             flights: 1,
             km: distanceKm(from, to),
             kind,
+            bothWays: false,
             trips: [input.tripTitle],
           });
         }
       }
     }
+  }
+
+  for (const [key, route] of byPair) {
+    route.bothWays = (headings.get(key)?.size ?? 0) > 1;
   }
 
   return {
