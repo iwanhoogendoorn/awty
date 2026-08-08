@@ -14,6 +14,7 @@ import { renderBookings } from "./tabs/bookings";
 import { renderCosts } from "./tabs/costs";
 import { renderGallery } from "./tabs/gallery";
 import { showTripMenu } from "./tripMenu";
+import { maskMoney, moneyPattern } from "../../util/moneyMask";
 
 type TabId = "overview" | "planning" | "trips" | "map" | "itinerary" | "bookings" | "costs" | "gallery";
 
@@ -217,7 +218,19 @@ export class AwtyDashboardView extends ItemView {
         renderOverview(content, ctx);
     }
 
+    // Last, so it catches whatever the tab just drew. Wrapping the figures
+    // always — not only while they are hidden — means switching the button on
+    // is a class away rather than a re-render, and the wrapper is invisible
+    // until the stylesheet has something to say about it.
+    maskMoney(root, moneyPattern([this.plugin.settings.defaultCurrency]));
+    root.toggleClass("awty-amounts-hidden", this.plugin.settings.hideAmounts);
+
     void this.hydrate();
+  }
+
+  /** Blur every figure on screen, or stop. Shared with the command. */
+  async toggleAmounts(): Promise<void> {
+    await this.plugin.toggleHideAmounts();
   }
 
   /** Sub-note progress needs file reads; fill it in then paint once more. */
@@ -324,6 +337,22 @@ export class AwtyDashboardView extends ItemView {
       exportBtn.setAttribute("aria-label", "Export the whole trip to a PDF on disk");
       exportBtn.addEventListener("click", () => this.plugin.exportTrip(trip));
     }
+
+    // Every tab shows money somewhere, so this belongs with the actions rather
+    // than on the one tab that is mostly costs.
+    const hidden = this.plugin.settings.hideAmounts;
+    const privacy = actions.createEl("button", {
+      cls: `awty-dash-quick-btn${hidden ? " is-active" : ""}`,
+    });
+    setIcon(privacy.createSpan(), hidden ? "eye-off" : "eye");
+    privacy.createSpan({ text: hidden ? "Amounts hidden" : "Hide amounts" });
+    privacy.setAttribute(
+      "aria-label",
+      hidden
+        ? "Show the amounts again"
+        : "Blur every figure, for sharing a screen or a screenshot",
+    );
+    privacy.addEventListener("click", () => void this.toggleAmounts());
 
     // Always here, on every tab. Starting a trip is the one action that does
     // not need a trip already selected, and it used to live on the Trips tab

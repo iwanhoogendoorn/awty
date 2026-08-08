@@ -388,6 +388,15 @@ export interface AwtySettings {
   defaultStage: TripStage;
   /** Currency used when a booking or trip doesn't name its own. */
   defaultCurrency: string;
+  /**
+   * Blur every figure in the dashboard.
+   *
+   * For sharing a screen or a screenshot. Kept in settings rather than in the
+   * view so it survives a reload — the point of turning it on is usually that
+   * somebody else is looking, and having it quietly lapse would be the one
+   * failure mode that matters.
+   */
+  hideAmounts: boolean;
   /** Subfolder inside a trip where booking and expense notes live. */
   bookingsFolder: string;
   /** Subfolder inside a trip where attachments are copied. */
@@ -450,6 +459,7 @@ export const DEFAULT_SETTINGS: AwtySettings = {
   passportCountries: ["Netherlands"],
   travelAdviceEnabled: true,
   customCategories: [],
+  hideAmounts: false,
   homeCity: "",
   homeAirport: "",
   household: [],

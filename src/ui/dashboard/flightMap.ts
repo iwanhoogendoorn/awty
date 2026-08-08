@@ -576,7 +576,13 @@ export function renderFlightMap(
         .filter(Boolean)
         .join(" ");
       marker.bindTooltip(
-        `<b>${place.label}</b><br>${placeKindDef(place.kind).label} · ${when}${place.cost ? ` · ${place.cost}` : ""}`,
+        // A tooltip is built when you hover, long after the pass that blurs
+        // the figures elsewhere has run. Rather than chase it, the price is
+        // simply not offered while amounts are hidden — a privacy switch that
+        // misses one surface is worse than none, because you stop checking.
+        `<b>${place.label}</b><br>${placeKindDef(place.kind).label} · ${when}${
+          place.cost && !plugin.settings.hideAmounts ? ` · ${place.cost}` : ""
+        }`,
         { className: "awty-map-tip" },
       );
       if (id === pick.from || id === pick.to) marker.getElement()?.addClass("is-picked");

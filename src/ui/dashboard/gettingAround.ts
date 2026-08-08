@@ -314,9 +314,18 @@ function renderJourney(
       });
 
       const summary = summariseFlight(legs);
+      // The chip is door to door, which on a one-stop is mostly a number you
+      // have to take on trust. The flying time makes it add up: the rest of the
+      // chip is the layovers, which are already named one by one below — saying
+      // "2 h on the ground" next to "2 h in London" is the same fact twice.
+      const split =
+        summary.airMinutes !== null && summary.groundMinutes
+          ? `${formatLayover(summary.airMinutes)} flying`
+          : "";
       const bits = [
         legs[0].date && legs[0].depTime ? `${legs[0].date} ${legs[0].depTime}` : legs[0].date,
         summary.label.split(" · ").pop() ?? "",
+        split,
         ...summary.layovers,
       ].filter(Boolean);
       text.createDiv({ cls: "awty-around-dist", text: bits.join(" · ") });
@@ -331,7 +340,9 @@ function renderJourney(
         "title",
         summary.totalMinutes === null
           ? "Arrival time not recorded — re-save the flight to fill it in"
-          : "Total journey, including time on the ground",
+          : summary.airMinutes !== null && summary.groundMinutes
+            ? `Door to door: ${formatLayover(summary.airMinutes)} in the air and ${formatLayover(summary.groundMinutes)} waiting. Measured between the two airports' own clocks.`
+            : "Total journey, including time on the ground. Measured between the two airports' own clocks.",
       );
 
       row.addEventListener("click", () => ctx.openFile(flight.file));

@@ -305,7 +305,7 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
       detail:
         budgetTotal > 0
           ? `of ${formatMoney({ amount: budgetTotal, currency })} budget`
-          : "No budget set",
+          : "Budget not specified",
       icon: "wallet",
       tone: budgetTotal > 0 && spentPrimary > budgetTotal ? "bad" : "default",
     },
@@ -375,7 +375,7 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
       });
     }
   }
-  if (budgetTotal === 0) attention.push({ text: "No budget set for this trip" });
+  if (budgetTotal === 0) attention.push({ text: "No budget specified for this trip" });
 
   sectionTitle(parent, "Needs attention");
   if (attention.length === 0) {

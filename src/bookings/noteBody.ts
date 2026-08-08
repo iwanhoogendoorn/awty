@@ -1,3 +1,4 @@
+import { composeAddress } from "./postalAddress";
 /**
  * The generated bodies of booking and expense notes.
  *
@@ -24,9 +25,9 @@ export function bookingBody(draft: BookingDraft, attachmentLinks: string[]): str
   add("Date", draft.endDate && draft.endDate !== draft.date ? `${draft.date} → ${draft.endDate}` : draft.date);
   add("Time", draft.endTime ? `${draft.time} → ${draft.endTime}` : draft.time);
   add("From", draft.from);
-  add("From address", draft.fromAddress);
+  add("From address", composeAddress(draft.fromPostal));
   add("To", draft.to);
-  add(draft.kind === "transport" ? "To address" : "Address", draft.address);
+  add(draft.kind === "transport" ? "To address" : "Address", composeAddress(draft.postal));
   add("Operator", draft.operator);
   add("Seat", draft.seat);
   add("Reference", draft.reference);

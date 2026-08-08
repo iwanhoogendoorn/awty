@@ -1041,3 +1041,18 @@
   color: var(--text-accent);
   cursor: pointer;
 }
+
+/* The parts of an address, indented under their heading so five boxes read as
+   one field rather than five unrelated ones. */
+
+/* Outranks `.awty-modal .setting-item`, which sets the padding shorthand and
+   would otherwise reset this back to nothing. */
+
+.awty-modal .awty-address-part {
+  padding-left: 1.4em;
+}
+
+.awty-address-part .setting-item-name {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}

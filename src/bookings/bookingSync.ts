@@ -1,3 +1,4 @@
+import { EMPTY_ADDRESS } from "./postalAddress";
 import { App } from "obsidian";
 import type { Booking, BookingKind, CostCategory, CostLine } from "./types";
 import { budgetLinesTable, budgetPlanTable } from "./budgetTables";
@@ -136,8 +137,8 @@ export async function migrateFoodTables(
         reference: "",
         from: "",
         to: "",
-        address: "",
-        fromAddress: "",
+        postal: EMPTY_ADDRESS,
+        fromPostal: EMPTY_ADDRESS,
         operator: row.bookedBy,
         seat: "",
         notes: row.notes,

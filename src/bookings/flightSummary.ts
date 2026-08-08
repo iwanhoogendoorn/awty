@@ -5,6 +5,7 @@ import {
   formatLayover,
   layoverMinutes,
   totalJourneyMinutes,
+  flyingMinutes,
 } from "./legs";
 
 /**
@@ -18,6 +19,10 @@ export interface FlightSummary {
   stops: number;
   /** Total journey including time on the ground, or null when unknowable. */
   totalMinutes: number | null;
+  /** Of that total, the part spent in the air. */
+  airMinutes: number | null;
+  /** And the part spent waiting for the next one. Nought on a direct flight. */
+  groundMinutes: number | null;
   /** "2 h 20 min · direct", or "" when there is nothing to say. */
   label: string;
   /** Layovers, longest description first: "1 h 5 min in VIE (tight)". */
@@ -67,6 +72,14 @@ export function summariseFlight(legs: FlightLeg[]): FlightSummary {
     );
   }
 
+  // The split, and only when both halves are known: reporting the air time of
+  // a journey whose total could not be worked out would put two numbers on
+  // screen that do not add up to each other.
+  const air = flyingMinutes(legs);
+  const split = totalMinutes !== null && air !== null;
+  const airMinutes = split ? air : null;
+  const groundMinutes = split ? Math.max(totalMinutes - air, 0) : null;
+
   const last = legs[legs.length - 1];
   const arrival = last?.arrTime ?? "";
 
@@ -77,5 +90,5 @@ export function summariseFlight(legs: FlightLeg[]): FlightSummary {
     .filter(Boolean)
     .join(" · ");
 
-  return { legs, stops, totalMinutes, label, layovers, arrival };
+  return { legs, stops, totalMinutes, airMinutes, groundMinutes, label, layovers, arrival };
 }

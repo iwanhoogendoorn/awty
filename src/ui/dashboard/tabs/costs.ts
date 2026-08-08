@@ -64,9 +64,11 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
           ? spentPrimary > budgetTotal
             ? `${formatMoney({ amount: spentPrimary - budgetTotal, currency })} over`
             : `${formatMoney({ amount: budgetTotal - spentPrimary, currency })} left`
-          : "Not set",
+          : "Not specified",
       icon: "target",
-      tone: budgetTotal > 0 && spentPrimary > budgetTotal ? "bad" : "good",
+      // Neutral with no budget: "good" on a tile showing a dash is a verdict
+      // on a comparison that was never made.
+      tone: budgetTotal === 0 ? "default" : spentPrimary > budgetTotal ? "bad" : "good",
     },
     { label: "From bookings", value: formatTotals(fromBookings, "—"), icon: "ticket" },
     { label: "From expenses", value: formatTotals(fromExpenses, "—"), icon: "receipt" },

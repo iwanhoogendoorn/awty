@@ -1,6 +1,8 @@
 import { App, TFile, TFolder, normalizePath } from "obsidian";
 import type { BookingKind, BookingStatus, CostCategory } from "./types";
 import { BOOKING_KINDS } from "./types";
+import type { PostalAddress } from "./postalAddress";
+import { addressFrontmatter, addressKeys } from "./postalAddress";
 import type { AwtySettings, Trip } from "../types";
 import { joinPath, sanitizeName } from "../util/paths";
 import { airportFromLabel } from "../ui/components/suggest";
@@ -25,9 +27,10 @@ export interface BookingDraft {
   reference: string;
   from: string;
   to: string;
-  address: string;
-  /** Street address of the departure end. A transfer has two of them. */
-  fromAddress: string;
+  /** The address in parts. Composed into one line only when something needs one. */
+  postal: PostalAddress;
+  /** The departure end's address. A transfer has two of them. */
+  fromPostal: PostalAddress;
   operator: string;
   seat: string;
   notes: string;
@@ -44,6 +47,7 @@ export interface BookingDraft {
 export interface ExpenseDraft {
   date: string;
   description: string;
+  status: BookingStatus;
   amount: number;
   currency: string;
   category: CostCategory;
@@ -152,7 +156,8 @@ function linksFor(app: App, paths: string[], sourcePath: string): string[] {
 /** Frontmatter keys the booking form owns; cleared fields must actually clear. */
 const BOOKING_KEYS = [
   "end_date", "time", "end_time", "cost", "currency", "reference", "from", "to",
-  "address", "from_address", "operator", "seat", "legs", "return_legs", "attachments", "location",
+  ...addressKeys(), ...addressKeys("from"),
+  "operator", "seat", "legs", "return_legs", "attachments", "location",
 ];
 
 function writeBookingFrontmatter(
@@ -194,8 +199,15 @@ function writeBookingFrontmatter(
   if (draft.reference) fm.reference = draft.reference;
   if (draft.from) fm.from = draft.from;
   if (draft.to) fm.to = draft.to;
-  if (draft.address) fm.address = draft.address;
-  if (draft.fromAddress) fm.from_address = draft.fromAddress;
+  for (const [address, prefix] of [
+    [draft.postal, ""],
+    [draft.fromPostal, "from"],
+  ] as const) {
+    const { set } = addressFrontmatter(address, prefix);
+    for (const [key, value] of Object.entries(set)) fm[key] = value;
+    // The unset half is handled by BOOKING_KEYS above, which clears every key
+    // the form owns before this runs — so a field you emptied really empties.
+  }
   if (draft.operator) fm.operator = draft.operator;
   if (draft.seat) fm.seat = draft.seat;
   // Stored even for a direct flight: without it the outbound arrival has to
@@ -268,8 +280,13 @@ export async function draftFromBooking(
     reference: booking.reference,
     from: booking.from,
     to: booking.to,
-    address: booking.address,
-    fromAddress: booking.fromAddress,
+    postal: booking.postal,
+    fromPostal: booking.fromPostal,
+    // Carried through so reopening the form does not throw the coordinate away.
+    // Every key the form owns is cleared before a write, and nothing put this
+    // one back — so editing a hotel's confirmation number took its pin off the
+    // map and put the next travel-times run back on the meter.
+    location: typeof fm?.location === "string" ? fm.location : undefined,
     operator: booking.operator,
     seat: booking.seat,
     notes: booking.notes || notes,
@@ -320,6 +337,7 @@ export async function createExpense(
 
   await app.fileManager.processFrontMatter(file, (fm) => {
     fm.type = "expense";
+    fm.status = draft.status;
     fm.description = draft.description;
     fm.trip_folder = trip.folderPath;
     fm.trip = app.fileManager.generateMarkdownLink(trip.file, path);
@@ -349,6 +367,7 @@ export async function updateExpense(
   await app.fileManager.processFrontMatter(file, (fm) => {
     for (const key of ["paid_by", "attachments"]) delete fm[key];
     fm.type = "expense";
+    fm.status = draft.status;
     fm.description = draft.description;
     fm.trip_folder = trip.folderPath;
     fm.trip = app.fileManager.generateMarkdownLink(trip.file, file.path);

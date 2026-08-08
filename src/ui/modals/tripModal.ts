@@ -373,7 +373,9 @@ export class TripModal extends Modal {
       .setName("Budget")
       .setDesc("Roughly what you want the whole trip to cost. Used everywhere costs are shown.")
       .addText((t) => {
-        t.setPlaceholder("3000");
+        // No example figure: a greyed-out "3000" in an empty box reads as a
+        // default that is already in force.
+        t.setPlaceholder("Not specified");
         t.inputEl.inputMode = "decimal";
         t.setValue(this.draft.budgetTotal !== null ? String(this.draft.budgetTotal) : "");
         t.onChange((v) => {

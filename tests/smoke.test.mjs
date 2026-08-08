@@ -45,16 +45,19 @@ export { CITIES } from "./src/data/cities.ts";
 export { dayEvents, ongoingOn, BAND } from "./src/store/dayPlan.ts";
 export { itineraryPairs, groupByOrigin } from "./src/travel/routePlan.ts";
 export { readLegs, summariseFlight, summariseJourneys } from "./src/bookings/flightSummary.ts";
+export { flyingMinutes } from "./src/bookings/legs.ts";
 export { renderMarkdown, stripFrontmatter } from "./src/export/markdown.ts";
 export { customSections, customParts, weaveKept, sectionText, PRICE_WATCH_HEADINGS } from "./src/bookings/noteSections.ts";
 export { bookingBody, expenseBody } from "./src/bookings/noteBody.ts";
 export { budgetPlanTable, budgetLinesTable } from "./src/bookings/budgetTables.ts";
+export { composeAddress, readAddress, addressFrontmatter, addressKeys, isEmptyAddress, EMPTY_ADDRESS, geocodeQuery, splitLegacyAddress, keepLocation, prefilledAddress, meaningfulAddress } from "./src/bookings/postalAddress.ts";
 export { readLegacyFoodTable } from "./src/bookings/legacyFood.ts";
 export { tripEndpoints, transferShortcuts } from "./src/bookings/tripEndpoints.ts";
 export { flightHops, airportForCity } from "./src/bookings/flightHops.ts";
 export { aliasMatches, PLACE_ALIASES } from "./src/data/placeAliases.ts";
 export { tripKml, tripMapNote, tripLinksText, directionsLink, placeLink, MAX_WAYPOINTS, MY_MAPS_URL } from "./src/export/mapsExport.ts";
 export { looksLikeMoreJourneys } from "./src/bookings/legs.ts";
+export { zonedStamp, zoneOffsetMinutes } from "./src/flights/zonedTime.ts";
 export { zoneForAirport, utcToLocal, localiseLegs } from "./src/flights/localTime.ts";
 export { linkTarget } from "./src/bookings/linkTarget.ts";
 export { pdfPlanFor, pdfFallbackFor, mapSavePlanFor, htmlFallbackMessage, mapSavedInVaultMessage } from "./src/export/exportPlan.ts";
@@ -67,10 +70,12 @@ export { greatCirclePath, interpolate as gcInterpolate, distanceKm, angularDista
 export { worldRings, RING_COUNT } from "./src/data/worldMap.ts";
 export { routesFrom, airportPoint, scopesFor } from "./src/map/flightRoutes.ts";
 export { kindsForCategory, bookingFromQuote, bookingNoteFrom } from "./src/planning/bookFromQuote.ts";
-export { PLACE_KINDS, placeKindDef, orderPlaces, routeThrough, countByKind, connectionsOf, connectionBetween, placeScopes, scopeIdOf, zoomForKind, MAX_MAP_ZOOM, unscheduled } from "./src/map/tripPlaces.ts";
+export { PLACE_KINDS, placeKindDef, orderPlaces, routeThrough, countByKind, connectionsOf, connectionBetween, placeScopes, scopeIdOf, zoomForKind, MAX_MAP_ZOOM, unscheduled, MAX_AIRPORT_TRANSFER_KM } from "./src/map/tripPlaces.ts";
 export { bookedTotals, openTracks, unbookMissing, rebindBooking } from "./src/planning/priceWatch.ts";
 export { worldPolygons } from "./src/map/baseLayer.ts";
 export { splitFrontmatter } from "./src/util/frontmatter.ts";
+export { moneyPattern, MONEY_CLASS } from "./src/util/moneyMask.ts";
+export { COMMON_CURRENCIES, symbolFor } from "./src/util/money.ts";
 `;
 
 const outfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tp-test-")), "bundle.mjs");
@@ -1621,6 +1626,171 @@ test("setting a budget makes the Budget note say so", () => {
   assert.equal(m.analyseNote("budget", `# Budget\n\n## Planned\n\n${m.budgetPlanTable(new Map(), [], "EUR")}\n`).state, "empty");
 });
 
+test("a total measured against half the categories says so", () => {
+  // One target set and money spent elsewhere: the Total row's "Left" is then
+  // a comparison against part of the trip, which read as being wildly over
+  // budget on a budget nobody set for those categories.
+  const targets = new Map([["Transport", 3080]]);
+  const lines = [
+    { counted: true, category: "Transport", money: { amount: 3080, currency: "EUR" } },
+    { counted: true, category: "Accommodation", money: { amount: 26000, currency: "EUR" } },
+  ];
+  const table = m.budgetPlanTable(targets, lines, "EUR");
+  assert.match(table, /Accommodation has no target/);
+  assert.match(table, /only part of the trip/);
+
+  // Every category targeted: nothing to warn about.
+  const complete = m.budgetPlanTable(
+    new Map([["Transport", 3080], ["Accommodation", 26000]]),
+    lines,
+    "EUR",
+  );
+  assert.equal(/no target/.test(complete), false);
+
+  // No targets at all: the Total is not a budget, so there is no comparison
+  // to caveat either.
+  const none = m.budgetPlanTable(new Map(), lines, "EUR");
+  assert.equal(/no target/.test(none), false);
+});
+
+test("an address is joined the way an envelope is written", () => {
+  const full = { line1: "Frana Supila 12", line2: "Apartment 4", postcode: "20000",
+    city: "Dubrovnik", country: "Croatia" };
+  assert.equal(m.composeAddress(full), "Frana Supila 12, Apartment 4, 20000 Dubrovnik, Croatia");
+
+  // Postcode and city travel together, not separated by a comma.
+  assert.equal(
+    m.composeAddress({ ...m.EMPTY_ADDRESS, line1: "Brsalje ul. 3", postcode: "20000", city: "Dubrovnik" }),
+    "Brsalje ul. 3, 20000 Dubrovnik",
+  );
+  // Missing parts leave no trace: a street alone must not come out as ", , ,".
+  assert.equal(m.composeAddress({ ...m.EMPTY_ADDRESS, line1: "Brsalje ul. 3" }), "Brsalje ul. 3");
+  assert.equal(m.composeAddress(m.EMPTY_ADDRESS), "");
+  assert.equal(m.isEmptyAddress(m.EMPTY_ADDRESS), true);
+  assert.equal(m.isEmptyAddress({ ...m.EMPTY_ADDRESS, country: "Croatia" }), false);
+  // Whitespace-only fields are nothing.
+  assert.equal(m.composeAddress({ line1: "  ", line2: "", postcode: " ", city: "", country: "" }), "");
+});
+
+test("an address written before the parts existed still reads back whole", () => {
+  // The old single line lived in `address`, and that is still where the street
+  // goes — so an untouched note composes to exactly what it always said.
+  const legacy = m.readAddress({ address: "Frana Supila 12, Dubrovnik" });
+  assert.equal(legacy.line1, "Frana Supila 12, Dubrovnik");
+  assert.equal(m.composeAddress(legacy), "Frana Supila 12, Dubrovnik");
+
+  const modern = m.readAddress({
+    address: "Frana Supila 12", address_2: "Apartment 4", postcode: "20000",
+    address_city: "Dubrovnik", address_country: "Croatia",
+  });
+  assert.equal(m.composeAddress(modern), "Frana Supila 12, Apartment 4, 20000 Dubrovnik, Croatia");
+
+  // A transfer has two of them, and they must not read each other's keys.
+  const both = { address: "Drop off", from_address: "Pick up", from_postcode: "20213",
+    from_address_city: "Cavtat", postcode: "20000", address_city: "Dubrovnik" };
+  assert.equal(m.composeAddress(m.readAddress(both)), "Drop off, 20000 Dubrovnik");
+  assert.equal(m.composeAddress(m.readAddress(both, "from")), "Pick up, 20213 Cavtat");
+});
+
+test("clearing an address field clears it on the note", () => {
+  // Writing only the filled keys would leave a postcode behind after you
+  // deleted it, and the geocoder would keep using it.
+  const { set, unset } = m.addressFrontmatter(
+    { line1: "Frana Supila 12", line2: "", postcode: "20000", city: "Dubrovnik", country: "" },
+  );
+  assert.deepEqual(set, { address: "Frana Supila 12", postcode: "20000", address_city: "Dubrovnik" });
+  assert.deepEqual(unset.sort(), ["address_2", "address_country"]);
+
+  const from = m.addressFrontmatter({ ...m.EMPTY_ADDRESS, line1: "Pick up" }, "from");
+  assert.deepEqual(from.set, { from_address: "Pick up" });
+  assert.equal(from.unset.includes("from_postcode"), true);
+
+  // Every key an address occupies is declared, so the writer's keep-list and
+  // the reader cannot drift apart.
+  for (const prefix of ["", "from"]) {
+    const keys = m.addressKeys(prefix);
+    const written = m.addressFrontmatter(
+      { line1: "a", line2: "b", postcode: "c", city: "d", country: "e" }, prefix,
+    ).set;
+    assert.deepEqual(Object.keys(written).sort(), [...keys].sort());
+  }
+});
+
+test("the trip fills in only the parts the address left out", () => {
+  const full = { line1: "Frana Supila 12", line2: "", postcode: "20000",
+    city: "Dubrovnik", country: "Croatia" };
+  // Nothing missing, so nothing added — the old code appended the country a
+  // second time whenever the address already carried it.
+  assert.equal(m.geocodeQuery(full, "", "Dubrovnik", "Croatia"),
+    "Frana Supila 12, 20000 Dubrovnik, Croatia");
+
+  // City and country missing: the trip supplies them.
+  assert.equal(
+    m.geocodeQuery({ ...m.EMPTY_ADDRESS, line1: "Frana Supila 12" }, "", "Dubrovnik", "Croatia"),
+    "Frana Supila 12, Dubrovnik, Croatia",
+  );
+
+  // A note written before the parts existed carries its whole address on line
+  // one, so the city must not be pasted on a second time.
+  assert.equal(
+    m.geocodeQuery({ ...m.EMPTY_ADDRESS, line1: "Kranjčevića 25, Dubrovnik" }, "", "Dubrovnik", "Croatia"),
+    "Kranjčevića 25, Dubrovnik, Croatia",
+  );
+  // The cost of that: a street sharing its city's name is read as already
+  // placed. Filling the city field in settles it, which is the whole point of
+  // having one.
+  assert.equal(
+    m.geocodeQuery({ ...m.EMPTY_ADDRESS, line1: "Dubrovnik Palace Hotel" }, "", "Dubrovnik", "Croatia"),
+    "Dubrovnik Palace Hotel, Croatia",
+  );
+  assert.equal(
+    m.geocodeQuery({ ...m.EMPTY_ADDRESS, line1: "Dubrovnik Palace Hotel", city: "Dubrovnik" },
+      "", "Dubrovnik", "Croatia"),
+    "Dubrovnik Palace Hotel, Dubrovnik, Croatia",
+  );
+
+  // A coordinate belongs to the address that produced it.
+  const at = { ...m.EMPTY_ADDRESS, line1: "Frana Supila 12", city: "Dubrovnik" };
+  const asOpened = m.composeAddress(at);
+  assert.equal(m.keepLocation("42.64,18.11", at, asOpened), "42.64,18.11");
+  assert.equal(m.keepLocation("42.64,18.11", { ...at, postcode: "20000" }, asOpened), "");
+  assert.equal(m.keepLocation("42.64,18.11", { ...at, line1: "Somewhere else 9" }, asOpened), "");
+  assert.equal(m.keepLocation("", at, asOpened), "");
+
+  // No street: the venue's name stands in, still placed by the trip.
+  assert.equal(m.geocodeQuery(m.EMPTY_ADDRESS, "Pile Gate", "Dubrovnik", "Croatia"),
+    "Pile Gate, Dubrovnik, Croatia");
+  // Nothing at all to go on is not a query, and must not be billed for.
+  assert.equal(m.geocodeQuery(m.EMPTY_ADDRESS, "", "Dubrovnik", "Croatia"), "");
+
+  // An address in another country keeps its own, not the trip's.
+  assert.equal(
+    m.geocodeQuery({ ...m.EMPTY_ADDRESS, line1: "Rue Neuve 1", city: "Brussels", country: "Belgium" },
+      "", "Dubrovnik", "Croatia"),
+    "Rue Neuve 1, Brussels, Belgium",
+  );
+});
+
+test("a cancelled expense leaves the totals, like a cancelled booking", () => {
+  // Expenses were counted unconditionally, so a refunded ticket or a deposit
+  // you decided against stayed in the spend for ever with no way to say so.
+  const line = (amount, counted, description) => ({
+    source: "expense", counted, category: "Food & drink", description,
+    date: "2026-08-18", file: { basename: description }, money: { amount, currency: "EUR" },
+  });
+  const lines = [line(100, true, "Dinner"), line(250, false, "Boat trip refunded")];
+
+  // Only the counted one is money spent.
+  assert.equal(m.budgetPlanTable(new Map(), lines, "EUR").includes("€250"), false);
+  assert.match(m.budgetPlanTable(new Map(), lines, "EUR"), /€100/);
+
+  // Both are still listed — a cancelled expense is a record, not a deletion —
+  // and the cancelled one says so.
+  const listed = m.budgetLinesTable(lines);
+  assert.match(listed, /Dinner \| Food & drink \| €100 \|  \|/);
+  assert.match(listed, /Boat trip refunded \| Food & drink \| €250 \| cancelled \|/);
+});
+
 test("a trip's places export as a map file", () => {
   const places = [
     { name: "Dubrovnik (DBV)", group: "Airport", address: "", location: "42.5614,18.2682", detail: "17 Aug" },
@@ -1951,8 +2121,11 @@ test("two flights on one ticket are timed apart, not as one long journey", () =>
   assert.deepEqual(groups.map((g) => g.length), [1, 1]);
 
   const summaries = m.summariseJourneys(legs);
-  assert.equal(summaries[0].label, "12 h · direct");
-  assert.equal(summaries[1].label, "4 h · direct");
+  // Seven and three, not twelve and four: those were the clock faces
+  // subtracted from each other. Amsterdam is +2 in August and Bangkok is +7,
+  // so five of the "twelve hours" were the difference between two clocks.
+  assert.equal(summaries[0].label, "7 h · direct");
+  assert.equal(summaries[1].label, "3 h · direct");
   // Nothing measures across the gap.
   assert.ok(summaries.every((s) => s.totalMinutes < 24 * 60));
 
@@ -2007,17 +2180,18 @@ test("a transfer records an address at both ends", () => {
     date: "2026-08-17", endDate: "2026-08-17", time: "13:00", endTime: "",
     amount: 45, currency: "EUR", category: "Transport", reference: "",
     from: "Dubrovnik Airport (DBV)", to: "Rausion Luxury Apartments",
-    fromAddress: "Čilipi 20213", address: "Kranjčevića 25, Dubrovnik",
+    fromPostal: { line1: "Čilipi", line2: "", postcode: "20213", city: "", country: "" },
+    postal: { line1: "Kranjčevića 25", line2: "", postcode: "20000", city: "Dubrovnik", country: "Croatia" },
     operator: "Gruda Taxi", seat: "", notes: "", attachments: [], legs: [], returnLegs: [],
   };
   const body = m.bookingBody(draft, []);
   // One address only ever described one end of a journey that has two.
-  assert.match(body, /\| \*\*From address\*\* \| Čilipi 20213 \|/, body);
-  assert.match(body, /\| \*\*To address\*\* \| Kranjčevića 25, Dubrovnik \|/, body);
+  assert.match(body, /\| \*\*From address\*\* \| Čilipi, 20213 \|/, body);
+  assert.match(body, /\| \*\*To address\*\* \| Kranjčevića 25, 20000 Dubrovnik, Croatia \|/, body);
   assert.ok(body.indexOf("From address") < body.indexOf("To address"), "in travel order");
 
   // Anything else keeps the single plain "Address".
-  const stay = m.bookingBody({ ...draft, kind: "stay", fromAddress: "" }, []);
+  const stay = m.bookingBody({ ...draft, kind: "stay", fromPostal: m.EMPTY_ADDRESS }, []);
   assert.match(stay, /\| \*\*Address\*\* \|/);
   assert.ok(!stay.includes("From address"));
 });
@@ -2252,7 +2426,9 @@ test("a real booking save cycle is lossless and stable", () => {
     kind: "stay", status: "booked", title: "Rausion Luxury Apartments",
     date: "2026-08-17", endDate: "2026-08-24", time: "15:00", endTime: "10:00",
     amount: 1456, currency: "EUR", category: "Accommodation",
-    reference: "BK123", from: "", to: "", address: "Kranjčevića 25, Dubrovnik",
+    reference: "BK123", from: "", to: "",
+    postal: { line1: "Kranjčevića 25", line2: "", postcode: "20000", city: "Dubrovnik", country: "Croatia" },
+    fromPostal: { line1: "", line2: "", postcode: "", city: "", country: "" },
     operator: "", seat: "", notes: "Ask for the top floor.",
     attachments: [], legs: [], returnLegs: [],
   };
@@ -3659,6 +3835,306 @@ test("a note opening with a horizontal rule keeps its first paragraph", () => {
   assert.equal(m.stripFrontmatter(ruled), ruled);
   assert.equal(m.splitFrontmatter(ruled).frontmatter, "");
   assert.equal(m.splitFrontmatter(ruled).body, ruled);
+});
+
+
+// -------------------------------------------------- flight durations
+
+const leg = (from, to, date, depTime, arrDate, arrTime) => ({
+  operator: "", number: "", from, to, date, depTime, arrDate, arrTime,
+});
+
+test("a journey is measured between instants, not between two wall clocks", () => {
+  // Published schedules, to the minute. Read off the clocks instead, KL601
+  // came out as 2 h 10 m and KL602 as 19 h 30 m — the same aeroplane, wrong in
+  // both directions, because the numbers on a ticket are local to the airport
+  // they belong to.
+  const flown = (l) => m.totalJourneyMinutes([l]);
+  assert.equal(flown(leg("Amsterdam (AMS)", "Los Angeles (LAX)", "2026-08-17", "13:10", "2026-08-17", "15:20")), 670);
+  assert.equal(flown(leg("Los Angeles (LAX)", "Amsterdam (AMS)", "2026-08-17", "18:20", "2026-08-18", "13:50")), 630);
+  assert.equal(flown(leg("Amsterdam (AMS)", "Tokyo (NRT)", "2026-08-17", "14:25", "2026-08-18", "08:55")), 690);
+  assert.equal(flown(leg("London (LHR)", "New York (JFK)", "2026-08-17", "08:30", "2026-08-17", "11:25")), 475);
+});
+
+test("a hop within one zone is unchanged by the conversion", () => {
+  assert.equal(
+    m.totalJourneyMinutes([leg("Amsterdam (AMS)", "Dubrovnik (DBV)", "2026-09-10", "06:00", "2026-09-10", "08:00")]),
+    120,
+  );
+});
+
+test("an airport the dataset has never heard of falls back to plain subtraction", () => {
+  // No honest conversion is available, and refusing to say anything would be a
+  // duration that vanishes because one code is unusual.
+  assert.equal(
+    m.totalJourneyMinutes([leg("Nowhere (ZZZ)", "Elsewhere (QQQ)", "2026-09-10", "06:00", "2026-09-10", "08:00")]),
+    120,
+  );
+});
+
+test("a layover is the real wait, even when the connection changes zone", () => {
+  const legs = [
+    leg("Amsterdam (AMS)", "Dubai (DXB)", "2026-08-17", "21:30", "2026-08-18", "07:30"),
+    leg("Dubai (DXB)", "Singapore (SIN)", "2026-08-18", "10:15", "2026-08-18", "21:40"),
+  ];
+  // 07:30 to 10:15 on Dubai's clock, which both ends of the gap share.
+  assert.equal(m.layoverMinutes(legs[0], legs[1]), 165);
+  // Amsterdam 21:30 on the 17th is 19:30 UTC; Singapore 21:40 on the 18th is
+  // 13:40 UTC. Eighteen hours and ten minutes door to door, against the twelve
+  // hours and ten the two clock faces suggest.
+  assert.equal(m.totalJourneyMinutes(legs), 18 * 60 + 10);
+});
+
+test("an offset is read at the instant, not taken as a property of the zone", () => {
+  // Amsterdam is +1 in January and +2 in July. Picking either for the whole
+  // year puts every flight in the other half of it an hour out.
+  assert.equal(m.zoneOffsetMinutes(new Date("2026-01-15T12:00:00Z"), "Europe/Amsterdam"), 60);
+  assert.equal(m.zoneOffsetMinutes(new Date("2026-07-15T12:00:00Z"), "Europe/Amsterdam"), 120);
+  assert.equal(m.zoneOffsetMinutes(new Date("2026-01-15T12:00:00Z"), "America/New_York"), -300);
+  assert.equal(m.zoneOffsetMinutes(new Date("2026-07-15T12:00:00Z"), "America/New_York"), -240);
+  assert.equal(m.zoneOffsetMinutes(new Date("2026-07-15T12:00:00Z"), "Asia/Kolkata"), 330);
+  assert.equal(m.zoneOffsetMinutes(new Date("2026-07-15T12:00:00Z"), "Asia/Tokyo"), 540);
+});
+
+test("a wall time an hour either side of a clock change lands on the right instant", () => {
+  // Europe puts its clocks back at 03:00 on 25 October 2026. The second pass is
+  // what catches this: the offset depends on the instant, and the instant
+  // depends on the offset.
+  const utc = (iso) => new Date(iso).getTime() / 60000;
+  assert.equal(m.zonedStamp("2026-10-25", "01:30", "Europe/Amsterdam"), utc("2026-10-24T23:30:00Z"));
+  assert.equal(m.zonedStamp("2026-10-25", "04:30", "Europe/Amsterdam"), utc("2026-10-25T03:30:00Z"));
+  // Sydney runs the other way and goes forward at 02:00 on 4 October 2026, so
+  // 01:30 is still on the old offset (+10) and 04:30 is on the new one (+11).
+  assert.equal(m.zonedStamp("2026-10-04", "01:30", "Australia/Sydney"), utc("2026-10-03T15:30:00Z"));
+  assert.equal(m.zonedStamp("2026-10-04", "04:30", "Australia/Sydney"), utc("2026-10-03T17:30:00Z"));
+});
+
+test("a zone nobody has heard of yields nothing rather than a plausible number", () => {
+  assert.equal(m.zonedStamp("2026-08-17", "10:00", "Middle/Earth"), null);
+  assert.equal(m.zonedStamp("not a date", "10:00", "Europe/Amsterdam"), null);
+  assert.equal(m.zonedStamp("2026-08-17", "25:00", "Europe/Amsterdam"), null);
+});
+
+
+// -------------------------------------------------- address prefill
+
+test("a trip with one destination fills the city and country in", () => {
+  const one = m.prefilledAddress(["Miami"], ["United States"]);
+  assert.equal(one.city, "Miami");
+  assert.equal(one.country, "United States");
+  assert.equal(one.line1, "", "only what is known — the street is still yours to type");
+});
+
+test("a trip round several cities in one country fills in only the country", () => {
+  // Guessing Dubrovnik for a restaurant in Split would be a wrong answer sat
+  // in a box that looks like somebody typed it.
+  const some = m.prefilledAddress(["Dubrovnik", "Split"], ["Croatia"]);
+  assert.equal(some.city, "");
+  assert.equal(some.country, "Croatia");
+  const many = m.prefilledAddress(["Vienna", "Bratislava"], ["Austria", "Slovakia"]);
+  assert.equal(many.city, "");
+  assert.equal(many.country, "");
+});
+
+test("a form nobody typed an address into does not save the trip back to itself", () => {
+  const untouched = m.prefilledAddress(["Miami"], ["United States"]);
+  assert.deepEqual(m.meaningfulAddress(untouched), m.EMPTY_ADDRESS);
+  assert.deepEqual(m.addressFrontmatter(untouched), { set: {}, unset: m.addressKeys() });
+
+  // A street makes it an address, and then the pre-filled parts are wanted.
+  const typed = { ...untouched, line1: "1300 Ocean Dr" };
+  assert.equal(m.addressFrontmatter(typed).set.address_city, "Miami");
+  assert.equal(m.addressFrontmatter(typed).set.address_country, "United States");
+  assert.equal(m.composeAddress(m.meaningfulAddress(typed)), "1300 Ocean Dr, Miami, United States");
+
+  // So does a postcode on its own — that is somebody telling us something.
+  assert.equal(
+    m.addressFrontmatter({ ...untouched, postcode: "33139" }).set.address_city,
+    "Miami",
+  );
+});
+
+
+// -------------------------------------------------- a real connecting ticket
+
+test("a connection over several zones is summed on each airport's own clock", () => {
+  // AMS ⇄ MIA, December 2026. Read off the clock faces this came out as
+  // 7 h 15 m going and 18 h 1 m coming back — six hours out in both
+  // directions, which made the flight home look longer than the flight there
+  // by eleven hours.
+  const l = (from, to, date, depTime, arrDate, arrTime) => ({
+    operator: "KLM (KL)", number: "", from, to, date, depTime, arrDate: arrDate || date, arrTime,
+  });
+
+  const outbound = m.summariseFlight([
+    l("Amsterdam (AMS)", "London (LHR)", "2026-12-21", "07:20", "", "07:40"),
+    l("London (LHR)", "Miami (MIA)", "2026-12-21", "09:40", "", "14:35"),
+  ]);
+  // 06:20 UTC to 19:35 UTC.
+  assert.equal(outbound.totalMinutes, 13 * 60 + 15);
+  assert.equal(outbound.airMinutes, 11 * 60 + 15);
+  assert.equal(outbound.groundMinutes, 120);
+  assert.deepEqual(outbound.layovers, ["2 h in London (LHR)"]);
+
+  const back = m.summariseFlight([
+    l("Miami (MIA)", "New York (JFK)", "2027-01-09", "17:59", "", "21:10"),
+    l("New York (JFK)", "Amsterdam (AMS)", "2027-01-09", "22:40", "2027-01-10", "12:00"),
+  ]);
+  // 22:59 UTC to 11:00 UTC the next day.
+  assert.equal(back.totalMinutes, 12 * 60 + 1);
+  assert.equal(back.airMinutes, 10 * 60 + 31);
+  assert.equal(back.groundMinutes, 90);
+  assert.deepEqual(back.layovers, ["1 h 30 min in New York (JFK)"]);
+
+  // The two halves are the whole thing, or the row shows numbers that argue.
+  for (const s of [outbound, back]) {
+    assert.equal(s.airMinutes + s.groundMinutes, s.totalMinutes);
+    assert.equal(s.groundMinutes, m.layoverMinutes(s.legs[0], s.legs[1]));
+  }
+});
+
+test("a leg missing a time gives no split rather than half a sum", () => {
+  const partial = m.summariseFlight([
+    { operator: "", number: "", from: "Amsterdam (AMS)", to: "London (LHR)",
+      date: "2026-12-21", depTime: "07:20", arrDate: "2026-12-21", arrTime: "" },
+    { operator: "", number: "", from: "London (LHR)", to: "Miami (MIA)",
+      date: "2026-12-21", depTime: "09:40", arrDate: "2026-12-21", arrTime: "14:35" },
+  ]);
+  assert.equal(m.flyingMinutes(partial.legs), null);
+  assert.equal(partial.airMinutes, null);
+  assert.equal(partial.groundMinutes, null);
+  // The door-to-door figure survives — both its ends are known.
+  assert.equal(partial.totalMinutes, 13 * 60 + 15);
+});
+
+
+// -------------------------------------------------- the day you land
+
+const AT = (id, label, kind, lat, lng, date, time, role) => ({
+  id, label, kind, lat, lng, date, time, role, path: id, cost: "",
+});
+const ALL_KINDS = new Set(["airport", "stay", "transport", "activity", "restaurant"]);
+
+test("a hotel with no check-in waits for the flight that brought you", () => {
+  // Miami, December 2026. The stay records no time, so it sat at its nominal
+  // two o'clock — thirty-five minutes before the aeroplane actually landed.
+  // The day read "leave London, arrive at the hotel, go to Miami airport", and
+  // the map drew the middle of it as a seven-thousand-kilometre drive.
+  const places = [
+    AT("a1", "AMS", "airport", 52.3105, 4.7683, "2026-12-21", "07:20", "departure"),
+    AT("a2", "LHR", "airport", 51.4706, -0.4619, "2026-12-21", "07:40", "arrival"),
+    AT("a3", "MIA", "airport", 25.7932, -80.2906, "2026-12-21", "14:35", "arrival"),
+    AT("s1", "Sentral Wynwood", "stay", 25.801, -80.199, "2026-12-21", "", undefined),
+  ];
+  assert.deepEqual(
+    m.orderPlaces(places).map((p) => p.label),
+    ["AMS", "LHR", "MIA", "Sentral Wynwood"],
+  );
+
+  const links = m.connectionsOf(m.routeThrough(places, ALL_KINDS));
+  assert.equal(links.length, 1, "one airport transfer, and no road across the Atlantic");
+  assert.equal(links[0].from.label, "MIA");
+  assert.equal(links[0].to.label, "Sentral Wynwood");
+});
+
+test("only a nearby arrival holds an untimed place back", () => {
+  // Landing at JFK in the evening says nothing about when you had lunch in
+  // Miami, and a departure says nothing about anything.
+  const places = [
+    AT("r1", "Lunch in Miami", "restaurant", 25.79, -80.19, "2027-01-09", "", undefined),
+    AT("a1", "MIA", "airport", 25.7932, -80.2906, "2027-01-09", "17:59", "departure"),
+    AT("a2", "JFK", "airport", 40.6413, -73.7781, "2027-01-09", "21:10", "arrival"),
+  ];
+  // The restaurant keeps its nominal evening slot rather than being shoved
+  // past a landing a thousand miles away.
+  assert.deepEqual(
+    m.orderPlaces(places).map((p) => p.label),
+    ["MIA", "Lunch in Miami", "JFK"],
+  );
+});
+
+test("an untimed landing still comes before dinner", () => {
+  // The behaviour the nominal times were added for, unchanged: a flight whose
+  // arrival time nobody recorded must not sort after an eight o'clock table.
+  const places = [
+    AT("r1", "Dinner", "restaurant", 42.64, 18.11, "2026-09-10", "20:00", undefined),
+    AT("a1", "DBV", "airport", 42.5614, 18.2683, "2026-09-10", "", "arrival"),
+  ];
+  assert.deepEqual(m.orderPlaces(places).map((p) => p.label), ["DBV", "Dinner"]);
+});
+
+test("a road is never drawn across an ocean, however the day is ordered", () => {
+  const forced = [
+    AT("x1", "LHR", "airport", 51.4706, -0.4619, "2026-12-21", "09:40", "departure"),
+    AT("x2", "Sentral Wynwood", "stay", 25.801, -80.199, "2026-12-21", "10:00", undefined),
+  ];
+  assert.equal(m.connectionsOf(m.routeThrough(forced, ALL_KINDS)).length, 0);
+
+  // But two places a long way apart with no airport between them is a journey
+  // somebody made, and it is not this function's business to call it
+  // impossible. Moscow to Vladivostok is four times the guard and a real train.
+  const rail = [
+    AT("r1", "Hotel Moscow", "stay", 55.7558, 37.6173, "2026-05-01", "09:00", undefined),
+    AT("r2", "Hotel Vladivostok", "stay", 43.1155, 131.8855, "2026-05-08", "18:00", undefined),
+  ];
+  const drawn = m.connectionsOf(m.routeThrough(rail, ALL_KINDS));
+  assert.equal(drawn.length, 1);
+  assert.ok(
+    m.distanceKm(drawn[0].from, drawn[0].to) > m.MAX_AIRPORT_TRANSFER_KM,
+    "the guard is about airports, not about distance",
+  );
+});
+
+
+// -------------------------------------------------- hiding the amounts
+
+test("every currency the formatter can print is one the mask can find", () => {
+  // Derived from the same table, so a currency added to one is covered by the
+  // other without anybody remembering to come back.
+  const pattern = m.moneyPattern();
+  for (const currency of m.COMMON_CURRENCIES) {
+    for (const amount of [0, 7, 120, 3080, 26500.5, 1234567.89]) {
+      const printed = m.formatMoney({ amount, currency });
+      pattern.lastIndex = 0;
+      const hit = pattern.exec(printed);
+      assert.ok(hit, `${printed} (${currency}) was not found`);
+      assert.equal(hit[0], printed, `${printed} was only partly matched as ${hit[0]}`);
+    }
+  }
+});
+
+test("a currency the table has never heard of is covered once it is named", () => {
+  const printed = m.formatMoney({ amount: 4200, currency: "HRK" });
+  assert.equal(m.moneyPattern().test(printed), false, "not guessed at");
+  const known = m.moneyPattern(["HRK"]);
+  known.lastIndex = 0;
+  assert.equal(known.exec(printed)[0], printed);
+});
+
+test("the mask finds amounts inside a sentence, and leaves the sentence alone", () => {
+  const pattern = m.moneyPattern();
+  const line = `${m.formatMoney({ amount: 120, currency: "EUR" })} of ${m.formatMoney({ amount: 3000, currency: "EUR" })} budget`;
+  assert.deepEqual(line.match(pattern), ["€120", "€3,000"]);
+});
+
+test("an airport code with a number after it is not money", () => {
+  // Three letters and digits is what a boarding pass looks like. Only a code
+  // the formatter would actually print counts, and none of these are.
+  const pattern = m.moneyPattern();
+  for (const notMoney of ["MIA 14:35", "AMS 07:20", "KL1001", "LHR 2", "DBV 12"]) {
+    pattern.lastIndex = 0;
+    assert.equal(pattern.test(notMoney), false, `${notMoney} was read as money`);
+  }
+});
+
+test("a two-character symbol is not matched as the one inside it", () => {
+  // "A$120" must not come out as "$120" with a stray A in front of it.
+  const pattern = m.moneyPattern();
+  for (const currency of ["AUD", "CAD", "NZD"]) {
+    const printed = m.formatMoney({ amount: 120, currency });
+    pattern.lastIndex = 0;
+    assert.equal(pattern.exec(printed)[0], printed);
+  }
 });
 
 console.log(`\n${passed} tests passed`);

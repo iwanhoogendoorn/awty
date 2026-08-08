@@ -1,4 +1,3 @@
-import { AIRPORTS } from "../data/airports";
 import type { FlightLeg } from "../bookings/legs";
 
 /**
@@ -11,13 +10,10 @@ import type { FlightLeg } from "../bookings/legs";
  * carries the zone database, which together make conversion just arithmetic.
  */
 
-const BY_IATA = new Map(AIRPORTS.map((a) => [a.i, a]));
-
-/** The IANA zone for whatever names an airport: "AMS", "Amsterdam (AMS)". */
-export function zoneForAirport(label: string): string | null {
-  const code = /\(([A-Z]{3})\)/.exec(label)?.[1] ?? (/^[A-Z]{3}$/.exec(label.trim())?.[0] ?? "");
-  return (code && BY_IATA.get(code)?.z) || null;
-}
+// Lives in zonedTime now, next to the arithmetic that needs it, and is
+// re-exported here so nothing that already asked this module has to move.
+import { zoneForAirport } from "./zonedTime";
+export { zoneForAirport };
 
 /** "2026-08-17" + "08:15" UTC → the same instant on the wall clock of `zone`. */
 export function utcToLocal(

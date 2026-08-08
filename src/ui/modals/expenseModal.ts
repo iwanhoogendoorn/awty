@@ -1,7 +1,7 @@
 import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
-import type { CostCategory } from "../../bookings/types";
-import { allCategories } from "../../bookings/types";
+import type { BookingStatus, CostCategory } from "../../bookings/types";
+import { BOOKING_STATUSES, allCategories } from "../../bookings/types";
 import { countAttachmentsNamed, type ExpenseDraft } from "../../bookings/bookingWriter";
 import type { AwtySettings, Trip } from "../../types";
 import { AttachmentField } from "../components/attachmentField";
@@ -36,6 +36,9 @@ export class ExpenseModal extends Modal {
     this.draft = {
       date: inTrip ? today : isValidISODate(trip.startDate) ? trip.startDate : today,
       description: "",
+      // Most things logged here are money already gone; the other three are for
+      // what is being weighed up, held, or called off.
+      status: "booked",
       amount: 0,
       currency,
       category: "Food & drink",
@@ -97,6 +100,14 @@ export class ExpenseModal extends Modal {
       }
       dd.setValue(this.draft.category);
       dd.onChange((v) => (this.draft.category = v as CostCategory));
+    });
+
+    // The same four words a booking uses, so a held deposit or a refunded
+    // ticket can be said here too — and a cancelled one leaves the totals.
+    new Setting(contentEl).setName("Status").addDropdown((dd) => {
+      for (const status of BOOKING_STATUSES) dd.addOption(status.id, status.label);
+      dd.setValue(this.draft.status);
+      dd.onChange((v) => (this.draft.status = v as BookingStatus));
     });
 
     new Setting(contentEl).setName("Paid by").addText((t) => {

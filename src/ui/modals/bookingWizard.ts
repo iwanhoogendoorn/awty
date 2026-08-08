@@ -3,13 +3,14 @@ import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { Booking, BookingKind, BookingStatus, CostCategory } from "../../bookings/types";
 import { BOOKING_KINDS, BOOKING_STATUSES, allCategories } from "../../bookings/types";
 import { countAttachmentsNamed, type BookingDraft } from "../../bookings/bookingWriter";
-import { tripCities, tripStops, type AwtySettings, type Trip } from "../../types";
+import { tripCities, tripCountries, tripStops, type AwtySettings, type Trip } from "../../types";
 import { flightHops } from "../../bookings/flightHops";
 import { AttachmentField } from "../components/attachmentField";
 import {
   AirlineSuggest,
   AirportSuggest,
   CitySuggest,
+  CountrySuggest,
   EndpointSuggest,
   FoodSpotSuggest,
 } from "../components/suggest";
@@ -18,6 +19,14 @@ import { LegsField } from "../components/legsField";
 import { airportFromLabel } from "../components/suggest";
 import { parseConfirmation, type ParsedConfirmation } from "../../flights/parseConfirmation";
 import { localiseLegs } from "../../flights/localTime";
+import type { PostalAddress } from "../../bookings/postalAddress";
+import {
+  EMPTY_ADDRESS,
+  composeAddress,
+  keepLocation,
+  prefilledAddress,
+  splitLegacyAddress,
+} from "../../bookings/postalAddress";
 import {
   emptyLeg,
   firstIncompleteLeg,
@@ -43,6 +52,14 @@ type FieldKey =
   | "address"
   | "fromAddress";
 
+/**
+ * The keys that really are a single string on the draft.
+ *
+ * `address` and `fromAddress` name a group of boxes rather than one, so the
+ * generic "read a field, write a field" code must never reach for them.
+ */
+type TextFieldKey = Exclude<FieldKey, "address" | "fromAddress">;
+
 export type StarKind = "airline" | "airport";
 
 interface FieldSpec {
@@ -57,6 +74,19 @@ interface FieldSpec {
   required?: boolean;
 }
 
+/**
+ * The city and country to start an address off with, for kinds that have one.
+ *
+ * A flight is deliberately excluded: it has no address field, and seeding one
+ * would write a city onto a note whose location is an airport.
+ */
+function addressPrefillFor(kind: BookingKind, trip: Trip): PostalAddress {
+  if (!FIELDS[kind].some((f) => f.key === "address" || f.key === "fromAddress")) {
+    return { ...EMPTY_ADDRESS };
+  }
+  return prefilledAddress(tripCities(trip), tripCountries(trip));
+}
+
 /** Which detail fields each kind asks for, and what to call them. */
 const FIELDS: Record<BookingKind, FieldSpec[]> = {
   flight: [
@@ -69,19 +99,19 @@ const FIELDS: Record<BookingKind, FieldSpec[]> = {
   ],
   stay: [
     { key: "title", label: "Property", placeholder: "Hotel Excelsior", required: true },
-    { key: "address", label: "Address", placeholder: "Frana Supila 12, Dubrovnik" },
+    { key: "address", label: "Address", placeholder: "Frana Supila 12" },
     { key: "reference", label: "Confirmation number", placeholder: "1234567890" },
   ],
   activity: [
     { key: "title", label: "What", placeholder: "Old town walls walk", required: true },
     { key: "to", label: "Venue", placeholder: "Pile Gate" },
-    { key: "address", label: "Address", placeholder: "Optional — improves travel times" },
+    { key: "address", label: "Address", placeholder: "Pile 1" },
     { key: "seat", label: "Seat / section", placeholder: "Block C, row 4" },
     { key: "reference", label: "Booking reference", placeholder: "ABC123" },
   ],
   restaurant: [
     { key: "title", label: "Restaurant", placeholder: "Nautika", required: true },
-    { key: "address", label: "Address", placeholder: "Brsalje ul. 3, Dubrovnik" },
+    { key: "address", label: "Address", placeholder: "Brsalje ul. 3" },
     { key: "operator", label: "Booked by", placeholder: "Optional" },
     { key: "reference", label: "Reservation reference", placeholder: "Optional" },
     { key: "seat", label: "Table", placeholder: "By the window" },
@@ -90,9 +120,9 @@ const FIELDS: Record<BookingKind, FieldSpec[]> = {
     { key: "operator", label: "Carrier", placeholder: "FlixBus" },
     { key: "title", label: "Service", placeholder: "Bus 402", required: true },
     { key: "from", label: "From", placeholder: "Dubrovnik Airport (DBV)", required: true },
-    { key: "fromAddress", label: "From address", placeholder: "Where it picks you up" },
+    { key: "fromAddress", label: "From address", placeholder: "Street it picks you up on" },
     { key: "to", label: "To", placeholder: "Rausion Luxury Apartments", required: true },
-    { key: "address", label: "To address", placeholder: "Where it drops you" },
+    { key: "address", label: "To address", placeholder: "Street it drops you on" },
     { key: "seat", label: "Seat", placeholder: "12" },
     { key: "reference", label: "Booking reference", placeholder: "ABC123" },
   ],
@@ -132,6 +162,14 @@ export class BookingWizard extends Modal {
   private returnField: LegsField | null = null;
   /** "lat,lng" from a picked Food Spot entry, so nothing is geocoded twice. */
   private knownLocation = "";
+  /**
+   * The address this booking had when the form opened.
+   *
+   * A coordinate describes an address, so it survives an edit only as long as
+   * the address does. Keeping it through a move would leave the pin on the old
+   * doorway and quietly report travel times to somewhere you are not staying.
+   */
+  private openedWithAddress = "";
   private hasReturn = false;
 
   /** Flights hold their dates on each leg, so they skip the separate When step. */
@@ -174,8 +212,13 @@ export class BookingWizard extends Modal {
       from: "",
       to: "",
       operator: "",
-      address: "",
-      fromAddress: "",
+      // Where the trip goes, already in the boxes. A restaurant on a trip to
+      // Miami is in Miami, and asking again is asking somebody to type back
+      // what they told the trip note. Both ends of a transfer get it, since a
+      // taxi picks you up in the same town it drops you in. Saved only if you
+      // actually add a street — see `meaningfulAddress`.
+      postal: addressPrefillFor(kind, trip),
+      fromPostal: addressPrefillFor(kind, trip),
       seat: "",
       notes: "",
       attachments: [],
@@ -185,6 +228,8 @@ export class BookingWizard extends Modal {
       ...initial,
     };
     this.hasReturn = (this.draft.returnLegs?.length ?? 0) > 0;
+    this.knownLocation = this.draft.location ?? "";
+    this.openedWithAddress = composeAddress(this.draft.postal);
     if (this.draft.amount !== null) this.amountRaw = String(this.draft.amount);
   }
 
@@ -278,7 +323,7 @@ export class BookingWizard extends Modal {
   private missingOnStep(name: string): string | null {
     if (name === "Details") {
       const field = FIELDS[this.draft.kind].find(
-        (spec) => spec.required && !String(this.draft[spec.key] ?? "").trim(),
+        (spec) => spec.required && !this.fieldValue(spec.key).trim(),
       );
       return field ? field.label : null;
     }
@@ -361,26 +406,121 @@ export class BookingWizard extends Modal {
         this.renderRestaurantField(spec);
         continue;
       }
+      if (spec.key === "address" || spec.key === "fromAddress") {
+        this.renderAddressField(spec);
+        continue;
+      }
       const setting = new Setting(this.bodyEl).setName(spec.label);
       if (spec.required) markRequired(setting);
-      if (spec.key === "address") {
-        setting.setDesc(
-          this.draft.kind === "transport"
-            ? "Where this leaves you — what puts it on the map and in the travel times."
-            : "Used to work out travel times from your accommodation.",
-        );
-      }
-      if (spec.key === "fromAddress") {
-        setting.setDesc("Optional. Useful when the pick-up point is not somewhere already booked.");
-      }
       setting.addText((t) => {
         t.setPlaceholder(spec.placeholder);
-        t.setValue(this.draft[spec.key]);
-        t.onChange((v) => (this.draft[spec.key] = v.trim()));
+        t.setValue(this.draft[spec.key as TextFieldKey]);
+        t.onChange((v) => (this.draft[spec.key as TextFieldKey] = v.trim()));
       });
     }
 
     this.renderStatusAndNotes();
+  }
+
+  /** A field's value as text, whichever shape it is stored in. */
+  private fieldValue(key: FieldKey): string {
+    if (key === "address") return composeAddress(this.draft.postal);
+    if (key === "fromAddress") return composeAddress(this.draft.fromPostal);
+    return this.draft[key] ?? "";
+  }
+
+  /**
+   * An address as the several things it is.
+   *
+   * One box could hold all of it, and did — but a postcode and a country are
+   * exactly what tells one street of the same name from another, and asked for
+   * as free text they are simply missing more often than not. Separate boxes
+   * ask for them.
+   */
+  private renderAddressField(spec: FieldSpec): void {
+    const from = spec.key === "fromAddress";
+    const address = from ? this.draft.fromPostal : this.draft.postal;
+
+    const head = new Setting(this.bodyEl).setName(spec.label).setHeading();
+    head.setDesc(
+      from
+        ? "Optional. Useful when the pick-up point is not somewhere already booked."
+        : this.draft.kind === "transport"
+          ? "Where this leaves you — what puts it on the map and in the travel times."
+          : "Used to work out travel times from your accommodation. The postcode and country are what tell one street from another.",
+    );
+
+    const parts: { key: keyof PostalAddress; label: string; placeholder: string }[] = [
+      { key: "line1", label: "Address line 1", placeholder: spec.placeholder },
+      { key: "line2", label: "Address line 2", placeholder: "Apartment, floor, building" },
+      { key: "postcode", label: "Postcode", placeholder: "20000" },
+      { key: "city", label: "City", placeholder: this.trip.city || "Dubrovnik" },
+      { key: "country", label: "Country", placeholder: this.trip.country || "Croatia" },
+    ];
+
+    for (const part of parts) {
+      new Setting(this.bodyEl).setName(part.label).setClass("awty-address-part").addText((t) => {
+        t.setPlaceholder(part.placeholder);
+        t.setValue(address[part.key]);
+        t.onChange((v) => {
+          address[part.key] = v.trim();
+        });
+
+        // The same two lists the trip itself is built from. Typed free-hand,
+        // "USA", "United States of America" and "US" are three countries as far
+        // as anything matching on them is concerned, and a city spelt the local
+        // way will not line up with the trip it belongs to.
+        if (part.key === "country") {
+          new CountrySuggest(this.app, t.inputEl, (value) => {
+            address.country = value;
+          });
+        }
+        if (part.key === "city") {
+          new CitySuggest(
+            this.app,
+            t.inputEl,
+            // Narrowed by the country in this address when there is one, so a
+            // trip to two countries still offers the right Victoria.
+            () => address.country,
+            (value, picked) => {
+              address.city = value;
+              // Picking a city names its country, and an address missing one is
+              // an address a geocoder has to guess at.
+              if (!address.country && picked) {
+                address.country = picked;
+                this.renderBody();
+              }
+            },
+            () => this.trip.country,
+          );
+        }
+      });
+    }
+  }
+
+  /**
+   * The coordinate to save, if any still describes where this is.
+   *
+   * A freshly picked Food Spot entry brought its own and is always right. An
+   * inherited one is only right while the address is untouched; change so much
+   * as the street and it is dropped, so the next travel-times run finds the new
+   * place rather than reporting confidently on the old one.
+   */
+  /**
+   * Take a coordinate that arrived with an address, and remember they agree.
+   *
+   * Without the second half, picking a place mid-edit set a coordinate and
+   * changed the address in the same breath — and the check below, seeing an
+   * address that no longer matched the one the form opened with, threw away the
+   * coordinate that pick had just handed over.
+   */
+  private takeLocation(location: string): void {
+    this.knownLocation = location;
+    this.openedWithAddress = composeAddress(this.draft.postal);
+  }
+
+  private locationToKeep(): string {
+    return keepLocation(this.knownLocation, this.draft.postal, this.openedWithAddress);
   }
 
   private renderStatusAndNotes(): void {
@@ -640,13 +780,15 @@ export class BookingWizard extends Modal {
 
     let input!: HTMLInputElement;
     let syncStar = (): void => {};
+    // Only ever an airline or an airport box, never the address group.
+    const key = spec.key as TextFieldKey;
 
     setting.addText((t) => {
       input = t.inputEl;
       t.setPlaceholder(spec.placeholder);
-      t.setValue(this.draft[spec.key]);
+      t.setValue(this.draft[key]);
       t.onChange((v) => {
-        this.draft[spec.key] = v.trim();
+        this.draft[key] = v.trim();
         syncStar();
       });
 
@@ -656,7 +798,7 @@ export class BookingWizard extends Modal {
           t.inputEl,
           (value) => this.stars.isStarred("airline", value),
           (value) => {
-            this.draft[spec.key] = value;
+            this.draft[key] = value;
             syncStar();
           },
         );
@@ -666,7 +808,7 @@ export class BookingWizard extends Modal {
           t.inputEl,
           (value) => this.stars.isStarred("airport", value),
           (value) => {
-            this.draft[spec.key] = value;
+            this.draft[key] = value;
             syncStar();
           },
         );
@@ -675,7 +817,7 @@ export class BookingWizard extends Modal {
 
     const starBtn = setting.controlEl.createEl("button", { cls: "awty-star-btn" });
     syncStar = () => {
-      const value = this.draft[spec.key];
+      const value = this.draft[key];
       const starred = value.length > 0 && this.stars.isStarred(kind, value);
       starBtn.empty();
       setIcon(starBtn, "star");
@@ -686,7 +828,7 @@ export class BookingWizard extends Modal {
 
     starBtn.addEventListener("click", async (evt) => {
       evt.preventDefault();
-      const value = this.draft[spec.key];
+      const value = this.draft[key];
       if (!value) return;
       await this.stars.toggle(kind, value);
       syncStar();
@@ -720,8 +862,8 @@ export class BookingWizard extends Modal {
         () => tripCities(this.trip).join("|"),
         (entry) => {
           this.draft.title = entry.name;
-          if (entry.address) this.draft.address = entry.address;
-          this.knownLocation = entry.location;
+          if (entry.address) this.draft.postal = splitLegacyAddress(entry.address);
+          this.takeLocation(entry.location);
           this.renderBody();
         },
       );
@@ -744,10 +886,12 @@ export class BookingWizard extends Modal {
   private renderEndpointField(spec: FieldSpec): void {
     const setting = new Setting(this.bodyEl).setName(spec.label);
     if (spec.required) markRequired(setting);
+    // Only "from" and "to" reach here, never the address group.
+    const key = spec.key as TextFieldKey;
     setting.addText((t) => {
       t.setPlaceholder(spec.placeholder);
-      t.setValue(this.draft[spec.key]);
-      t.onChange((v) => (this.draft[spec.key] = v.trim()));
+      t.setValue(this.draft[key]);
+      t.onChange((v) => (this.draft[key] = v.trim()));
       new EndpointSuggest(
         this.app,
         t.inputEl,
@@ -760,14 +904,16 @@ export class BookingWizard extends Modal {
           })),
         () => this.trip.country,
         (hit) => {
-          this.draft[spec.key] = hit.label;
+          this.draft[key] = hit.label;
           // Each end brings its own address; the destination also brings the
-          // coordinates, since that is where the booking sits on a map.
+          // coordinates, since that is where the booking sits on a map. The
+          // address arrives as one line from a booking written elsewhere, so it
+          // lands on the first line rather than being guessed apart.
           if (spec.key === "to") {
-            if (hit.address) this.draft.address = hit.address;
-            if (hit.location) this.knownLocation = hit.location;
+            if (hit.address) this.draft.postal = splitLegacyAddress(hit.address);
+            if (hit.location) this.takeLocation(hit.location);
           } else if (spec.key === "from" && hit.address) {
-            this.draft.fromAddress = hit.address;
+            this.draft.fromPostal = splitLegacyAddress(hit.address);
           }
           this.renderBody();
         },
@@ -832,9 +978,9 @@ export class BookingWizard extends Modal {
       chip.addEventListener("click", () => {
         this.draft.from = shortcut.from.label;
         this.draft.to = shortcut.to.label;
-        if (shortcut.from.address) this.draft.fromAddress = shortcut.from.address;
-        if (shortcut.to.address) this.draft.address = shortcut.to.address;
-        if (shortcut.to.location) this.knownLocation = shortcut.to.location;
+        if (shortcut.from.address) this.draft.fromPostal = splitLegacyAddress(shortcut.from.address);
+        if (shortcut.to.address) this.draft.postal = splitLegacyAddress(shortcut.to.address);
+        if (shortcut.to.location) this.takeLocation(shortcut.to.location);
         this.renderBody();
       });
     }
@@ -843,15 +989,16 @@ export class BookingWizard extends Modal {
   private renderCityField(spec: FieldSpec): void {
     const setting = new Setting(this.bodyEl).setName(spec.label);
     if (spec.required) markRequired(setting);
+    const key = spec.key as TextFieldKey;
     setting.addText((t) => {
       t.setPlaceholder(spec.placeholder);
-      t.setValue(this.draft[spec.key]);
-      t.onChange((v) => (this.draft[spec.key] = v.trim()));
+      t.setValue(this.draft[key]);
+      t.onChange((v) => (this.draft[key] = v.trim()));
       new CitySuggest(
         this.app,
         t.inputEl,
         () => this.trip.country,
-        (value) => (this.draft[spec.key] = value),
+        (value) => (this.draft[key] = value),
       );
     });
   }
@@ -1118,7 +1265,7 @@ export class BookingWizard extends Modal {
     }
 
     const missingField = FIELDS[this.draft.kind].find(
-      (spec) => spec.required && !String(this.draft[spec.key] ?? "").trim(),
+      (spec) => spec.required && !this.fieldValue(spec.key).trim(),
     );
     if (missingField) {
       new Notice(`${missingField.label} is needed before this can be saved.`);
@@ -1141,7 +1288,11 @@ export class BookingWizard extends Modal {
     this.nextBtn.setDisabled(true).setButtonText("Saving…");
     try {
       await this.onSubmit(
-        { ...this.draft, title: this.effectiveTitle(), location: this.knownLocation || undefined },
+        {
+          ...this.draft,
+          title: this.effectiveTitle(),
+          location: this.locationToKeep() || undefined,
+        },
         this.attachments.getFiles(),
       );
       this.close();

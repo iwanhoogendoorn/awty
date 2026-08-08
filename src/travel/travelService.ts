@@ -1,6 +1,7 @@
 import { App, TFile, normalizePath } from "obsidian";
 import type { Coord, Place, TravelLeg, TravelMode } from "./types";
 import { coordKey, formatLocation, legKey, parseLocation } from "./types";
+import { geocodeQuery } from "../bookings/postalAddress";
 import { MAX_DESTINATIONS, distanceMatrix, geocode } from "./googleApi";
 import { tripCities, type AwtySettings, type Trip } from "../types";
 import type { Booking } from "../bookings/types";
@@ -101,7 +102,6 @@ export class TravelService {
 
   /** Best address string we can build for a booking. */
   private addressFor(booking: Booking, trip: Trip): string {
-    const where = [trip.city, trip.country].filter(Boolean).join(", ");
     if (booking.kind === "flight") {
       // The destination airport is what matters for "airport to hotel", and
       // nothing else will do: the origin is where you started, not where you
@@ -109,13 +109,14 @@ export class TravelService {
       return booking.to ? `${booking.to} airport` : "";
     }
     // A street address places a pin far better than a venue's name; the venue
-    // is the fallback, and the title the last resort.
-    const base = booking.address || booking.to || booking.title;
-    if (!base) return "";
-    // Skip the city suffix when the address already names it.
-    return where && !base.toLowerCase().includes(trip.city.toLowerCase())
-      ? `${base}, ${where}`
-      : base;
+    // is the fallback, and the title the last resort. The trip supplies only
+    // the parts the address itself did not.
+    return geocodeQuery(
+      booking.postal,
+      booking.to || booking.title,
+      trip.city,
+      trip.country,
+    );
   }
 
   async geocodeCached(address: string): Promise<Coord | null> {

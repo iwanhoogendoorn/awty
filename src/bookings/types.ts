@@ -1,5 +1,6 @@
 import type { TFile } from "obsidian";
 import type { FlightLeg } from "./legs";
+import type { PostalAddress } from "./postalAddress";
 
 /**
  * Bookings and expenses are stored one-per-note with typed frontmatter, the way
@@ -45,6 +46,11 @@ export const BOOKING_KINDS: {
     folder: "Bookings",
   },
 ];
+
+/** Whether a frontmatter string is one of the four, for notes edited by hand. */
+export function isBookingStatus(value: string): value is BookingStatus {
+  return BOOKING_STATUSES.some((s) => s.id === value);
+}
 
 export const BOOKING_STATUSES: { id: BookingStatus; label: string; color: string }[] = [
   { id: "idea", label: "Idea", color: "var(--text-faint)" },
@@ -110,10 +116,18 @@ export interface Booking {
   /** Free-form location: airport pair, or the venue's name. */
   from: string;
   to: string;
-  /** Street address, used to place this on a map for travel times. */
+  /**
+   * The address as one line, composed from the parts below.
+   *
+   * Everything that wants an address — the geocoder, the map, the exports —
+   * wants a single string, so this stays the thing they read.
+   */
   address: string;
+  /** The same address with its parts kept apart, for editing. */
+  postal: PostalAddress;
   /** Where a transfer starts, when that is somewhere with an address. */
   fromAddress: string;
+  fromPostal: PostalAddress;
   operator: string;
   seat: string;
   notes: string;
@@ -152,6 +166,15 @@ export interface Expense {
   tripFolder: string;
   date: string;
   description: string;
+  /**
+   * The same four words a booking uses.
+   *
+   * An expense was always counted, which is right for a receipt and wrong for
+   * everything else somebody logs there — a deposit being considered, a
+   * refunded ticket. Cancelled ones now drop out of the totals exactly as a
+   * cancelled booking does.
+   */
+  status: BookingStatus;
   amount: Money;
   category: CostCategory;
   paidBy: string;

@@ -80,9 +80,9 @@ export function readTripPlaces(app: App, trip: Trip, bookings: Booking[]): TripP
         // both ends of a flight sat at the same nominal hour and the order fell
         // through to the alphabet — which drew the journey home as Amsterdam to
         // Dubrovnik, the wrong way down the runway.
-        for (const [label, date, time] of [
-          [leg.from, leg.date, leg.depTime],
-          [leg.to, leg.arrDate || leg.date, leg.arrTime],
+        for (const [label, date, time, role] of [
+          [leg.from, leg.date, leg.depTime, "departure"],
+          [leg.to, leg.arrDate || leg.date, leg.arrTime, "arrival"],
         ] as const) {
           const airport = airportPoint(label);
           if (!airport) continue;
@@ -94,6 +94,10 @@ export function readTripPlaces(app: App, trip: Trip, bookings: Booking[]): TripP
             lng: airport.lng,
             date: date || booking.date,
             time: time || "",
+            // Which end of the leg this is. Everything untimed on the day —
+            // the hotel with no check-in written down — has to wait for the
+            // arrival that brought you, and nothing else knows which is which.
+            role,
             path: booking.file.path,
             cost: "",
           });

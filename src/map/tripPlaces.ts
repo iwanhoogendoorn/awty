@@ -1,4 +1,5 @@
 import type { LatLng } from "./greatCircle";
+import { distanceKm } from "./greatCircle";
 
 /**
  * Everywhere a trip actually puts you, and the order it puts you there.
@@ -47,6 +48,14 @@ export interface TripPlace extends LatLng {
   date: string;
   /** "HH:MM", when the booking records one. */
   time: string;
+  /**
+   * For an airport, which end of a leg this appearance is.
+   *
+   * The same terminal is a departure in the morning and an arrival in the
+   * evening, and the difference decides what can be true around it: you cannot
+   * be at your hotel before the flight that brought you has landed.
+   */
+  role?: "departure" | "arrival";
   /** Vault path of the note behind it, for opening from the map. */
   path: string;
   /** What it cost, already formatted, for the tooltip. Empty when unpriced. */
@@ -85,6 +94,50 @@ function whenIn(place: TripPlace): string {
   return place.time || NOMINAL_TIME[place.kind];
 }
 
+/** Close enough that one is the way you reach the other. */
+const NEAR_KM = 150;
+
+function oneMinuteAfter(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  const total = Math.min(h * 60 + m + 1, 23 * 60 + 59);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/**
+ * When each place happens, with guessed times kept behind the known ones.
+ *
+ * A nominal time is a stand-in, and a stand-in must never overrule a fact. A
+ * hotel records no check-in, so it sat at two o'clock — half an hour before the
+ * flight that brought you to the city actually landed. The day then read
+ * "leave London, arrive at the hotel, go to Miami airport", and the map drew
+ * the middle of that as a seven-thousand-kilometre drive.
+ *
+ * So an untimed place is held until you have arrived somewhere near it. Only
+ * arrivals count, and only nearby ones: a landing at JFK says nothing about
+ * when you had lunch in Miami, and neither does a departure.
+ */
+function timesOf(places: TripPlace[]): Map<TripPlace, string> {
+  const arrivals = places.filter((p) => p.role === "arrival" && p.time);
+  // Keyed by the place itself, not by its id: an id names a place, and one
+  // place appears on several days. Keying by id let the last appearance of an
+  // airport hand its time to the first, which reordered the outward journey to
+  // match the way home.
+  const out = new Map<TripPlace, string>();
+  for (const place of places) {
+    let when = whenIn(place);
+    if (!place.time) {
+      for (const landing of arrivals) {
+        if (landing.date !== place.date) continue;
+        if (landing.time < when) continue;
+        if (distanceKm(landing, place) > NEAR_KM) continue;
+        when = oneMinuteAfter(landing.time);
+      }
+    }
+    out.set(place, when);
+  }
+  return out;
+}
+
 /**
  * The order a trip happens in.
  *
@@ -93,10 +146,12 @@ function whenIn(place: TripPlace): string {
  * somewhere you might go, and threading a route through it invents a journey.
  */
 export function orderPlaces(places: TripPlace[]): TripPlace[] {
+  const when = timesOf(places);
+  const at = (p: TripPlace): string => when.get(p) ?? whenIn(p);
   return [...places].sort(
     (a, b) =>
       a.date.localeCompare(b.date) ||
-      whenIn(a).localeCompare(whenIn(b)) ||
+      at(a).localeCompare(at(b)) ||
       KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
       a.label.localeCompare(b.label),
   );
@@ -229,6 +284,20 @@ export function countByKind(places: TripPlace[]): Map<PlaceKind, number> {
   return counts;
 }
 
+/**
+ * The furthest an airport transfer can plausibly be.
+ *
+ * Generous on purpose: the airport is sometimes a different city, and a train
+ * onward from it can be most of a country. Airlines fly people from Bangkok to
+ * Chiang Mai, and people take the train instead. What does not fit is an ocean
+ * — the shortest transatlantic hop is over three times this.
+ *
+ * Only applied when one end is an airport. Two hotels a long way apart are a
+ * journey somebody made by some means, and it is not this function's business
+ * to decide it was impossible.
+ */
+export const MAX_AIRPORT_TRANSFER_KM = 1500;
+
 export interface Connection {
   from: TripPlace;
   to: TripPlace;
@@ -269,6 +338,16 @@ export function connectionsOf(route: TripPlace[]): Connection[] {
     // straight road from Amsterdam to Dubrovnik alongside the arc — a drive
     // nobody made, running parallel to the flight that actually happened.
     if (from.kind === "airport" && to.kind === "airport") continue;
+    // Nor is anything else next to an airport, past a certain distance. However
+    // the day is ordered, you did not drive from Heathrow to a hotel in Miami:
+    // you flew, and the arc is already drawn. Ordering is fixed elsewhere, but
+    // a road across an ocean should not be drawable at all.
+    if (
+      (from.kind === "airport" || to.kind === "airport") &&
+      distanceKm(from, to) > MAX_AIRPORT_TRANSFER_KM
+    ) {
+      continue;
+    }
     const key = pairKey(from, to);
     const seen = headings.get(key) ?? new Set<string>();
     seen.add(`${from.id}>${to.id}`);

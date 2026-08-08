@@ -151,6 +151,13 @@ export default class AwtyPlugin extends Plugin {
       name: "New trip",
       callback: () => this.openNewTripModal(),
     });
+    // Reachable without the dashboard being in front of you, because the moment
+    // you want this is usually the moment you are already sharing a screen.
+    this.addCommand({
+      id: "toggle-hide-amounts",
+      name: "Hide amounts (blur every figure)",
+      callback: () => void this.toggleHideAmounts(),
+    });
     this.addCommand({
       id: "add-itinerary-day",
       name: "Add itinerary day",
@@ -519,6 +526,13 @@ export default class AwtyPlugin extends Plugin {
     if (trip && view instanceof AwtyDashboardView) view.showTrip(trip);
   }
 
+  async toggleHideAmounts(): Promise<void> {
+    this.settings.hideAmounts = !this.settings.hideAmounts;
+    await this.saveSettings();
+    this.refreshViews();
+    new Notice(this.settings.hideAmounts ? "Amounts hidden" : "Amounts shown");
+  }
+
   refreshViews(): void {
     for (const leaf of this.app.workspace.getLeavesOfType(AWTY_SIDEBAR_TYPE)) {
       const view = leaf.view;
@@ -659,6 +673,9 @@ export default class AwtyPlugin extends Plugin {
         ? {
             date: existing.date,
             description: existing.description,
+            // Carried back, or editing anything else would silently mark a
+            // cancelled expense as booked again.
+            status: existing.status,
             amount: existing.amount.amount,
             currency: existing.amount.currency,
             category: existing.category,

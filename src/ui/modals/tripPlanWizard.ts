@@ -286,7 +286,7 @@ export class TripPlanWizard extends Modal {
         done: plugin.bookings.getBudgetTotal(trip) > 0,
         summary:
           plugin.bookings.getBudgetTotal(trip) === 0
-            ? "No budget set"
+            ? "Not specified"
             : `cost ${formatTotals(spent, formatMoney({ amount: 0, currency: plugin.bookings.getCurrency(trip) }))} of ${formatMoney({ amount: plugin.bookings.getBudgetTotal(trip), currency: plugin.bookings.getCurrency(trip) })} budget`,
         action: () => plugin.openBudgetModal(trip),
         actionLabel: plugin.bookings.getBudgetTotal(trip) > 0 ? "Edit" : "Set",

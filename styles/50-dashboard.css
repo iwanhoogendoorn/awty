@@ -1336,3 +1336,37 @@
 body.awty-mobile .awty-gallery-remove {
   opacity: 1;
 }
+
+/* Amounts hidden — for a shared screen or a screenshot.
+
+   Blurred rather than replaced with dots, because the shape of the line has to
+   survive: a card whose figure becomes "•••" reflows, and a screenshot of a
+   reflowed dashboard is not a screenshot of your dashboard. Colour is kept, so
+   an over-budget figure still reads as over budget without saying by how much.
+
+   `select-none` matters as much as the blur: a blurred figure is still real
+   text, and copying it out or reading it in the accessibility tree would make
+   the whole thing decorative. */
+
+.awty-amounts-hidden .awty-money {
+  filter: blur(0.36em);
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+/* Round the blurred smear off so it reads as a redaction rather than a font
+   that failed to load. */
+
+.awty-amounts-hidden .awty-money {
+  border-radius: 0.2em;
+}
+
+.awty-dash-quick-btn.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.awty-dash-quick-btn.is-active:hover {
+  background: var(--interactive-accent-hover);
+}

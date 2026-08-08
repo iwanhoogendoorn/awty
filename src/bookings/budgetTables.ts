@@ -35,19 +35,31 @@ export function budgetPlanTable(
 
   const totalTarget = [...budget.values()].reduce((n, v) => n + v, 0);
   const totalSpent = categories.reduce((n, c) => n + spentIn(c), 0);
+  // Categories with money against them but no target of their own. Their spend
+  // is in the total, their budget is not, so "Left" reads as overspending on a
+  // budget that was never set for them.
+  const untargeted = categories.filter((c) => (budget.get(c) ?? 0) === 0 && spentIn(c) > 0);
   rows.push(
     `| **Total** | ${totalTarget > 0 ? `**${money(totalTarget)}**` : ""} | ${
       totalSpent > 0 ? `**${money(totalSpent)}**` : ""
     } | ${totalTarget > 0 ? `**${money(totalTarget - totalSpent)}**` : ""} |`,
   );
 
-  return [
-    "_Generated from your targets and your bookings — set targets or edit a booking to change a row._",
-    "",
-    "| Category | Budget | Spent | Left |",
-    "|---|---|---|---|",
-    ...rows,
-  ].join("\n");
+  const note =
+    untargeted.length > 0 && totalTarget > 0
+      ? `\n\n_${untargeted.join(", ")} ${untargeted.length === 1 ? "has" : "have"} no target, ` +
+        `so the Total row's "Left" is measured against only part of the trip._`
+      : "";
+
+  return (
+    [
+      "_Generated from your targets and your bookings — set targets or edit a booking to change a row._",
+      "",
+      "| Category | Budget | Spent | Left |",
+      "|---|---|---|---|",
+      ...rows,
+    ].join("\n") + note
+  );
 }
 
 /** Every costed thing, so the note reads as a statement rather than a total. */

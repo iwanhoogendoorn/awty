@@ -9,7 +9,8 @@ import type {
   FlightJourney,
   Money,
 } from "./types";
-import { BOOKING_KINDS } from "./types";
+import { BOOKING_KINDS, isBookingStatus } from "./types";
+import { composeAddress, readAddress } from "./postalAddress";
 import type { AwtySettings, Trip } from "../types";
 import { linkTarget } from "./linkTarget";
 import { groupJourneys } from "./legs";
@@ -169,7 +170,7 @@ export class BookingStore {
         description: expense.description,
         category: expense.category,
         money: expense.amount,
-        counted: true,
+        counted: expense.status !== "cancelled",
       });
     }
 
@@ -192,25 +193,39 @@ export class BookingStore {
   }
 
   /**
-   * The overall budget for the trip.
+   * The overall budget for the trip, or nought because you never set one.
    *
    * Separate from the per-category ones on purpose: most people know roughly
    * what the whole trip should cost long before they can break it down.
-   * Falls back to the sum of the categories when no overall figure is set.
+   *
+   * It used to fall back to adding up the category targets, which is a
+   * different question with a misleading answer: a trip with one Transport
+   * target of 3,080 and nothing else set was reported as having a 3,080 budget
+   * and being twenty-six thousand over it. Setting a target for one category
+   * is not setting a budget for the trip, and a number nobody chose should not
+   * be the thing every other number is measured against.
    */
   getBudgetTotal(trip: Trip): number {
     const fm = this.app.metadataCache.getFileCache(trip.file)?.frontmatter;
     const raw = fm?.budget_total;
     const explicit = typeof raw === "number" ? raw : parseAmount(str(raw));
-    if (explicit !== null && Number.isFinite(explicit) && explicit > 0) return explicit;
+    return explicit !== null && Number.isFinite(explicit) && explicit > 0 ? explicit : 0;
+  }
+
+  /** The category targets added up — the Budget note's own Total row, not a budget. */
+  getTargetsTotal(trip: Trip): number {
     return [...this.getBudget(trip).values()].reduce((n, v) => n + v, 0);
   }
 
-  /** Whether the overall figure was set by hand, or inferred from categories. */
+  /**
+   * Whether a budget was set at all.
+   *
+   * Nothing is inferred any more, so this is exactly "is there a figure" — kept
+   * as its own name because callers asking whether to compare read better than
+   * callers comparing a number against nought.
+   */
   hasExplicitBudgetTotal(trip: Trip): boolean {
-    const raw = this.app.metadataCache.getFileCache(trip.file)?.frontmatter?.budget_total;
-    const value = typeof raw === "number" ? raw : parseAmount(str(raw));
-    return value !== null && Number.isFinite(value) && value > 0;
+    return this.getBudgetTotal(trip) > 0;
   }
 
   /** Currency for a trip: its own frontmatter, else the vault default. */
@@ -270,8 +285,12 @@ export class BookingStore {
           reference: str(fm.reference),
           from: str(fm.from),
           to: str(fm.to),
-          address: str(fm.address),
-          fromAddress: str(fm.from_address),
+          // Composed on read, so every consumer keeps getting one string while
+          // the parts stay editable.
+          address: composeAddress(readAddress(fm)),
+          postal: readAddress(fm),
+          fromAddress: composeAddress(readAddress(fm, "from")),
+          fromPostal: readAddress(fm, "from"),
           operator: str(fm.operator),
           seat: str(fm.seat),
           notes: str(fm.notes),
@@ -290,6 +309,9 @@ export class BookingStore {
         tripFolder,
         date: str(fm.date),
         description: str(fm.description) || file.basename,
+        // Anything written before this existed is a receipt for money already
+        // gone, which is what "booked" means here.
+        status: isBookingStatus(str(fm.status)) ? (str(fm.status) as BookingStatus) : "booked",
         amount,
         category: str(fm.category) || "Misc",
         paidBy: str(fm.paid_by),

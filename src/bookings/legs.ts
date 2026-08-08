@@ -1,4 +1,5 @@
 import { parseISO } from "../util/dates";
+import { zoneForAirport, zonedGapMinutes } from "../flights/zonedTime";
 
 /**
  * A single hop. Most flights are one of these; a connecting itinerary is
@@ -54,17 +55,42 @@ function stamp(date: string, time: string): number | null {
 }
 
 /**
+ * Minutes between two points on a journey, each read on its own clock.
+ *
+ * Times on a ticket are local to the airport they happen at, so subtracting one
+ * from the other measures nothing unless both are turned into instants first.
+ * When the dataset knows both airports that is what happens; when it does not
+ * know one of them there is no honest conversion available, and plain
+ * subtraction is what is left. That is only right within a single zone, which
+ * is why it is the fallback and not the method.
+ */
+function elapsedMinutes(
+  from: { place: string; date: string; time: string },
+  to: { place: string; date: string; time: string },
+): number | null {
+  const zoned = zonedGapMinutes(
+    { date: from.date, time: from.time, zone: zoneForAirport(from.place) },
+    { date: to.date, time: to.time, zone: zoneForAirport(to.place) },
+  );
+  if (zoned !== null) return zoned;
+
+  const start = stamp(from.date, from.time);
+  const end = stamp(to.date, to.time);
+  return start === null || end === null ? null : end - start;
+}
+
+/**
  * Layover between two legs, in minutes.
  *
  * Null when either end lacks a time — better to show nothing than to invent a
  * connection time somebody might trust.
  */
 export function layoverMinutes(previous: FlightLeg, next: FlightLeg): number | null {
-  const arrive = stamp(previous.arrDate || previous.date, previous.arrTime);
-  const depart = stamp(next.date, next.depTime);
-  if (arrive === null || depart === null) return null;
-  const gap = depart - arrive;
-  return gap < 0 ? null : gap;
+  const gap = elapsedMinutes(
+    { place: previous.to, date: previous.arrDate || previous.date, time: previous.arrTime },
+    { place: next.from, date: next.date, time: next.depTime },
+  );
+  return gap === null || gap < 0 ? null : gap;
 }
 
 export function formatLayover(minutes: number): string {
@@ -88,15 +114,43 @@ export function routeTitle(legs: FlightLeg[]): string {
   return via.length > 0 ? `${base} via ${via.join(", ")}` : base;
 }
 
-/** Total elapsed journey, including time spent in airports. */
+/**
+ * Total elapsed journey, including time spent in airports.
+ *
+ * Measured between two instants, not two wall clocks. Read off the clocks it
+ * made Amsterdam to New York a two-hour flight and the way home a thirteen-hour
+ * one, when both are around eight — the same journey, wrong in both directions,
+ * because the numbers on a ticket are local to the airport they belong to.
+ */
 export function totalJourneyMinutes(legs: FlightLeg[]): number | null {
   if (legs.length === 0) return null;
-  const start = stamp(legs[0].date, legs[0].depTime);
-  const lastLeg = legs[legs.length - 1];
-  const end = stamp(lastLeg.arrDate || lastLeg.date, lastLeg.arrTime);
-  if (start === null || end === null) return null;
-  const total = end - start;
-  return total < 0 ? null : total;
+  const first = legs[0];
+  const last = legs[legs.length - 1];
+  const total = elapsedMinutes(
+    { place: first.from, date: first.date, time: first.depTime },
+    { place: last.to, date: last.arrDate || last.date, time: last.arrTime },
+  );
+  return total === null || total < 0 ? null : total;
+}
+
+/**
+ * Time actually in the air: the legs added up, with the waiting left out.
+ *
+ * The total journey is the useful number when you are working out what a day
+ * looks like, but on a one-stop it hides what the stop costs you. Null when any
+ * leg is missing a time, since a partial sum reads as a whole one.
+ */
+export function flyingMinutes(legs: FlightLeg[]): number | null {
+  let total = 0;
+  for (const leg of legs) {
+    const flown = elapsedMinutes(
+      { place: leg.from, date: leg.date, time: leg.depTime },
+      { place: leg.to, date: leg.arrDate || leg.date, time: leg.arrTime },
+    );
+    if (flown === null || flown < 0) return null;
+    total += flown;
+  }
+  return total;
 }
 
 /** Frontmatter-friendly form: plain objects with readable keys. */
