@@ -66,7 +66,9 @@ export { moneyStats, placeStats, flightStats, planningStats, legDistanceKm, iata
 export { greatCirclePath, interpolate as gcInterpolate, distanceKm, angularDistance } from "./src/map/greatCircle.ts";
 export { worldRings, RING_COUNT } from "./src/data/worldMap.ts";
 export { routesFrom, airportPoint, scopesFor } from "./src/map/flightRoutes.ts";
+export { kindsForCategory, bookingFromQuote, bookingNoteFrom } from "./src/planning/bookFromQuote.ts";
 export { PLACE_KINDS, placeKindDef, orderPlaces, routeThrough, countByKind, legsOf, placeScopes, zoomForKind, MAX_MAP_ZOOM } from "./src/map/tripPlaces.ts";
+export { bookedTotals, openTracks, unbookMissing, rebindBooking } from "./src/planning/priceWatch.ts";
 export { worldPolygons } from "./src/map/baseLayer.ts";
 export { splitFrontmatter } from "./src/util/frontmatter.ts";
 `;
@@ -3314,6 +3316,135 @@ test("the estimate uses the latest price for each thing, not every price", () =>
   const byCategory = m.estimateByCategory(tracks);
   assert.equal(byCategory.get("Transport").get("EUR"), 1320);
   assert.equal(byCategory.get("Accommodation").get("EUR"), 900);
+});
+
+test("a category says which kind of booking it means, and admits when it cannot", () => {
+  // Most categories name exactly one thing.
+  assert.deepEqual(m.kindsForCategory("Accommodation"), ["stay"]);
+  assert.deepEqual(m.kindsForCategory("Activities"), ["activity"]);
+  assert.deepEqual(m.kindsForCategory("Food & drink"), ["restaurant"]);
+  assert.deepEqual(m.kindsForCategory("  accommodation "), ["stay"]);
+
+  // Transport does not: a flight and a taxi are both transport, and guessing
+  // would file half of them wrong. The caller is expected to ask.
+  assert.deepEqual(m.kindsForCategory("Transport").sort(), ["flight", "transport"]);
+
+  // A category nobody mapped offers everything rather than refusing to convert.
+  assert.equal(m.kindsForCategory("Shopping").length, 5);
+  assert.equal(m.kindsForCategory("Whatever I invented").length, 5);
+});
+
+test("a quote fills in a booking without inventing the parts it cannot know", () => {
+  const [quote] = m.readQuotes([{
+    id: "q1", checked_on: "2026-07-20", category: "Transport", label: "KL835 AMS→DPS, 17–31 Aug",
+    amount: 1320, currency: "EUR", provider: "Skyscanner", url: "https://example.test/x",
+    note: "Two adults, one bag each.", screenshots: ["Trips/Bali/shot.png"],
+  }]);
+  const booking = m.bookingFromQuote(quote, "flight");
+
+  assert.equal(booking.kind, "flight");
+  assert.equal(booking.title, "KL835 AMS→DPS, 17–31 Aug");
+  assert.equal(booking.amount, 1320);
+  assert.equal(booking.currency, "EUR");
+  // The category you watched under, so the real cost lands on the budget line
+  // the estimate was sitting in.
+  assert.equal(booking.category, "Transport");
+  // The screenshots of the price are evidence, and follow it onto the booking.
+  assert.deepEqual(booking.attachments, ["Trips/Bali/shot.png"]);
+  // Mutating the booking must not reach back into the quote.
+  booking.attachments.push("nope.png");
+  assert.deepEqual(quote.screenshots, ["Trips/Bali/shot.png"]);
+
+  // The provider is where you saw the price, not who you are flying with, so
+  // it stays out of any field that means "airline" and goes in the trail.
+  assert.match(booking.notes, /Price watched: €1,320 on 20 Jul 2026 via Skyscanner\./);
+  assert.match(booking.notes, /https:\/\/example\.test\/x/);
+  assert.match(booking.notes, /Two adults, one bag each\./);
+  // Nothing that means "who you are travelling with" is filled in at all.
+  assert.equal("operator" in booking, false);
+
+  // A bare quote still produces a sentence rather than a dangling "via".
+  const [bare] = m.readQuotes([{ id: "q1", checked_on: "2026-07-20", label: "Villa", amount: 900 }]);
+  assert.equal(m.bookingNoteFrom(bare), "Price watched: €900 on 20 Jul 2026.");
+});
+
+test("a booked quote leaves the estimate, so the trip is not billed twice", () => {
+  // The whole point of stamping the quote. Before, the price sat in the
+  // estimate; after, the same money is on a real booking the budget counts.
+  const withBooking = [
+    ...QUOTE_FM.map((q) => (q.id === "q3" ? { ...q, booked_on: "2026-07-21", booked_path: "Trips/Bali/Bookings/KL835.md" } : q)),
+  ];
+  const tracks = m.trackQuotes(m.readQuotes(withBooking));
+  const flights = tracks.find((t) => t.label === "Flights AMS-DPS");
+  assert.ok(flights.booked, "the flights track knows it was booked");
+  assert.equal(flights.booked.bookedPath, "Trips/Bali/Bookings/KL835.md");
+
+  // 2220 before; the villa's 900 alone now.
+  assert.equal(m.estimateTotals(tracks).get("EUR"), 900);
+  assert.equal(m.bestCaseTotals(tracks).get("EUR"), 900);
+  assert.equal(m.estimateByCategory(tracks).get("Transport"), undefined);
+  // And what the watch actually bought is still answerable.
+  assert.equal(m.bookedTotals(tracks).get("EUR"), 1320);
+  assert.equal(m.openTracks(tracks).length, 1);
+});
+
+test("deleting the booking puts its price back where it can be seen", () => {
+  // The bug this guards: the stamp outlived the note it pointed at, so the
+  // watch said "Booked" with a link to nothing — and kept the price out of the
+  // estimate, leaving the money on no booking and in no total at all.
+  const quotes = m.readQuotes([
+    { id: "q1", checked_on: "2026-08-08", category: "Food & drink", label: "test", amount: 100 },
+    { id: "q2", checked_on: "2026-08-09", category: "Food & drink", label: "test", amount: 200,
+      booked_on: "2026-08-08", booked_path: "Trips/X/Bookings/test.md" },
+  ]);
+  assert.equal(m.trackQuotes(quotes)[0].booked.amount, 200);
+  assert.equal(m.estimateTotals(m.trackQuotes(quotes)).get("EUR"), undefined);
+
+  // The note is gone, so the claim about it goes too.
+  const cleaned = m.unbookMissing(quotes, () => false);
+  const tracks = m.trackQuotes(cleaned);
+  assert.equal(tracks[0].booked, null);
+  assert.equal(m.estimateTotals(tracks).get("EUR"), 200);
+  assert.equal(m.bookedTotals(tracks).get("EUR"), undefined);
+
+  // A booking that is still there is left exactly alone.
+  const kept = m.unbookMissing(quotes, (p) => p === "Trips/X/Bookings/test.md");
+  assert.equal(m.trackQuotes(kept)[0].booked.amount, 200);
+  // And an unbooked quote is never touched, so nothing is copied needlessly.
+  assert.equal(m.unbookMissing(quotes, () => false)[0], quotes[0]);
+});
+
+test("renaming the booking does not make the trip pay for it twice", () => {
+  // Editing a booking's title renames its note, and the stamp is a plain path
+  // that Obsidian's link rewriting does not touch. Without following it, the
+  // watch decides the booking vanished and returns the price to the estimate —
+  // while the booking sits there being counted by the budget as well.
+  const quotes = m.readQuotes([
+    { id: "q1", checked_on: "2026-08-09", category: "Food & drink", label: "test", amount: 200,
+      booked_on: "2026-08-08", booked_path: "Trips/X/Bookings/test.md" },
+  ]);
+  const moved = m.rebindBooking(quotes, "Trips/X/Bookings/test.md", "Trips/X/Bookings/Dinner at Proto.md");
+  assert.equal(moved[0].bookedPath, "Trips/X/Bookings/Dinner at Proto.md");
+  assert.equal(moved[0].bookedOn, "2026-08-08");
+  assert.equal(m.trackQuotes(moved)[0].booked.amount, 200);
+  // Still out of the estimate, because it is still booked.
+  assert.equal(m.estimateTotals(m.trackQuotes(moved)).get("EUR"), undefined);
+
+  // A rename of something unrelated changes nothing.
+  assert.equal(m.rebindBooking(quotes, "Trips/X/Bookings/other.md", "elsewhere.md")[0], quotes[0]);
+});
+
+test("the booked stamp survives a round trip through frontmatter", () => {
+  const quote = m.readQuotes([{ id: "q1", checked_on: "2026-07-20", label: "Villa", amount: 900,
+    booked_on: "2026-07-21", booked_path: "Trips/Bali/Bookings/Villa.md" }])[0];
+  assert.equal(quote.bookedOn, "2026-07-21");
+  const [record] = m.writeQuotes([quote]);
+  assert.equal(record.booked_on, "2026-07-21");
+  assert.equal(record.booked_path, "Trips/Bali/Bookings/Villa.md");
+  // An unbooked quote writes neither key rather than two empty ones.
+  const [plain] = m.writeQuotes(m.readQuotes([{ id: "q1", label: "Villa", amount: 900 }]));
+  assert.equal("booked_on" in plain, false);
+  assert.equal("booked_path" in plain, false);
 });
 
 test("a trip that fits says by how much", () => {

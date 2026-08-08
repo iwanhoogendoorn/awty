@@ -1,4 +1,4 @@
-import { setIcon } from "obsidian";
+import { Notice, TFile, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
 import { bar, emptyState, noTripState, sectionTitle, statTiles } from "../common";
 import type { Trip } from "../../../types";
@@ -13,6 +13,7 @@ import {
   bestCaseTotals,
   describeTrend,
   estimateTotals,
+  openTracks,
   trackQuotes,
 } from "../../../planning/priceWatch";
 
@@ -158,10 +159,10 @@ function renderVerdict(
     {
       label: "Priced so far",
       value: formatTotals(estimate, "—"),
-      detail:
-        tracks.length === 0
-          ? "Nothing checked"
-          : `${tracks.length} thing${tracks.length === 1 ? "" : "s"} watched`,
+      // Counts what is still being watched, because that is what the number
+      // above it adds up. Counting the booked ones here too would caption
+      // one track's total with two things, which is how a tile starts lying.
+      detail: watchDetail(tracks),
       icon: "receipt",
     },
     {
@@ -336,6 +337,27 @@ function renderTracks(
     renderHistory(card, ctx, trip, track);
 
     const foot = card.createDiv({ cls: "awty-track-foot" });
+
+    // A price you have acted on is not a price you are still watching, so the
+    // card stops asking you to check it and says what it became instead.
+    if (track.booked) {
+      const done = foot.createDiv({ cls: "awty-track-booked" });
+      setIcon(done.createSpan({ cls: "awty-track-booked-icon" }), "check-circle");
+      done.createSpan({
+        text: `Booked ${formatDate(track.booked.bookedOn)} at ${formatMoney({ amount: track.booked.amount, currency: track.currency })}`,
+      });
+      if (track.booked.bookedPath) {
+        const open = done.createEl("a", { cls: "awty-track-booked-link", text: "open booking" });
+        open.addEventListener("click", (evt) => {
+          evt.preventDefault();
+          const file = ctx.app.vault.getAbstractFileByPath(track.booked!.bookedPath);
+          if (file instanceof TFile) ctx.openFile(file);
+          else new Notice("That booking note is not there any more.");
+        });
+      }
+      continue;
+    }
+
     const again = foot.createEl("button", { cls: "awty-dash-action" });
     setIcon(again.createSpan(), "refresh-cw");
     again.createSpan({ text: "Check again" });
@@ -346,7 +368,29 @@ function renderTracks(
         currency: track.currency,
       }),
     );
+
+    // The end of the loop: the price you have been watching, become a ticket.
+    const book = foot.createEl("button", { cls: "awty-dash-action is-primary" });
+    setIcon(book.createSpan(), "ticket");
+    book.createSpan({ text: "Book this" });
+    book.addEventListener("click", (evt) => void plugin.bookFromQuote(trip, track, evt));
   }
+}
+
+/**
+ * What the estimate is an estimate of.
+ *
+ * A track that has been booked has left the total above, so it has to leave
+ * this count too — but silently dropping it would make two watched things look
+ * like one. It is said instead.
+ */
+function watchDetail(tracks: PriceTrack[]): string {
+  if (tracks.length === 0) return "Nothing checked";
+  const open = openTracks(tracks).length;
+  const done = tracks.length - open;
+  if (done === 0) return `${open} thing${open === 1 ? "" : "s"} watched`;
+  if (open === 0) return `all ${done} booked`;
+  return `${open} still watched · ${done} booked`;
 }
 
 /** Each check, oldest first, so the shape of the trend is legible. */

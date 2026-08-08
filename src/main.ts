@@ -1,4 +1,4 @@
-import { App, Notice, Plugin, TFile, WorkspaceLeaf, normalizePath } from "obsidian";
+import { App, Menu, Notice, Plugin, TFile, WorkspaceLeaf, normalizePath } from "obsidian";
 import {
   DEFAULT_SETTINGS,
   FOODSPOT_PLUGIN_ID,
@@ -20,6 +20,7 @@ import { TripStore } from "./store/tripStore";
 import { ProgressCache } from "./store/noteProgress";
 import { BookingStore, totalsByCategory } from "./bookings/bookingStore";
 import type { Booking, BookingKind, CostCategory, Expense } from "./bookings/types";
+import { BOOKING_KINDS } from "./bookings/types";
 import {
   attachmentPaths,
   createBooking,
@@ -30,6 +31,7 @@ import {
   importAttachments,
   saveBudget,
 } from "./bookings/bookingWriter";
+import type { BookingDraft } from "./bookings/bookingWriter";
 import { AwtyDashboardView } from "./ui/dashboard/dashboardView";
 import { BookingWizard } from "./ui/modals/bookingWizard";
 import { ExpenseModal } from "./ui/modals/expenseModal";
@@ -57,7 +59,7 @@ import {
   type MapPlace,
 } from "./export/mapsExport";
 import { dayEvents } from "./store/dayPlan";
-import { datesInRange, formatDateRange } from "./util/dates";
+import { datesInRange, formatDateRange, todayISO } from "./util/dates";
 import { formatMoney } from "./util/money";
 import { joinPath, sanitizeName } from "./util/paths";
 import {
@@ -73,8 +75,9 @@ import { canExportPdf, exportTrip, saveTextFile } from "./export/pdfExport";
 import { mapSavePlanFor, mapSavedInVaultMessage, type ExportCapabilities } from "./export/exportPlan";
 import { isMobile, markPlatform } from "./util/platform";
 import { createTrip, deleteTrip, notifyError, setTripStage, updateTrip } from "./store/noteWriter";
-import { readTripQuotes, removeQuote, saveQuote } from "./planning/priceStore";
-import { nextQuoteId, trackQuotes, type PriceQuote } from "./planning/priceWatch";
+import { readTripQuotes, removeQuote, repointBookings, saveQuote } from "./planning/priceStore";
+import { nextQuoteId, trackQuotes, unbookMissing, type PriceQuote, type PriceTrack } from "./planning/priceWatch";
+import { bookingFromQuote, kindsForCategory } from "./planning/bookFromQuote";
 import { suggestStage } from "./planning/stageSignals";
 import { AwtySidebarView } from "./ui/view";
 import { TripModal } from "./ui/modals/tripModal";
@@ -332,6 +335,41 @@ export default class AwtyPlugin extends Plugin {
         callback: () => this.openNewTripModal(def.id),
       });
     }
+
+    // A booking that moves takes its price check with it.
+    //
+    // Renaming a booking is not an unusual thing to do — editing its title
+    // through the wizard renames the note — and the stamp on a quote is a plain
+    // path, which Obsidian's link rewriting does not touch. Left alone, the
+    // stamp points at nothing, the watch decides the booking is gone, and the
+    // price returns to the estimate while still sitting on a real booking:
+    // counted twice, from one rename.
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        if (!(file instanceof TFile) || file.extension !== "md") return;
+        void this.repointQuoteBookings(oldPath, file.path);
+      }),
+    );
+  }
+
+  /**
+   * Follow a booking note to its new path, on every trip that watched its price.
+   *
+   * Fires for every rename in the vault, so it does as little as possible: the
+   * store's trips are already in memory and `repointBookings` reads from the
+   * metadata cache and writes only when it actually found something.
+   */
+  private async repointQuoteBookings(from: string, to: string): Promise<void> {
+    for (const trip of this.store.getTrips()) {
+      try {
+        if (await repointBookings(this.app, this.settings, trip, from, to)) {
+          this.store.invalidate();
+        }
+      } catch (err) {
+        // One unwritable note must not stop the others being fixed.
+        console.error(`[awty] could not follow ${from} on ${trip.title}`, err);
+      }
+    }
   }
 
   onunload(): void {
@@ -506,7 +544,15 @@ export default class AwtyPlugin extends Plugin {
    * Changing a booking used to mean opening its note and retyping frontmatter,
    * which is the exact thing the dashboard exists to avoid.
    */
-  async openBookingWizard(trip: Trip, kind: BookingKind, existing?: Booking): Promise<void> {
+  async openBookingWizard(
+    trip: Trip,
+    kind: BookingKind,
+    existing?: Booking,
+    /** Pre-filled fields, when the form is being opened from something else. */
+    prefill?: Partial<BookingDraft>,
+    /** Run once the booking note exists, for whatever opened this form. */
+    onCreated?: (file: TFile) => Promise<void>,
+  ): Promise<void> {
     new BookingWizard(
       this.app,
       this.settings,
@@ -538,7 +584,10 @@ export default class AwtyPlugin extends Plugin {
         if (existing) {
           await updateBooking(this.app, trip, existing.file, { ...draft, attachments });
         } else {
-          await createBooking(this.app, this.settings, trip, { ...draft, attachments });
+          const file = await createBooking(this.app, this.settings, trip, { ...draft, attachments });
+          // Before the stores are invalidated below, so whatever the caller
+          // writes is picked up by the same repaint.
+          await onCreated?.(file);
         }
         // An address, a venue or a date just changed, so the places resolved
         // for this trip are no longer what the notes say. Dropped before the
@@ -551,7 +600,7 @@ export default class AwtyPlugin extends Plugin {
         new Notice(existing ? `Updated “${draft.title}”.` : `Added “${draft.title}”.`);
         this.offerStageChange(trip);
       },
-      existing ? await draftFromBooking(this.app, existing) : undefined,
+      existing ? await draftFromBooking(this.app, existing) : prefill,
       existing ? () => this.deleteItem(trip, existing.file, existing.title) : undefined,
       () => this.bookings.getBookings(trip),
     ).open();
@@ -570,7 +619,12 @@ export default class AwtyPlugin extends Plugin {
       name: label,
       detail: file.path,
       onConfirm: async () => {
+        const gone = file.path;
         await this.app.fileManager.trashFile(file);
+        // The read path above already stops a dead stamp being believed; this
+        // takes it out of the note as well, so a later booking that happens to
+        // land on the same path is not inherited by an old price check.
+        await repointBookings(this.app, this.settings, trip, gone, null);
         this.travelPlaces.delete(trip.folderPath);
         this.bookings.invalidate();
         this.store.invalidate();
@@ -1083,7 +1137,89 @@ export default class AwtyPlugin extends Plugin {
 
   /** Prices logged against a trip while deciding whether to go. */
   readQuotes(trip: Trip): PriceQuote[] {
-    return readTripQuotes(this.app, trip);
+    // A booking stamp is a claim about another note, and notes get deleted —
+    // by this plugin, by you in the file explorer, by a sync from another
+    // machine. Believed only while the note it names is still there, so a
+    // deleted booking cannot leave the watch saying "Booked" with a link to
+    // nothing and the price missing from the estimate as well.
+    return unbookMissing(
+      readTripQuotes(this.app, trip),
+      (path) => this.app.vault.getAbstractFileByPath(path) instanceof TFile,
+    );
+  }
+
+  /**
+   * Turns a price you have been watching into a booking.
+   *
+   * The last step of the planning loop, which until now meant retyping into a
+   * booking form everything you had already recorded on the watch. The quote
+   * fills in what it knows — what the thing is, what it costs, which budget
+   * line it belongs to, and the screenshots you took of the price — and leaves
+   * the dates and the rest to you, because the day you checked a price is not
+   * the day you fly.
+   *
+   * The kind is asked for rather than guessed when the category does not settle
+   * it: Transport is a flight and a taxi both, and picking one silently would
+   * file half of them wrong.
+   */
+  async bookFromQuote(trip: Trip, track: PriceTrack, evt?: MouseEvent): Promise<void> {
+    const quote = track.latest;
+    const kinds = kindsForCategory(quote.category);
+    if (kinds.length === 1) {
+      await this.openBookingFromQuote(trip, quote, kinds[0]);
+      return;
+    }
+    const menu = new Menu();
+    for (const id of kinds) {
+      const def = BOOKING_KINDS.find((k) => k.id === id);
+      if (!def) continue;
+      menu.addItem((item) =>
+        item
+          .setTitle(`Book as ${def.label.toLowerCase()}`)
+          .setIcon(def.icon)
+          .onClick(() => void this.openBookingFromQuote(trip, quote, id)),
+      );
+    }
+    if (evt) menu.showAtMouseEvent(evt);
+    else menu.showAtPosition({ x: 0, y: 0 });
+  }
+
+  /**
+   * Opens the booking form filled in from a quote, and stamps the quote once
+   * the booking exists.
+   *
+   * The stamp is what stops the trip being billed twice: from that point the
+   * cost lives on a real booking, so the watch drops it from the estimate and
+   * says what it became instead of offering to check it again.
+   */
+  private async openBookingFromQuote(
+    trip: Trip,
+    quote: PriceQuote,
+    kind: BookingKind,
+  ): Promise<void> {
+    const filled = bookingFromQuote(quote, kind);
+    await this.openBookingWizard(
+      trip,
+      kind,
+      undefined,
+      {
+        title: filled.title,
+        amount: filled.amount,
+        currency: filled.currency,
+        category: filled.category,
+        notes: filled.notes,
+        attachments: filled.attachments,
+      },
+      async (file) => {
+        await saveQuote(this.app, this.settings, trip, {
+          ...quote,
+          bookedOn: todayISO(),
+          bookedPath: file.path,
+        });
+        this.progress.clear();
+        this.store.invalidate();
+      },
+    );
   }
 
   /**

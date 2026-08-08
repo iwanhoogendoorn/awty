@@ -95,6 +95,36 @@ export async function saveQuote(
   return commit(app, settings, trip, quotes);
 }
 
+/**
+ * Re-point or drop the booking stamps on a trip's quotes.
+ *
+ * One read and one write, rather than a save per quote: two quotes converted
+ * into the same booking would otherwise read-modify-write over each other and
+ * the second would undo the first.
+ *
+ * Returns whether anything changed, so a caller reacting to a vault-wide event
+ * can do nothing at all for the overwhelming majority of them.
+ */
+export async function repointBookings(
+  app: App,
+  settings: AwtySettings,
+  trip: Trip,
+  from: string,
+  to: string | null,
+): Promise<boolean> {
+  const quotes = readTripQuotes(app, trip);
+  if (!quotes.some((q) => q.bookedPath === from)) return false;
+  const next = quotes.map((quote) =>
+    quote.bookedPath === from
+      ? to
+        ? { ...quote, bookedPath: to }
+        : { ...quote, bookedOn: "", bookedPath: "" }
+      : quote,
+  );
+  await commit(app, settings, trip, next);
+  return true;
+}
+
 export async function removeQuote(
   app: App,
   settings: AwtySettings,

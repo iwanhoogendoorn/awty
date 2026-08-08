@@ -49,6 +49,10 @@ export class PriceQuoteModal extends Modal {
       url: "",
       note: "",
       screenshots: [],
+      // Carried through rather than reset: editing a check you already acted on
+      // must not quietly un-book it.
+      bookedOn: "",
+      bookedPath: "",
       ...initial,
     };
   }

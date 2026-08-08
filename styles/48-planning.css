@@ -988,3 +988,29 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* A track you have booked. It stops offering to be re-checked and reports what
+   it turned into — the point of watching a price is to eventually stop. */
+
+.awty-track-booked {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-ui-smaller);
+  color: var(--color-green);
+}
+
+.awty-track-booked-icon {
+  display: flex;
+}
+
+.awty-track-booked-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.awty-track-booked-link {
+  margin-left: auto;
+  color: var(--text-accent);
+  cursor: pointer;
+}

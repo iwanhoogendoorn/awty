@@ -33,6 +33,17 @@ export interface PriceQuote {
   note: string;
   /** Vault paths of screenshots taken at the time. */
   screenshots: string[];
+  /**
+   * The day this price stopped being a question and became a ticket.
+   *
+   * A watched price is a guess at what a trip will cost; a booking is what it
+   * did cost. Once one becomes the other, counting both would bill you twice
+   * for the same flight — so the quote records which booking it turned into
+   * and drops out of the estimate.
+   */
+  bookedOn: string;
+  /** Vault path of the booking note this quote became. */
+  bookedPath: string;
 }
 
 const SPARK = "▁▂▃▄▅▆▇█";
@@ -84,6 +95,8 @@ export function readQuotes(value: unknown): PriceQuote[] {
       url: str(record.url),
       note: str(record.note),
       screenshots: strings(record.screenshots),
+      bookedOn: str(record.booked_on) || str(record.bookedOn),
+      bookedPath: str(record.booked_path) || str(record.bookedPath),
     });
   }
   return out;
@@ -104,8 +117,40 @@ export function writeQuotes(quotes: PriceQuote[]): Record<string, unknown>[] {
     if (quote.url) record.url = quote.url;
     if (quote.note) record.note = quote.note;
     if (quote.screenshots.length > 0) record.screenshots = quote.screenshots;
+    if (quote.bookedOn) record.booked_on = quote.bookedOn;
+    if (quote.bookedPath) record.booked_path = quote.bookedPath;
     return record;
   });
+}
+
+/**
+ * Quotes with their booking stamp removed where the booking is gone.
+ *
+ * A stamp is a claim about another note, and notes get deleted. Left alone the
+ * claim outlives the thing it points at: the watch keeps saying "Booked" with a
+ * link to nothing, and — far worse — keeps the price out of the estimate, so
+ * the money is on no booking and in no total. It disappears.
+ *
+ * So the stamp is believed only while the note it names is still there. The
+ * check is passed in rather than done here, because whether a path exists is a
+ * question for the vault and this file has never needed to know about one.
+ */
+export function unbookMissing(
+  quotes: PriceQuote[],
+  exists: (path: string) => boolean,
+): PriceQuote[] {
+  return quotes.map((quote) =>
+    quote.bookedPath && !exists(quote.bookedPath)
+      ? { ...quote, bookedOn: "", bookedPath: "" }
+      : quote,
+  );
+}
+
+/** Quotes pointing at a booking that has moved, re-pointed at where it went. */
+export function rebindBooking(quotes: PriceQuote[], from: string, to: string): PriceQuote[] {
+  return quotes.map((quote) =>
+    quote.bookedPath === from ? { ...quote, bookedPath: to } : quote,
+  );
 }
 
 /** A quote id nothing else on the note is using. */
@@ -142,6 +187,14 @@ export interface PriceTrack {
   missed: number;
   direction: "up" | "down" | "flat";
   spark: string;
+  /**
+   * The quote that became a booking, if one did.
+   *
+   * Held on the track rather than looked up per quote, because the question
+   * anybody asks of a price watch is "have I booked this yet", and that is a
+   * fact about the thing being watched rather than about any one check.
+   */
+  booked: PriceQuote | null;
 }
 
 function trackKey(quote: PriceQuote): string {
@@ -173,8 +226,13 @@ export function trackQuotes(quotes: PriceQuote[]): PriceTrack[] {
     const best = ordered.reduce((low, q) => (q.amount < low.amount ? q : low), ordered[0]);
     const delta = latest.amount - first.amount;
 
+    // The last one taken wins, on the reading that if you booked twice the
+    // second one is the booking you kept.
+    const booked = [...ordered].reverse().find((q) => Boolean(q.bookedOn)) ?? null;
+
     tracks.push({
       key,
+      booked,
       label: latest.label,
       category: latest.category,
       currency: latest.currency,
@@ -211,19 +269,45 @@ export function sparkline(values: number[]): string {
 }
 
 /** What the trip looks like it will cost, from the latest price for each thing. */
+/**
+ * What is still being watched, as opposed to what has been bought.
+ *
+ * Everything that adds prices up goes through this. A track you have booked has
+ * a real cost on a real note now, counted by the budget like any other booking;
+ * leaving it in the estimate as well would charge the trip twice for one flight
+ * and quietly inflate every total on the Planning tab.
+ */
+export function openTracks(tracks: PriceTrack[]): PriceTrack[] {
+  return tracks.filter((t) => !t.booked);
+}
+
+/** Today's price for everything not yet booked. */
 export function estimateTotals(tracks: PriceTrack[]): Totals {
-  return sumMoney(tracks.map((t): Money => ({ amount: t.latest.amount, currency: t.currency })));
+  return sumMoney(
+    openTracks(tracks).map((t): Money => ({ amount: t.latest.amount, currency: t.currency })),
+  );
+}
+
+/** What the quotes you acted on came to — the watch's own share of the spend. */
+export function bookedTotals(tracks: PriceTrack[]): Totals {
+  return sumMoney(
+    tracks
+      .filter((t) => t.booked)
+      .map((t): Money => ({ amount: t.booked!.amount, currency: t.currency })),
+  );
 }
 
 /** The same trip at every cheapest price ever seen — the best case, not a forecast. */
 export function bestCaseTotals(tracks: PriceTrack[]): Totals {
-  return sumMoney(tracks.map((t): Money => ({ amount: t.best.amount, currency: t.currency })));
+  return sumMoney(
+    openTracks(tracks).map((t): Money => ({ amount: t.best.amount, currency: t.currency })),
+  );
 }
 
 /** Latest prices, added up per category, for lining an estimate up against a budget. */
 export function estimateByCategory(tracks: PriceTrack[]): Map<string, Totals> {
   const out = new Map<string, Totals>();
-  for (const track of tracks) {
+  for (const track of openTracks(tracks)) {
     const money: Money = { amount: track.latest.amount, currency: track.currency };
     const existing = out.get(track.category);
     if (existing) {
@@ -322,7 +406,12 @@ export function priceWatchTable(tracks: PriceTrack[]): string {
     "|---|---|---|---|---|---|",
   ];
   for (const track of tracks) {
-    const trend = [track.spark, describeTrend(track)].filter(Boolean).join(" ");
+    // A booked line says so instead of showing a trend. The trend of a price
+    // you already paid is not information, and reading "still climbing" against
+    // a ticket in your pocket is actively misleading.
+    const trend = track.booked
+      ? `**Booked** ${formatDate(track.booked.bookedOn) || track.booked.bookedOn}`
+      : [track.spark, describeTrend(track)].filter(Boolean).join(" ");
     rows.push(
       `| ${track.label} | ${track.category} | ${formatMoney({ amount: track.latest.amount, currency: track.currency })} | ${formatDate(track.latest.checkedOn) || track.latest.checkedOn} | ${trend || "—"} | ${formatMoney({ amount: track.best.amount, currency: track.currency })} |`,
     );
