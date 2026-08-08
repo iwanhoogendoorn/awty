@@ -161,5 +161,10 @@ export function renderTrips(
 
   // Under the cards, and computed over every trip rather than the filtered
   // set: "countries visited" does not change because you clicked Planning.
-  renderTripStatistics(parent, ctx, trips);
+  // Every trip, not the filtered grid above. "Show cancelled trips" is about
+  // which cards you want to look at; it is not a claim that those trips never
+  // happened. Fed the filtered list, the planning card counted no
+  // cancellations and reported that none had ever been called off — and each
+  // card applies its own rule about them anyway.
+  renderTripStatistics(parent, ctx, all);
 }

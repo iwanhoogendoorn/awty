@@ -869,10 +869,37 @@
 }
 
 .awty-stat-group {
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--background-modifier-border);
   border-radius: 10px;
   background: var(--background-primary);
   overflow: hidden;
+}
+
+.awty-stat-group-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+/* The small print sits on the bottom edge, so the four cards' notes line up
+   with each other instead of stopping wherever their rows happened to end. */
+
+.awty-stat-foot {
+  margin-top: auto;
+}
+
+/* Which trips this card counted. The same sentence shape in the same place on
+   every card, because the differences between them are the point. */
+
+.awty-stat-scope {
+  padding-top: 0.5em;
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 0.7em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  text-wrap: pretty;
 }
 
 .awty-stat-group-head {

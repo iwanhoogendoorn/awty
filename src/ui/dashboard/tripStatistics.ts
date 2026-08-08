@@ -91,6 +91,38 @@ function group(parent: HTMLElement, icon: string, title: string): HTMLElement {
   return box.createDiv({ cls: "awty-stat-group-body" });
 }
 
+/**
+ * The small print, pushed to the foot of the card.
+ *
+ * Kept in one block so it sits on the bottom edge of every card rather than
+ * wherever that card's rows happened to stop — four notes at four different
+ * heights read as four unrelated afterthoughts.
+ */
+function foot(body: HTMLElement): HTMLElement {
+  return body.createDiv({ cls: "awty-stat-foot" });
+}
+
+/**
+ * Which trips a card counted.
+ *
+ * These three sets are genuinely different — money leaves out what you called
+ * off, "countries visited" leaves out what you only thought about, and the
+ * planning card counts everything including both — and a heading saying
+ * "across every trip" was quietly speaking for all of them. Each card says
+ * which set is its own, in the same words and the same place, so the
+ * difference is visible rather than something you deduce from a number that
+ * looks wrong.
+ */
+const SCOPE = {
+  spent: "Every trip except the ones you called off.",
+  travelled: "Only trips you went on or are going on.",
+  all: "Every trip, including the ones you called off.",
+} as const;
+
+function scope(body: HTMLElement, text: string): void {
+  body.createDiv({ cls: "awty-stat-scope", text });
+}
+
 export function renderTripStatistics(
   parent: HTMLElement,
   ctx: DashboardContext,
@@ -104,7 +136,9 @@ export function renderTripStatistics(
   const flights = flightStats(stats);
   const planning = planningStats(stats);
 
-  sectionTitle(parent, "Across every trip");
+  // Not "across every trip": three of these four count different sets, and a
+  // heading that says otherwise is the one place the difference is invisible.
+  sectionTitle(parent, "Across your trips");
   const grid = parent.createDiv({ cls: "awty-stat-groups" });
 
   // ------------------------------------------------------------- money
@@ -117,14 +151,7 @@ export function renderTripStatistics(
   if (money.perDay !== null && money.currency) {
     row(spend, "Per day away", formatMoney({ amount: money.perDay, currency: money.currency }));
   }
-  if (money.currency === null && money.total.size > 1) {
-    // Said out loud, because the absence of the averages above is otherwise
-    // indistinguishable from them being zero.
-    spend.createDiv({
-      cls: "awty-stat-caveat",
-      text: "No averages: the spend is in more than one currency, and converting would invent a rate.",
-    });
-  }
+  const noAverages = money.currency === null && money.total.size > 1;
 
   if (money.budget) {
     const { budgeted, spent: used, ratio, trips: n } = money.budget;
@@ -168,6 +195,19 @@ export function renderTripStatistics(
     );
   }
 
+  // Built last, once every row and bar above it exists — a footer created
+  // mid-card sits mid-card, however hard the stylesheet pushes it down.
+  const spendFoot = foot(spend);
+  if (noAverages) {
+    // Said out loud, because the absence of the averages above is otherwise
+    // indistinguishable from them being zero.
+    spendFoot.createDiv({
+      cls: "awty-stat-caveat",
+      text: "No averages: the spend is in more than one currency, and converting would invent a rate.",
+    });
+  }
+  scope(spendFoot, SCOPE.spent);
+
   // -------------------------------------------------------- where and when
   const where = group(grid, "map", "Places and time");
   row(where, "Countries", places.countries.length === 0 ? "—" : String(places.countries.length),
@@ -181,10 +221,7 @@ export function renderTripStatistics(
   }
   // Only trips taken count here, so say so — otherwise a vault full of ideas
   // reads as someone who has never been anywhere.
-  where.createDiv({
-    cls: "awty-stat-caveat",
-    text: "Counts trips you went on or are going on. An idea is not somewhere you have been.",
-  });
+  scope(foot(where), SCOPE.travelled);
 
   const dayYears = [...places.daysByYear.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   if (dayYears.length > 1) {
@@ -227,14 +264,16 @@ export function renderTripStatistics(
   const short: string[] = [];
   if (flights.minutesUnknown > 0) short.push("hours");
   if (flights.kmUnknown > 0) short.push("kilometres");
+  const airFoot = foot(air);
   if (short.length > 0) {
-    air.createDiv({
+    airFoot.createDiv({
       cls: "awty-stat-caveat",
       // "Hours" and "kilometres" are both plural, so the verb never changes;
       // only the count of things being described does.
       text: `The ${short.join(" and ")} are ${short.length === 1 ? "a floor" : "floors"}, not ${short.length === 1 ? "a total" : "totals"}: a flight with no times, or an airport the dataset does not know, is left out rather than guessed at.`,
     });
   }
+  scope(airFoot, SCOPE.spent);
 
   // ---------------------------------------------------------------- planning
   const habits = group(grid, "compass", "Planning");
@@ -269,10 +308,12 @@ export function renderTripStatistics(
   if (unfinished > 0) {
     row(habits, "Notes still empty", String(unfinished), unfinished === 1 ? "on a trip ahead" : "on trips ahead");
   }
+  const habitsFoot = foot(habits);
   // The honest gap. Better said than filled with a number from file mtimes,
   // which measure when a file last synced.
-  habits.createDiv({
+  habitsFoot.createDiv({
     cls: "awty-stat-caveat",
     text: "How far ahead you book is not here: a trip records the stage it is in, never the day it changed.",
   });
+  scope(habitsFoot, SCOPE.all);
 }
