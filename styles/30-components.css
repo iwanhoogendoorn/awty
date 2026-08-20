@@ -289,3 +289,42 @@
   color: var(--text-accent);
   font-weight: var(--font-semibold);
 }
+
+/* ------------------------------------------------------------ rides log
+   The running total sits under the rows it is the sum of, so a fare typed
+   into the last box can be checked against the number that reaches the
+   budget without scrolling away from it. */
+
+.awty-rides-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1em;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.awty-rides-count {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.awty-rides-sum {
+  font-size: var(--font-ui-medium);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-normal);
+}
+
+.awty-rides-summary {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin: 8px 0 4px;
+}
+
+/* Five boxes to a ride is one too many for the four-column leg grid, which
+   left "Cost" alone on a row of its own looking like a section. */
+.awty-rides .awty-leg-grid {
+  grid-template-columns: repeat(auto-fit, minmax(7em, 1fr));
+}

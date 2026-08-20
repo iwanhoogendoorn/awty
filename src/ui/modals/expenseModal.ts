@@ -44,6 +44,8 @@ export class ExpenseModal extends Modal {
       category: "Food & drink",
       paidBy: "",
       attachments: [],
+      // An ordinary expense has none; a rides log is its own modal.
+      rides: [],
       ...initial,
     };
   }

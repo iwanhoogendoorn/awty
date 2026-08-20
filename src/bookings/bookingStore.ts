@@ -13,6 +13,7 @@ import { BOOKING_KINDS, isBookingStatus } from "./types";
 import { composeAddress, readAddress } from "./postalAddress";
 import { readPorts } from "./cruise";
 import { readMode } from "./transportMode";
+import { readRides } from "./rides";
 import type { AwtySettings, Trip } from "../types";
 import { linkTarget } from "./linkTarget";
 import { groupJourneys } from "./legs";
@@ -320,6 +321,7 @@ export class BookingStore {
         status: isBookingStatus(str(fm.status)) ? (str(fm.status) as BookingStatus) : "booked",
         amount,
         category: str(fm.category) || "Misc",
+        rides: readRides(fm.rides),
         paidBy: str(fm.paid_by),
         attachments: list(fm.attachments),
       });

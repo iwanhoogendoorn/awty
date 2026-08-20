@@ -4,7 +4,13 @@ import { bar, editItem, emptyState, itemMenu, renderToolbar, sectionTitle, statT
 import { isMobile } from "../../../util/platform";
 import { totalsByCategory } from "../../../bookings/bookingStore";
 import { allCategories } from "../../../bookings/types";
+import type { Trip } from "../../../types";
 import { formatMoney, formatTotals, sumMoney, totalIn } from "../../../util/money";
+
+/** The trip's rides log, when it has one. There is only ever the one. */
+function rideLog(plugin: DashboardContext["plugin"], trip: Trip): boolean {
+  return plugin.bookings.getExpenses(trip).some((e) => e.rides.length > 0);
+}
 
 /**
  * Costs are derived, never re-entered: every line here comes from a booking's
@@ -27,6 +33,14 @@ export function renderCosts(parent: HTMLElement, ctx: DashboardContext): void {
       label: "Log an expense",
       icon: "receipt",
       onClick: () => plugin.openExpenseModal(trip),
+    },
+    {
+      // The one cost nobody enters as it happens. Its own button, because it
+      // is a list rather than a number and the plain expense form asks for a
+      // number.
+      label: rideLog(plugin, trip) ? "Taxis & rides" : "Log taxis & rides",
+      icon: "car-taxi-front",
+      onClick: () => plugin.openRidesModal(trip),
     },
     {
       label: budget.size ? "Edit budget" : "Set a budget",

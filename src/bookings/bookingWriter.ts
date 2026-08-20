@@ -9,6 +9,7 @@ import { airportFromLabel } from "../ui/components/suggest";
 import { legsToFrontmatter, layoverMinutes, formatLayover, type FlightLeg } from "./legs";
 import { portsToFrontmatter, readPorts, type CruisePort } from "./cruise";
 import type { TransportMode } from "./transportMode";
+import { ridesToFrontmatter, type Ride } from "./rides";
 import { readLegs as legsFromFrontmatter } from "./flightSummary";
 import type { Booking } from "./types";
 import { fileFromLink } from "./bookingStore";
@@ -63,6 +64,13 @@ export interface ExpenseDraft {
   category: CostCategory;
   paidBy: string;
   attachments: string[];
+  /**
+   * The fares behind a rides log. Empty on every ordinary expense.
+   *
+   * The expense's own amount is their total: one line in the budget, with the
+   * eleven taxis that made it still readable underneath.
+   */
+  rides: Ride[];
 }
 
 async function ensureFolder(app: App, path: string): Promise<void> {
@@ -369,11 +377,14 @@ export async function createExpense(
     fm.currency = draft.currency;
     fm.category = draft.category;
     if (draft.paidBy) fm.paid_by = draft.paidBy;
+    // Only on a rides log. An empty list on an ordinary expense would be a
+    // field that means nothing sitting there looking like it means something.
+    if (draft.rides.length > 0) fm.rides = ridesToFrontmatter(draft.rides);
     if (links.length) fm.attachments = links;
   });
 
   const head = await app.vault.read(file);
-  await app.vault.modify(file, `${head.trimEnd()}\n\n${expenseBody(draft.description, links)}`);
+  await app.vault.modify(file, `${head.trimEnd()}\n\n${expenseBody(draft, links)}`);
   return file;
 }
 
@@ -388,7 +399,7 @@ export async function updateExpense(
   const kept = customParts(await app.vault.read(file));
 
   await app.fileManager.processFrontMatter(file, (fm) => {
-    for (const key of ["paid_by", "attachments"]) delete fm[key];
+    for (const key of ["paid_by", "attachments", "rides"]) delete fm[key];
     fm.type = "expense";
     fm.status = draft.status;
     fm.description = draft.description;
@@ -399,6 +410,7 @@ export async function updateExpense(
     fm.currency = draft.currency;
     fm.category = draft.category;
     if (draft.paidBy) fm.paid_by = draft.paidBy;
+    if (draft.rides.length > 0) fm.rides = ridesToFrontmatter(draft.rides);
     if (links.length) fm.attachments = links;
   });
 
@@ -406,7 +418,7 @@ export async function updateExpense(
   const front = head.startsWith("---") ? head.slice(0, head.indexOf("\n---", 3) + 4) : "";
   await app.vault.modify(
     file,
-    `${front.trimEnd()}\n\n${weaveKept(expenseBody(draft.description, links), kept)}\n`,
+    `${front.trimEnd()}\n\n${weaveKept(expenseBody(draft, links), kept)}\n`,
   );
 
   const wanted = sanitizeName(`${draft.date} ${draft.description}`.trim() || "Expense");

@@ -11,7 +11,8 @@ import { groupJourneys, layoverMinutes, formatLayover, type FlightLeg } from "./
 import { cruiseShape, portTable } from "./cruise";
 import { modeLabel } from "./transportMode";
 import { formatMoney } from "../util/money";
-import type { BookingDraft } from "./bookingWriter";
+import type { BookingDraft, ExpenseDraft } from "./bookingWriter";
+import { rideTable, ridesSummary } from "./rides";
 
 export function isImage(path: string): boolean {
   return /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(path);
@@ -116,8 +117,21 @@ export function bookingBody(draft: BookingDraft, attachmentLinks: string[]): str
 
 
 /** The generated body of an expense note. */
-export function expenseBody(description: string, attachmentLinks: string[]): string {
-  const out = [`# ${description}`, ""];
+export function expenseBody(draft: ExpenseDraft, attachmentLinks: string[]): string {
+  const out = [`# ${draft.description}`, ""];
+
+  // A rides log is one expense holding many fares. Printing the total alone
+  // would be a number with nothing behind it — and the whole reason to write
+  // the note out is so the sum can be checked against the rows that made it.
+  const rides = draft.rides ?? [];
+  const table = rideTable(rides, draft.currency);
+  if (table.length > 0) {
+    const summary = ridesSummary(rides, draft.currency);
+    out.push("## Rides", "");
+    if (summary) out.push(summary, "");
+    out.push(...table, "");
+  }
+
   if (attachmentLinks.length) {
     out.push("## Receipt", "");
     for (const link of attachmentLinks) out.push(isImage(link) ? `!${link}` : `- ${link}`);

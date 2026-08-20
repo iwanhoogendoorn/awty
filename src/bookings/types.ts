@@ -4,6 +4,7 @@ import type { PostalAddress } from "./postalAddress";
 import type { CruisePort } from "./cruise";
 import type { TransportMode } from "./transportMode";
 import { modeIcon } from "./transportMode";
+import type { Ride } from "./rides";
 
 /**
  * Bookings and expenses are stored one-per-note with typed frontmatter, the way
@@ -235,6 +236,14 @@ export interface Expense {
   category: CostCategory;
   paidBy: string;
   attachments: string[];
+  /**
+   * The fares behind a rides log, when this expense is one.
+   *
+   * Eleven taxis are eleven notes and eleven budget lines if each is its own
+   * expense, which is why they never get logged at all. One expense holds the
+   * lot; its amount is their total.
+   */
+  rides: Ride[];
 }
 
 /** A cost line in the Costs tab, whether it came from a booking or an expense. */

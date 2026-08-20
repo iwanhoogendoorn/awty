@@ -12,7 +12,19 @@ import { stripFrontmatter } from "../util/frontmatter";
  * typed by hand and is carried across an edit untouched — regenerating a note
  * is not a licence to throw away what someone wrote in it.
  */
-const OWNED_HEADINGS = ["notes", "attachments", "receipt", "outbound", "return", "itinerary"];
+const OWNED_HEADINGS = [
+  "notes",
+  "attachments",
+  "receipt",
+  "outbound",
+  "return",
+  "itinerary",
+  // The rides log's own table. Left off this list it read as somebody's own
+  // writing, so re-saving a log wove the previous table back in above the new
+  // one — two "## Rides" sections, the stale one still holding a fare that had
+  // been removed.
+  "rides",
+];
 
 /**
  * The Price Watch note is generated the same way a booking note is, from a

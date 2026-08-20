@@ -35,6 +35,7 @@ import type { BookingDraft } from "./bookings/bookingWriter";
 import { AwtyDashboardView } from "./ui/dashboard/dashboardView";
 import { BookingWizard } from "./ui/modals/bookingWizard";
 import { ExpenseModal } from "./ui/modals/expenseModal";
+import { RidesModal } from "./ui/modals/ridesModal";
 import { BudgetModal } from "./ui/modals/budgetModal";
 import { PackingModal } from "./ui/modals/packingModal";
 import { EventDetailsModal } from "./ui/modals/eventDetailsModal";
@@ -275,6 +276,16 @@ export default class AwtyPlugin extends Plugin {
         const trip = this.contextTrip();
         if (!trip) return false;
         if (!checking) this.openExpenseModal(trip);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "log-rides",
+      name: "Log taxis & rides",
+      checkCallback: (checking) => {
+        const trip = this.contextTrip();
+        if (!trip) return false;
+        if (!checking) this.openRidesModal(trip);
         return true;
       },
     });
@@ -651,6 +662,13 @@ export default class AwtyPlugin extends Plugin {
   }
 
   openExpenseModal(trip: Trip, existing?: Expense): void {
+    // A rides log is an expense, but editing one in the plain form would show
+    // its total as a single typed number and drop the eleven fares behind it
+    // on save. Same note, the form that understands it.
+    if (existing && existing.rides.length > 0) {
+      this.openRidesModal(trip, existing);
+      return;
+    }
     new ExpenseModal(
       this.app,
       this.settings,
@@ -684,6 +702,51 @@ export default class AwtyPlugin extends Plugin {
           }
         : undefined,
       existing ? () => this.deleteItem(trip, existing.file, existing.description) : undefined,
+    ).open();
+  }
+
+  /**
+   * The trip's taxis, in one log.
+   *
+   * Opens the trip's existing log when it has one, rather than starting a
+   * second: "the Ubers for this trip" is one thing, and two half-logs is the
+   * failure mode this exists to prevent.
+   */
+  openRidesModal(trip: Trip, existing?: Expense): void {
+    const log = existing ?? this.bookings.getExpenses(trip).find((e) => e.rides.length > 0);
+    new RidesModal(
+      this.app,
+      this.settings,
+      trip,
+      this.bookings.getCurrency(trip),
+      async (draft, files) => {
+        const added = await importAttachments(this.app, this.settings, trip, files);
+        const attachments = [...draft.attachments, ...added];
+        if (log) {
+          await updateExpense(this.app, trip, log.file, { ...draft, attachments });
+        } else {
+          await createExpense(this.app, this.settings, trip, { ...draft, attachments });
+        }
+        this.bookings.invalidate();
+        this.store.invalidate();
+        await this.syncTripNotes(trip);
+        const count = draft.rides.length;
+        new Notice(`${log ? "Updated" : "Logged"} ${count} ride${count === 1 ? "" : "s"}.`);
+      },
+      log
+        ? {
+            date: log.date,
+            description: log.description,
+            status: log.status,
+            amount: log.amount.amount,
+            currency: log.amount.currency,
+            category: log.category,
+            paidBy: log.paidBy,
+            attachments: attachmentPaths(this.app, log.attachments, log.file.path),
+            rides: log.rides,
+          }
+        : undefined,
+      log ? () => this.deleteItem(trip, log.file, log.description) : undefined,
     ).open();
   }
 
