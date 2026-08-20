@@ -235,6 +235,12 @@ export async function buildTripDocument(
       notes: booking.notes,
       legs: readLegs(fm?.legs),
       returnLegs: readLegs(fm?.return_legs),
+      back:
+        booking.kind !== "flight" && booking.returnDate && booking.returnTime
+          ? booking.returnDate === booking.date
+            ? booking.returnTime
+            : `${booking.returnDate} ${booking.returnTime}`
+          : "",
       journey: journeyOf(fm?.legs),
       returnJourney: journeyOf(fm?.return_legs),
       ...cruiseOf(booking),

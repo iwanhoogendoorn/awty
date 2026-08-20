@@ -149,6 +149,8 @@ export async function migrateFoodTables(
         where: "",
         cruise: "",
         mode: "",
+        returnDate: "",
+        returnTime: "",
       });
       migrated += 1;
     }

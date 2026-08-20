@@ -56,6 +56,8 @@ export interface DocBooking {
   portCountries: string;
   /** For something booked on a cruise: "On board", or the port it is at. */
   where: string;
+  /** "18:45", or "2026-08-22 07:10", when a journey is booked both ways. */
+  back: string;
 }
 
 export interface DocDay {
@@ -173,6 +175,8 @@ function bookingBlock(booking: DocBooking): string {
   const meta: [string, string][] = [
     ["When", booking.endDate && booking.endDate !== booking.date ? `${booking.date} → ${booking.endDate}` : booking.date],
     ["Time", [booking.time, booking.endTime].filter(Boolean).join(" → ")],
+    // Its own line: folded into the times it reads as one long crossing.
+    ["Back", booking.back ?? ""],
     ["From", booking.from],
     ["To", booking.to],
     ["Address", booking.address],

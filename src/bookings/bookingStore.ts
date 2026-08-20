@@ -281,8 +281,14 @@ export class BookingStore {
             ? str(fm.slot)
             : "") as Booking["slot"],
           endTime: str(fm.end_time),
-          returnDate: isValidISODate(back.date) ? back.date : "",
-          returnTime: back.time,
+          // A flight's return is its return legs; anything else says so on the
+          // booking, because it has no legs to say it with.
+          returnDate: isValidISODate(back.date)
+            ? back.date
+            : isValidISODate(str(fm.return_date))
+              ? str(fm.return_date)
+              : "",
+          returnTime: back.time || str(fm.return_time),
           cost: money(fm.cost, fm.currency, fallbackCurrency),
           category: str(fm.category) || (KIND_BY_ID.get(kind)?.category ?? "Misc"),
           reference: str(fm.reference),

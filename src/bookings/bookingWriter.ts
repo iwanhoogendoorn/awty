@@ -51,6 +51,17 @@ export interface BookingDraft {
   cruise: string;
   /** How a transfer moves you. Empty on every other kind, and when unsaid. */
   mode: TransportMode | "";
+  /**
+   * When a transfer brings you back, for a journey booked both ways.
+   *
+   * A flight says this with its return legs. Everything else had nowhere to
+   * say it at all: a ferry out at ten and back at quarter to seven is one
+   * booking, and the way back simply did not exist outside the end time — which
+   * could equally have meant arriving somewhere else that evening. Asked
+   * outright, because the two readings put different things on different days.
+   */
+  returnDate: string;
+  returnTime: string;
   /** "lat,lng" already known, so travel times skip a billed geocode. */
   location?: string;
 }
@@ -176,7 +187,7 @@ const BOOKING_KEYS = [
   "end_date", "time", "end_time", "cost", "currency", "reference", "from", "to",
   ...addressKeys(), ...addressKeys("from"),
   "operator", "seat", "legs", "return_legs", "attachments", "location",
-  "ports", "where", "cruise", "mode",
+  "ports", "where", "cruise", "mode", "return_date", "return_time",
 ];
 
 function writeBookingFrontmatter(
@@ -240,6 +251,12 @@ function writeBookingFrontmatter(
   // Only on a transfer: a mode on a hotel would be a field that means nothing
   // sitting in the note looking like it means something.
   if (draft.kind === "transport" && draft.mode) fm.mode = draft.mode;
+  // A return is a fact about the journey, not about the form: written only when
+  // there is one, so its absence means one-way rather than not-asked.
+  if (draft.returnDate && draft.returnTime) {
+    fm.return_date = draft.returnDate;
+    fm.return_time = draft.returnTime;
+  }
   if (draft.legs.length > 0) fm.legs = legsToFrontmatter(draft.legs);
   if (draft.returnLegs.length > 0) fm.return_legs = legsToFrontmatter(draft.returnLegs);
   if (links.length) fm.attachments = links;
@@ -324,6 +341,9 @@ export async function draftFromBooking(
     where: booking.where,
     cruise: booking.cruise,
     mode: booking.mode,
+    // Flights carry theirs on the return legs; everything else on the booking.
+    returnDate: booking.kind === "flight" ? "" : booking.returnDate,
+    returnTime: booking.kind === "flight" ? "" : booking.returnTime,
   };
 }
 

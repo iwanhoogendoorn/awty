@@ -43,7 +43,7 @@ export {
 } from "./src/travel/types.ts";
 export { COUNTRIES, FOODSPOT_COUNTRIES } from "./src/data/countries.ts";
 export { CITIES } from "./src/data/cities.ts";
-export { dayEvents, ongoingOn, BAND } from "./src/store/dayPlan.ts";
+export { dayEvents, ongoingOn, eventsFor, BAND } from "./src/store/dayPlan.ts";
 export { itineraryPairs, groupByOrigin } from "./src/travel/routePlan.ts";
 export { readLegs, summariseFlight, summariseJourneys } from "./src/bookings/flightSummary.ts";
 export { flyingMinutes } from "./src/bookings/legs.ts";
@@ -4517,6 +4517,96 @@ test("the rides note shows the fares its total is made of", () => {
   // An ordinary expense has no rides and gets no table.
   const plain = m.expenseBody({ description: "Dinner at Proto", currency: "EUR", rides: [] }, []);
   assert.ok(!plain.includes("## Rides"), plain);
+});
+
+test("a ferry booked out and back shows both ways in the itinerary", () => {
+  const ferry = {
+    kind: "transport", status: "booked", title: "Ferry to Lopud",
+    date: "2026-08-21", endDate: "2026-08-21", time: "10:00", endTime: "",
+    returnDate: "2026-08-21", returnTime: "18:45",
+    from: "Dubrovnik (Gruž port)", to: "Lopud harbour",
+    cost: { amount: 25.4, currency: "EUR" }, category: "Transport",
+    mode: "ferry", slot: "", reference: "", operator: "", seat: "",
+    address: "", fromAddress: "", notes: "", attachments: [],
+    journeys: [], legs: [], returnLegs: [], ports: [], where: "", cruise: "",
+    file: { path: "Bookings/Ferry to Lopud.md", basename: "Ferry to Lopud" },
+  };
+
+  // The way out and the way home, both on the day they happen. Only the first
+  // was ever shown: the return lived inside the booking and nowhere else.
+  const day = m.eventsFor(ferry, "2026-08-21");
+  assert.equal(day.length, 2, JSON.stringify(day));
+  assert.equal(day[0].time, "10:00");
+  assert.equal(day[0].detail, "Lopud harbour");
+  assert.equal(day[1].time, "18:45");
+  // Running the other way, which is the whole reason it is asked for rather
+  // than guessed from an end time.
+  assert.match(day[1].detail, /^Return · Lopud harbour → Dubrovnik/);
+  // The fare is paid once and shown where it was paid.
+  assert.ok(day[0].cost);
+  assert.equal(day[1].cost, "");
+
+  // Nothing on any other day.
+  assert.deepEqual(m.eventsFor(ferry, "2026-08-22"), []);
+
+  // A one-way hop is still one row.
+  const oneWay = { ...ferry, returnDate: "", returnTime: "" };
+  assert.equal(m.eventsFor(oneWay, "2026-08-21").length, 1);
+});
+
+test("a journey that lands on another day says so on that day", () => {
+  const sleeper = {
+    kind: "transport", status: "booked", title: "Nightjet 421",
+    date: "2026-08-21", endDate: "2026-08-22", time: "21:40", endTime: "07:10",
+    returnDate: "", returnTime: "",
+    from: "Wien Hbf", to: "Zürich HB",
+    cost: { amount: 129, currency: "EUR" }, category: "Transport",
+    mode: "train", slot: "", reference: "", operator: "ÖBB", seat: "",
+    address: "", fromAddress: "", notes: "", attachments: [],
+    journeys: [], legs: [], returnLegs: [], ports: [], where: "", cruise: "",
+    file: { path: "Bookings/Nightjet.md", basename: "Nightjet" },
+  };
+
+  const off = m.eventsFor(sleeper, "2026-08-21");
+  assert.equal(off.length, 1);
+  assert.equal(off[0].time, "21:40");
+
+  // Waking up somewhere is an event on the day it happens; the sleeper used to
+  // appear only on the evening it left.
+  const landed = m.eventsFor(sleeper, "2026-08-22");
+  assert.equal(landed.length, 1, JSON.stringify(landed));
+  assert.equal(landed[0].time, "07:10");
+  assert.equal(landed[0].detail, "Arrives · Zürich HB");
+  assert.equal(landed[0].cost, "", "the fare shows where it was paid");
+
+  // A same-day arrival is not a second row saying what the first already does.
+  const hop = { ...sleeper, endDate: "2026-08-21", endTime: "23:55" };
+  assert.equal(m.eventsFor(hop, "2026-08-21").length, 1);
+});
+
+test("a return is its own line in the note, not a longer crossing", () => {
+  const draft = {
+    kind: "transport", status: "booked", title: "Ferry to Lopud",
+    date: "2026-08-21", endDate: "2026-08-21", time: "10:00", endTime: "",
+    returnDate: "2026-08-21", returnTime: "18:45",
+    amount: 25.4, currency: "EUR", category: "Transport", reference: "",
+    from: "Dubrovnik (Gruž port)", to: "Lopud harbour",
+    fromPostal: m.EMPTY_ADDRESS, postal: m.EMPTY_ADDRESS,
+    operator: "Jadrolinija", seat: "", notes: "", attachments: [],
+    legs: [], returnLegs: [], mode: "ferry",
+  };
+  const body = m.bookingBody(draft, []);
+  assert.match(body, /\| \*\*Back\*\* \| 18:45 \|/, body);
+  // Written as "10:00 → 18:45" it reads as one crossing lasting all day, which
+  // is exactly the confusion that kept the return off the itinerary.
+  assert.ok(!body.includes("10:00 → 18:45"), body);
+
+  // Coming back another day carries the date with it.
+  const overnight = m.bookingBody({ ...draft, returnDate: "2026-08-22" }, []);
+  assert.match(overnight, /\| \*\*Back\*\* \| 2026-08-22 18:45 \|/, overnight);
+
+  // One-way says nothing.
+  assert.ok(!m.bookingBody({ ...draft, returnDate: "", returnTime: "" }, []).includes("**Back**"));
 });
 
 console.log(`\n${passed} tests passed`);

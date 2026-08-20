@@ -200,6 +200,50 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
     return out;
   }
 
+  if (booking.kind === "transport") {
+    // A journey is up to three things that happen: setting off, being put down
+    // somewhere, and coming back. Only the first was ever shown, so a ferry
+    // booked out and back appeared as a single row in the morning and the way
+    // home existed only inside the booking.
+    if (date === booking.date) {
+      out.push({
+        ...base,
+        time: booking.time,
+        title: booking.title,
+        detail: booking.to || booking.slot || "",
+        cost,
+        band: BAND.During,
+      });
+    }
+    // An arrival on a later day: a sleeper, a hire car brought back on Friday.
+    // On the same day it would be a second row saying what the first already
+    // does, so it is left to the booking.
+    if (booking.endDate && booking.endDate !== booking.date && date === booking.endDate) {
+      out.push({
+        ...base,
+        time: booking.endTime,
+        title: booking.title,
+        detail: ["Arrives", booking.to].filter(Boolean).join(" · "),
+        // Paid once, and shown where it was paid.
+        cost: "",
+        band: BAND.During,
+      });
+    }
+    if (booking.returnDate && date === booking.returnDate) {
+      out.push({
+        ...base,
+        time: booking.returnTime,
+        // The way home runs the other way, and saying so is the whole reason
+        // the return is asked for rather than inferred from an end time.
+        detail: `Return · ${[booking.to, booking.from].filter(Boolean).join(" → ")}`,
+        title: booking.title,
+        cost: "",
+        band: BAND.During,
+      });
+    }
+    return out;
+  }
+
   if (date !== booking.date) return out;
   out.push({
     ...base,

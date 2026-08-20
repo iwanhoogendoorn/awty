@@ -200,6 +200,10 @@ export class BookingWizard extends Modal {
   /** "lat,lng" from a picked Food Spot entry, so nothing is geocoded twice. */
   private knownLocation = "";
   /** Repainted when the mode changes, so a ferry stops calling itself a train. */
+  /** Whether the return question has been put once, so the offer is not re-made. */
+  private returnAsked = false;
+  /** Whether the offered return time came off an older booking's end time. */
+  private returnLifted = false;
   private headIconEl!: HTMLElement;
   private headTitleEl!: HTMLElement;
   /**
@@ -273,6 +277,8 @@ export class BookingWizard extends Modal {
       where: "",
       cruise: "",
       mode: "",
+      returnDate: "",
+      returnTime: "",
       ...initial,
     };
     this.hasReturn = (this.draft.returnLegs?.length ?? 0) > 0;
@@ -1265,6 +1271,9 @@ export class BookingWizard extends Modal {
     // A table is booked for a time on a day. Asking for an end invited an end
     // earlier than the start, and described it as departure and arrival.
     const oneMoment = this.draft.kind === "restaurant";
+    // Before anything is drawn: lifting the end time into the return after the
+    // rows were built left the old value on screen in both boxes.
+    this.offerReturn();
     const wrap = this.bodyEl.createDiv({ cls: "awty-daterange" });
 
     const dateRow = (
@@ -1324,11 +1333,13 @@ export class BookingWizard extends Modal {
       return;
     }
 
+    const isTransfer = this.draft.kind === "transport";
+
     dateRow(
-      isStay ? "Check-out" : "End",
+      isStay ? "Check-out" : isTransfer ? "Arrives" : "End",
       this.draft.endDate,
       (v) => (this.draft.endDate = v),
-      "End time",
+      isTransfer ? "Arrival time" : "End time",
       this.draft.endTime,
       (v) => (this.draft.endTime = v),
     );
@@ -1337,9 +1348,91 @@ export class BookingWizard extends Modal {
       cls: "awty-date-readout",
       text: isStay
         ? "Leave check-out the same as check-in for a single night."
-        : "Leave the end the same as the start for something that begins and ends on one day.",
+        : isTransfer
+          ? "When this journey puts you down. Leave it alone for a hop with no arrival worth recording."
+          : "Leave the end the same as the start for something that begins and ends on one day.",
     });
+
+    if (isTransfer) this.renderReturnRow(wrap, dateRow);
     this.renderOutsideTrip(wrap);
+  }
+
+  /**
+   * The way back, asked outright.
+   *
+   * A ferry out at ten and back at quarter to seven is one booking, and the
+   * return had nowhere to live: put in the end time it was indistinguishable
+   * from arriving somewhere else that evening, and the itinerary — which has to
+   * choose a place to write — showed neither. So it is a question now, and the
+   * two readings put different rows on different days.
+   *
+   * A booking that already has an end time on its own start day gets the box
+   * ticked and that time offered, because a same-day end on a journey is very
+   * nearly always the way home. Offered, not assumed: it is on screen, and
+   * nothing is written until Save.
+   */
+  /**
+   * A same-day end time offered as the way home.
+   *
+   * Written before the return existed, "10:00 → 18:45" on a ferry to an island
+   * meant coming back — but it is indistinguishable from arriving somewhere
+   * else that evening, so the itinerary showed neither. The guess is made once,
+   * put on screen with the box ticked, and written only if you press Save.
+   */
+  private offerReturn(): void {
+    if (this.draft.kind !== "transport" || this.returnAsked) return;
+    this.returnAsked = true;
+    const sameDayEnd =
+      Boolean(this.draft.endTime) &&
+      this.draft.endDate === this.draft.date &&
+      !this.draft.returnDate;
+    if (!sameDayEnd) return;
+    this.draft.returnDate = this.draft.date;
+    this.draft.returnTime = this.draft.endTime;
+    this.draft.endTime = "";
+    this.returnLifted = true;
+  }
+
+  private renderReturnRow(
+    wrap: HTMLElement,
+    dateRow: (
+      label: string,
+      value: string,
+      onChange: (v: string) => void,
+      timeLabel: string,
+      timeValue: string,
+      onTime: (v: string) => void,
+    ) => void,
+  ): void {
+    const on = Boolean(this.draft.returnDate);
+    const toggle = new Setting(wrap)
+      .setName("Coming back the same way")
+      .setDesc(
+        this.returnLifted
+          ? "Taken from this booking's end time. Untick it if the journey was one-way."
+          : "For a return ticket — a day trip out and back, a hire car brought home.",
+      )
+      .addToggle((t) => {
+        t.setValue(on);
+        t.onChange((value) => {
+          this.returnAsked = true;
+          this.returnLifted = false;
+          this.draft.returnDate = value ? this.draft.returnDate || this.draft.date : "";
+          this.draft.returnTime = value ? this.draft.returnTime : "";
+          this.renderBody();
+        });
+      });
+    toggle.settingEl.addClass("awty-setting-stack");
+
+    if (!on) return;
+    dateRow(
+      "Back",
+      this.draft.returnDate,
+      (v) => (this.draft.returnDate = v),
+      "Return time",
+      this.draft.returnTime,
+      (v) => (this.draft.returnTime = v),
+    );
   }
 
   /**

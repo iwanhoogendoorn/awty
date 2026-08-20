@@ -29,6 +29,17 @@ export function bookingBody(draft: BookingDraft, attachmentLinks: string[]): str
   if (draft.kind === "transport") add("Mode", modeLabel(draft.mode));
   add("Date", draft.endDate && draft.endDate !== draft.date ? `${draft.date} → ${draft.endDate}` : draft.date);
   add("Time", draft.endTime ? `${draft.time} → ${draft.endTime}` : draft.time);
+  // The way home, said as its own fact rather than folded into the times —
+  // "10:00 → 18:45" reads as one long crossing, which is exactly the confusion
+  // that kept the return off the itinerary.
+  if (draft.returnDate && draft.returnTime) {
+    add(
+      "Back",
+      draft.returnDate === draft.date
+        ? draft.returnTime
+        : `${draft.returnDate} ${draft.returnTime}`,
+    );
+  }
   add("From", draft.from);
   // The same test the frontmatter applies. A city and a country prefilled from
   // the trip are not an address, and the body was printing them as one — so a
