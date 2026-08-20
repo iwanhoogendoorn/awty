@@ -111,6 +111,23 @@ function cruiseOf(booking: Booking): {
   };
 }
 
+/**
+ * "18:45 → 19:30", or with dates when the way back runs overnight.
+ *
+ * Flights say this with their return legs; everything else says it on the
+ * booking, and it prints as its own line rather than being folded into the
+ * outbound times — where "10:00 → 18:45" reads as one very long crossing.
+ */
+function backOf(booking: Booking): string {
+  if (booking.kind === "flight" || !booking.returnDate || !booking.returnTime) return "";
+  const stamp = (date: string, time: string): string =>
+    date === booking.date ? time : `${date} ${time}`;
+  const lands = booking.returnEndTime
+    ? ` → ${stamp(booking.returnEndDate || booking.returnDate, booking.returnEndTime)}`
+    : "";
+  return `${stamp(booking.returnDate, booking.returnTime)}${lands}`;
+}
+
 /** The same, for whichever end of a return ticket this day belongs to. */
 function flightJourney(app: App, file: TFile, band: number): string {
   const fm = app.metadataCache.getFileCache(file)?.frontmatter;
@@ -235,12 +252,7 @@ export async function buildTripDocument(
       notes: booking.notes,
       legs: readLegs(fm?.legs),
       returnLegs: readLegs(fm?.return_legs),
-      back:
-        booking.kind !== "flight" && booking.returnDate && booking.returnTime
-          ? booking.returnDate === booking.date
-            ? booking.returnTime
-            : `${booking.returnDate} ${booking.returnTime}`
-          : "",
+      back: backOf(booking),
       journey: journeyOf(fm?.legs),
       returnJourney: journeyOf(fm?.return_legs),
       ...cruiseOf(booking),

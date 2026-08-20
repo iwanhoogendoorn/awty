@@ -4524,6 +4524,7 @@ test("a ferry booked out and back shows both ways in the itinerary", () => {
     kind: "transport", status: "booked", title: "Ferry to Lopud",
     date: "2026-08-21", endDate: "2026-08-21", time: "10:00", endTime: "",
     returnDate: "2026-08-21", returnTime: "18:45",
+    returnEndDate: "2026-08-21", returnEndTime: "19:30",
     from: "Dubrovnik (Gruž port)", to: "Lopud harbour",
     cost: { amount: 25.4, currency: "EUR" }, category: "Transport",
     mode: "ferry", slot: "", reference: "", operator: "", seat: "",
@@ -4544,7 +4545,13 @@ test("a ferry booked out and back shows both ways in the itinerary", () => {
   assert.equal(day[1].time, "18:45");
   // Running the other way, which is the whole reason it is asked for rather
   // than guessed from an end time.
+  // The way back reads like the way out: it leaves and it lands. Without the
+  // arrival it was the same journey described half as well.
   assert.match(day[1].detail, /^Return · Lopud harbour → Dubrovnik/);
+  assert.match(day[1].detail, /lands 19:30$/, day[1].detail);
+  // Same day, so the landing rides on the row that already exists rather than
+  // earning a second one saying what the first does.
+  assert.equal(day.length, 2);
   // The fare is paid once and shown where it was paid. The other row says so
   // rather than leaving the column blank, which read as a figure nobody had
   // got round to typing in.
@@ -4562,9 +4569,12 @@ test("a ferry booked out and back shows both ways in the itinerary", () => {
 
   // A one-way hop is still one row, and unlabelled: "Outbound" is a
   // distinction with nothing on the other side of it.
+  // A landing time left behind by a return that was taken off is not a
+  // journey home, and must not conjure a row of its own.
   const oneWay = { ...ferry, returnDate: "", returnTime: "" };
   const single = m.eventsFor(oneWay, "2026-08-21");
-  assert.equal(single.length, 1);
+  assert.equal(single.length, 1, JSON.stringify(single));
+  assert.deepEqual(m.eventsFor(oneWay, "2026-08-22"), []);
   assert.equal(single[0].detail, "Dubrovnik (Gruž port) → Lopud harbour");
 
   // Nothing to route with falls back to wherever it drops you.
@@ -4626,6 +4636,41 @@ test("a return is its own line in the note, not a longer crossing", () => {
 
   // One-way says nothing.
   assert.ok(!m.bookingBody({ ...draft, returnDate: "", returnTime: "" }, []).includes("**Back**"));
+});
+
+test("a night crossing home lands on the day it lands", () => {
+  const ferry = {
+    kind: "transport", status: "booked", title: "Night ferry",
+    date: "2026-08-21", endDate: "2026-08-21", time: "09:00", endTime: "13:30",
+    returnDate: "2026-08-27", returnTime: "21:00",
+    returnEndDate: "2026-08-28", returnEndTime: "06:15",
+    from: "Ancona", to: "Split",
+    cost: { amount: 180, currency: "EUR" }, category: "Transport",
+    mode: "ferry", slot: "", reference: "", operator: "", seat: "",
+    address: "", fromAddress: "", notes: "", attachments: [],
+    journeys: [], legs: [], returnLegs: [], ports: [], where: "", cruise: "",
+    file: { path: "Bookings/Night ferry.md", basename: "Night ferry" },
+  };
+
+  // Out: one row, landing the same afternoon, so the arrival rides on it.
+  const out = m.eventsFor(ferry, "2026-08-21");
+  assert.equal(out.length, 1);
+  assert.match(out[0].detail, /^Outbound · Ancona → Split · lands 13:30$/, out[0].detail);
+
+  // Setting off home: no landing time on this row, because it does not land
+  // on this day.
+  const leaving = m.eventsFor(ferry, "2026-08-27");
+  assert.equal(leaving.length, 1);
+  assert.equal(leaving[0].time, "21:00");
+  assert.ok(!leaving[0].detail.includes("lands"), leaving[0].detail);
+
+  // Docking the next morning is an event on the morning it happens — and you
+  // arrive back where you set off from, not where you were going.
+  const home = m.eventsFor(ferry, "2026-08-28");
+  assert.equal(home.length, 1, JSON.stringify(home));
+  assert.equal(home[0].time, "06:15");
+  assert.equal(home[0].detail, "Back · Ancona");
+  assert.equal(home[0].covered, true, "the fare was paid on the way out");
 });
 
 console.log(`\n${passed} tests passed`);

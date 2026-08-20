@@ -289,6 +289,8 @@ export class BookingStore {
               ? str(fm.return_date)
               : "",
           returnTime: back.time || str(fm.return_time),
+          returnEndDate: isValidISODate(str(fm.return_end_date)) ? str(fm.return_end_date) : "",
+          returnEndTime: str(fm.return_end_time),
           cost: money(fm.cost, fm.currency, fallbackCurrency),
           category: str(fm.category) || (KIND_BY_ID.get(kind)?.category ?? "Misc"),
           reference: str(fm.reference),

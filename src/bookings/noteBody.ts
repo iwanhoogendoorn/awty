@@ -33,12 +33,13 @@ export function bookingBody(draft: BookingDraft, attachmentLinks: string[]): str
   // "10:00 → 18:45" reads as one long crossing, which is exactly the confusion
   // that kept the return off the itinerary.
   if (draft.returnDate && draft.returnTime) {
-    add(
-      "Back",
-      draft.returnDate === draft.date
-        ? draft.returnTime
-        : `${draft.returnDate} ${draft.returnTime}`,
-    );
+    const stamp = (date: string, time: string): string =>
+      date === draft.date ? time : `${date} ${time}`;
+    // The way back reads like the way out: when it leaves, and when it lands.
+    const lands = draft.returnEndTime
+      ? ` → ${stamp(draft.returnEndDate || draft.returnDate, draft.returnEndTime)}`
+      : "";
+    add("Back", `${stamp(draft.returnDate, draft.returnTime)}${lands}`);
   }
   add("From", draft.from);
   // The same test the frontmatter applies. A city and a country prefilled from

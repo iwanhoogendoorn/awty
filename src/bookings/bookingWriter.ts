@@ -62,6 +62,9 @@ export interface BookingDraft {
    */
   returnDate: string;
   returnTime: string;
+  /** When the way back lands. Empty when there is nothing worth recording. */
+  returnEndDate: string;
+  returnEndTime: string;
   /** "lat,lng" already known, so travel times skip a billed geocode. */
   location?: string;
 }
@@ -188,6 +191,7 @@ const BOOKING_KEYS = [
   ...addressKeys(), ...addressKeys("from"),
   "operator", "seat", "legs", "return_legs", "attachments", "location",
   "ports", "where", "cruise", "mode", "return_date", "return_time",
+  "return_end_date", "return_end_time",
 ];
 
 function writeBookingFrontmatter(
@@ -256,6 +260,12 @@ function writeBookingFrontmatter(
   if (draft.returnDate && draft.returnTime) {
     fm.return_date = draft.returnDate;
     fm.return_time = draft.returnTime;
+    // Only alongside a return, and only when there is one: an arrival on a
+    // journey nobody said they were making would be an orphan.
+    if (draft.returnEndTime) {
+      fm.return_end_date = draft.returnEndDate || draft.returnDate;
+      fm.return_end_time = draft.returnEndTime;
+    }
   }
   if (draft.legs.length > 0) fm.legs = legsToFrontmatter(draft.legs);
   if (draft.returnLegs.length > 0) fm.return_legs = legsToFrontmatter(draft.returnLegs);
@@ -344,6 +354,8 @@ export async function draftFromBooking(
     // Flights carry theirs on the return legs; everything else on the booking.
     returnDate: booking.kind === "flight" ? "" : booking.returnDate,
     returnTime: booking.kind === "flight" ? "" : booking.returnTime,
+    returnEndDate: booking.kind === "flight" ? "" : booking.returnEndDate,
+    returnEndTime: booking.kind === "flight" ? "" : booking.returnEndTime,
   };
 }
 

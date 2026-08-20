@@ -137,6 +137,14 @@ export interface Booking {
   /** Departure date of the return journey, for a return ticket. */
   returnDate: string;
   returnTime: string;
+  /**
+   * When the way back puts you down again.
+   *
+   * The outbound has a departure and an arrival; without these the return had
+   * only a departure, which is the same journey described half as well.
+   */
+  returnEndDate: string;
+  returnEndTime: string;
   cost: Money | null;
   category: CostCategory;
   reference: string;

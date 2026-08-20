@@ -279,6 +279,8 @@ export class BookingWizard extends Modal {
       mode: "",
       returnDate: "",
       returnTime: "",
+      returnEndDate: "",
+      returnEndTime: "",
       ...initial,
     };
     this.hasReturn = (this.draft.returnLegs?.length ?? 0) > 0;
@@ -1435,10 +1437,26 @@ export class BookingWizard extends Modal {
     dateRow(
       "Back",
       this.draft.returnDate,
-      (v) => (this.draft.returnDate = v),
+      (v) => {
+        this.draft.returnDate = v;
+        if (!this.draft.returnEndDate || this.draft.returnEndDate < v) {
+          this.draft.returnEndDate = v;
+        }
+      },
       "Return time",
       this.draft.returnTime,
       (v) => (this.draft.returnTime = v),
+    );
+    // The way back has a departure and an arrival, exactly as the way out
+    // does. Without this the return was the same journey described half as
+    // well: it left at quarter to seven and apparently never landed.
+    dateRow(
+      "Arrives",
+      this.draft.returnEndDate || this.draft.returnDate,
+      (v) => (this.draft.returnEndDate = v),
+      "Return arrival time",
+      this.draft.returnEndTime,
+      (v) => (this.draft.returnEndTime = v),
     );
     // Closes the step, so it does not end on a rule with nothing under it.
     wrap.createDiv({

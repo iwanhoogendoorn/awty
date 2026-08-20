@@ -222,6 +222,12 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
     // "Lopud harbour" and the other "Return · Lopud harbour → Dubrovnik" —
     // which reads as two unrelated things rather than there and back.
     const route = [booking.from, booking.to].filter(Boolean).join(" → ");
+    // An arrival on the same day belongs to the row that already exists —
+    // a second row would say what the first one does. On a later day it is
+    // its own event, because it happens on a day the first row is not on.
+    const lands = (endDate: string, endTime: string, from: string): string =>
+      endTime && endDate === from ? `lands ${endTime}` : "";
+
     if (date === booking.date) {
       out.push({
         ...base,
@@ -229,10 +235,13 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
         title: booking.title,
         // Labelled only when there is a way back to tell it from. On a one-way
         // taxi "Outbound" is a distinction with nothing on the other side.
-        detail:
-          [booking.returnDate ? "Outbound" : "", route || booking.to || booking.slot || ""]
-            .filter(Boolean)
-            .join(" · "),
+        detail: [
+          booking.returnDate ? "Outbound" : "",
+          route || booking.to || booking.slot || "",
+          lands(booking.endDate, booking.endTime, booking.date),
+        ]
+          .filter(Boolean)
+          .join(" · "),
         cost,
         band: BAND.During,
       });
@@ -258,8 +267,35 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
         time: booking.returnTime,
         // The way home runs the other way, and saying so is the whole reason
         // the return is asked for rather than inferred from an end time.
-        detail: `Return · ${[booking.to, booking.from].filter(Boolean).join(" → ")}`,
+        detail: [
+          `Return · ${[booking.to, booking.from].filter(Boolean).join(" → ")}`,
+          lands(booking.returnEndDate, booking.returnEndTime, booking.returnDate),
+        ]
+          .filter(Boolean)
+          .join(" · "),
         title: booking.title,
+        cost: "",
+        covered: Boolean(cost),
+        band: BAND.During,
+      });
+    }
+    // Getting back overnight — a night ferry, a sleeper home — lands on a day
+    // the departure row is not on, so it earns a row of its own. You arrive
+    // back where you set off from.
+    if (
+      // Only alongside a return. A landing time left behind on a booking whose
+      // return was taken off is not a journey home; unguarded it put a phantom
+      // "Back" row on a one-way trip.
+      booking.returnDate &&
+      booking.returnEndDate &&
+      booking.returnEndDate !== booking.returnDate &&
+      date === booking.returnEndDate
+    ) {
+      out.push({
+        ...base,
+        time: booking.returnEndTime,
+        title: booking.title,
+        detail: ["Back", booking.from].filter(Boolean).join(" · "),
         cost: "",
         covered: Boolean(cost),
         band: BAND.During,
