@@ -895,6 +895,13 @@
   color: var(--text-muted);
 }
 
+/* Not a price: the leg was paid for on a row that shows one. Lighter and
+   italic so the column still scans as figures, with this plainly not one. */
+.awty-day-item-cost.is-covered {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
 /* ------------------------------------------------------------- cards */
 
 .awty-trip-grid {

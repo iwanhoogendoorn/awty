@@ -4537,21 +4537,39 @@ test("a ferry booked out and back shows both ways in the itinerary", () => {
   const day = m.eventsFor(ferry, "2026-08-21");
   assert.equal(day.length, 2, JSON.stringify(day));
   assert.equal(day[0].time, "10:00");
-  assert.equal(day[0].detail, "Lopud harbour");
+  // Both ways read the same. Naming only the destination on the way out and
+  // the whole route on the way back made one pair look like two unrelated
+  // things sitting on the same day.
+  assert.equal(day[0].detail, "Outbound · Dubrovnik (Gruž port) → Lopud harbour");
   assert.equal(day[1].time, "18:45");
   // Running the other way, which is the whole reason it is asked for rather
   // than guessed from an end time.
   assert.match(day[1].detail, /^Return · Lopud harbour → Dubrovnik/);
-  // The fare is paid once and shown where it was paid.
+  // The fare is paid once and shown where it was paid. The other row says so
+  // rather than leaving the column blank, which read as a figure nobody had
+  // got round to typing in.
   assert.ok(day[0].cost);
+  assert.equal(day[0].covered, false);
   assert.equal(day[1].cost, "");
+  assert.equal(day[1].covered, true);
+
+  // Nothing to be covered by: a booking with no price says nothing on either.
+  const free = m.eventsFor({ ...ferry, cost: null }, "2026-08-21");
+  assert.equal(free[1].covered, false);
 
   // Nothing on any other day.
   assert.deepEqual(m.eventsFor(ferry, "2026-08-22"), []);
 
-  // A one-way hop is still one row.
+  // A one-way hop is still one row, and unlabelled: "Outbound" is a
+  // distinction with nothing on the other side of it.
   const oneWay = { ...ferry, returnDate: "", returnTime: "" };
-  assert.equal(m.eventsFor(oneWay, "2026-08-21").length, 1);
+  const single = m.eventsFor(oneWay, "2026-08-21");
+  assert.equal(single.length, 1);
+  assert.equal(single[0].detail, "Dubrovnik (Gruž port) → Lopud harbour");
+
+  // Nothing to route with falls back to wherever it drops you.
+  const vague = m.eventsFor({ ...oneWay, from: "" }, "2026-08-21");
+  assert.equal(vague[0].detail, "Lopud harbour");
 });
 
 test("a journey that lands on another day says so on that day", () => {
@@ -4578,6 +4596,7 @@ test("a journey that lands on another day says so on that day", () => {
   assert.equal(landed[0].time, "07:10");
   assert.equal(landed[0].detail, "Arrives · Zürich HB");
   assert.equal(landed[0].cost, "", "the fare shows where it was paid");
+  assert.equal(landed[0].covered, true, "and the other row says it was");
 
   // A same-day arrival is not a second row saying what the first already does.
   const hop = { ...sleeper, endDate: "2026-08-21", endTime: "23:55" };

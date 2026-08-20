@@ -102,7 +102,12 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
       const detail = [event.detail, flightDetail(event, ctx)].filter(Boolean).join(" · ");
       if (detail) text.createDiv({ cls: "awty-day-item-meta", text: detail });
 
+      // A price, or a note that this leg was paid for on another row. Blank
+      // read as a figure somebody had forgotten to type in.
       if (event.cost) item.createDiv({ cls: "awty-day-item-cost", text: event.cost });
+      else if (event.covered) {
+        item.createDiv({ cls: "awty-day-item-cost is-covered", text: "included" });
+      }
       item.addEventListener("click", () => {
         if (!editItem(ctx, event.file)) ctx.openFile(event.file);
       });

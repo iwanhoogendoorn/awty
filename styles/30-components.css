@@ -142,6 +142,22 @@
   min-height: 1.2em;
 }
 
+/* The return question, in the date panel's own language rather than an
+   Obsidian setting's — indented to the same 4em the hints use, so the label
+   column stays a label column all the way down. */
+.awty-return-ask {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding-left: 4em;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.awty-return-ask label {
+  cursor: pointer;
+}
+
 /* A date outside the trip is allowed and worth noticing, so it is coloured
    like a remark rather than an error — nothing here is refused. */
 .awty-date-outside {

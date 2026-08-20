@@ -21,6 +21,15 @@ export interface DayEvent {
   detail: string;
   icon: string;
   cost: string;
+  /**
+   * On the same ticket as a row that already shows a price.
+   *
+   * The way home on a return has no fare of its own — it was paid once, on the
+   * way out. An empty cost column read as a figure nobody had got round to
+   * entering, so it says so instead. Never both: a row shows a price or shows
+   * that it is covered.
+   */
+  covered: boolean;
   file: TFile;
   kind: BookingKind;
   slot: DaySlot | "";
@@ -87,6 +96,7 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
   const slot = (booking.slot ?? "") as DaySlot | "";
   const base = {
     icon,
+    covered: false,
     file: booking.file,
     kind: booking.kind,
     slot,
@@ -171,6 +181,7 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
           // Each flight shows what it cost, when they were priced one by one.
           // Otherwise the ticket price sits on the first, where it was paid.
           cost: journey.cost ? formatMoney(journey.cost) : index === 0 ? cost : "",
+          covered: !journey.cost && index > 0 && Boolean(cost),
           band: index === 0 ? BAND.Arrive : last ? BAND.Depart : BAND.During,
         });
       });
@@ -194,6 +205,7 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
         title: booking.title,
         detail: `Return · ${[booking.to, booking.from].filter(Boolean).join(" → ")}`,
         cost: "",
+        covered: Boolean(cost),
         band: BAND.Depart,
       });
     }
@@ -205,12 +217,22 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
     // somewhere, and coming back. Only the first was ever shown, so a ferry
     // booked out and back appeared as a single row in the morning and the way
     // home existed only inside the booking.
+    // Both ways read the same. The outbound named only its destination while
+    // the return spelled out the whole route, so one row of a pair said
+    // "Lopud harbour" and the other "Return · Lopud harbour → Dubrovnik" —
+    // which reads as two unrelated things rather than there and back.
+    const route = [booking.from, booking.to].filter(Boolean).join(" → ");
     if (date === booking.date) {
       out.push({
         ...base,
         time: booking.time,
         title: booking.title,
-        detail: booking.to || booking.slot || "",
+        // Labelled only when there is a way back to tell it from. On a one-way
+        // taxi "Outbound" is a distinction with nothing on the other side.
+        detail:
+          [booking.returnDate ? "Outbound" : "", route || booking.to || booking.slot || ""]
+            .filter(Boolean)
+            .join(" · "),
         cost,
         band: BAND.During,
       });
@@ -226,6 +248,7 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
         detail: ["Arrives", booking.to].filter(Boolean).join(" · "),
         // Paid once, and shown where it was paid.
         cost: "",
+        covered: Boolean(cost),
         band: BAND.During,
       });
     }
@@ -238,6 +261,7 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
         detail: `Return · ${[booking.to, booking.from].filter(Boolean).join(" → ")}`,
         title: booking.title,
         cost: "",
+        covered: Boolean(cost),
         band: BAND.During,
       });
     }

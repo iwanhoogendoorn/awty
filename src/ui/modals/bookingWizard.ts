@@ -1405,26 +1405,33 @@ export class BookingWizard extends Modal {
     ) => void,
   ): void {
     const on = Boolean(this.draft.returnDate);
-    const toggle = new Setting(wrap)
-      .setName("Coming back the same way")
-      .setDesc(
-        this.returnLifted
-          ? "Taken from this booking's end time. Untick it if the journey was one-way."
-          : "For a return ticket — a day trip out and back, a hire car brought home.",
-      )
-      .addToggle((t) => {
-        t.setValue(on);
-        t.onChange((value) => {
-          this.returnAsked = true;
-          this.returnLifted = false;
-          this.draft.returnDate = value ? this.draft.returnDate || this.draft.date : "";
-          this.draft.returnTime = value ? this.draft.returnTime : "";
-          this.renderBody();
-        });
-      });
-    toggle.settingEl.addClass("awty-setting-stack");
 
-    if (!on) return;
+    // Built out of the same parts as the rows above it. An Obsidian Setting
+    // here brought its own heading size, its own colour, sixteen pixels of
+    // padding and a full-width rule into the middle of a panel of plain date
+    // rows — one panel speaking two languages, which is what it looked like.
+    const ask = wrap.createDiv({ cls: "awty-return-ask" });
+    const check = ask.createEl("input", { attr: { type: "checkbox" } });
+    check.id = "awty-return-toggle";
+    check.checked = on;
+    check.addEventListener("change", () => {
+      this.returnAsked = true;
+      this.returnLifted = false;
+      // Only the date is cleared. Throwing the time away too meant an untick
+      // and a change of mind lost 18:45 for good — and the date alone is what
+      // "there is a way back" means, so nothing is written either way.
+      this.draft.returnDate = check.checked ? this.draft.returnDate || this.draft.date : "";
+      this.renderBody();
+    });
+    ask.createEl("label", { text: "Coming back the same way", attr: { for: check.id } });
+
+    if (!on) {
+      wrap.createDiv({
+        cls: "awty-date-readout",
+        text: "For a return ticket — a day trip out and back, a hire car brought home.",
+      });
+      return;
+    }
     dateRow(
       "Back",
       this.draft.returnDate,
@@ -1433,6 +1440,13 @@ export class BookingWizard extends Modal {
       this.draft.returnTime,
       (v) => (this.draft.returnTime = v),
     );
+    // Closes the step, so it does not end on a rule with nothing under it.
+    wrap.createDiv({
+      cls: "awty-date-readout",
+      text: this.returnLifted
+        ? "Taken from this booking's end time. Untick it if the journey was one-way."
+        : "The same ticket, the other way. It gets its own line in the itinerary.",
+    });
   }
 
   /**
