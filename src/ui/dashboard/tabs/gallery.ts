@@ -3,7 +3,8 @@ import { ConfirmModal } from "../../modals/confirmModal";
 import type { DashboardContext } from "../common";
 import { emptyState, sectionTitle, noTripState } from "../common";
 import { fileFromLink } from "../../../bookings/bookingStore";
-import { BOOKING_KINDS } from "../../../bookings/types";
+import { BOOKING_KINDS, bookingIcon } from "../../../bookings/types";
+import { modeLabel } from "../../../bookings/transportMode";
 import { formatMoney } from "../../../util/money";
 import { formatDateRange } from "../../../util/dates";
 import { openAttachment } from "../../modals/lightbox";
@@ -56,10 +57,10 @@ export function renderGallery(parent: HTMLElement, ctx: DashboardContext): void 
     groups.push({
       key: booking.file.path,
       title: booking.title,
-      detail: [def?.label, formatDateRange(booking.date, booking.endDate), booking.reference]
+      detail: [modeLabel(booking.mode) || def?.label, formatDateRange(booking.date, booking.endDate), booking.reference]
         .filter(Boolean)
         .join(" · "),
-      icon: def?.icon ?? "ticket",
+      icon: bookingIcon(booking),
       source: booking.file,
       files,
     });

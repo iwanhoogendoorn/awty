@@ -2,6 +2,8 @@ import type { TFile } from "obsidian";
 import type { FlightLeg } from "./legs";
 import type { PostalAddress } from "./postalAddress";
 import type { CruisePort } from "./cruise";
+import type { TransportMode } from "./transportMode";
+import { modeIcon } from "./transportMode";
 
 /**
  * Bookings and expenses are stored one-per-note with typed frontmatter, the way
@@ -183,6 +185,25 @@ export interface Booking {
   where: string;
   /** The cruise this hangs off, as a wikilink target, when it hangs off one. */
   cruise: string;
+  /**
+   * How a transfer moves you: train, bus, ferry, taxi.
+   *
+   * Empty on everything that is not a transfer, and on transfers written before
+   * the question was asked — an unanswered question, not a train.
+   */
+  mode: TransportMode | "";
+}
+
+/**
+ * The icon a booking wears.
+ *
+ * Its kind, except for a transfer, which wears its mode — a ferry with a train
+ * on it is the itinerary telling you something untrue at a glance, which is the
+ * only speed anybody reads an icon at.
+ */
+export function bookingIcon(booking: { kind: BookingKind; mode?: TransportMode | "" }): string {
+  const kind = BOOKING_KINDS.find((k) => k.id === booking.kind)?.icon ?? "ticket";
+  return booking.kind === "transport" ? modeIcon(booking.mode ?? "", kind) : kind;
 }
 
 export interface FlightJourney {

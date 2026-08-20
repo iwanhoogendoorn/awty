@@ -1,6 +1,6 @@
 import type { TFile } from "obsidian";
 import type { Booking, BookingKind, DaySlot } from "../bookings/types";
-import { BOOKING_KINDS } from "../bookings/types";
+import { bookingIcon } from "../bookings/types";
 import { formatAshore, minutesAshore, portLabel, portOn } from "../bookings/cruise";
 import { formatMoney } from "../util/money";
 import { datesInRange } from "../util/dates";
@@ -82,8 +82,7 @@ function effectiveTime(event: DayEvent): string {
  * `date >= start && date <= end`, which repeated them on every day between.
  */
 export function eventsFor(booking: Booking, date: string): DayEvent[] {
-  const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
-  const icon = def?.icon ?? "ticket";
+  const icon = bookingIcon(booking);
   const cost = booking.cost ? formatMoney(booking.cost) : "";
   const slot = (booking.slot ?? "") as DaySlot | "";
   const base = {

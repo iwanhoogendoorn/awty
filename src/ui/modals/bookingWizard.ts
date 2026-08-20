@@ -1,7 +1,8 @@
 import { App, ButtonComponent, Modal, Notice, Setting, setIcon } from "obsidian";
 import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { Booking, BookingKind, BookingStatus, CostCategory } from "../../bookings/types";
-import { BOOKING_KINDS, BOOKING_STATUSES, allCategories } from "../../bookings/types";
+import { BOOKING_KINDS, BOOKING_STATUSES, allCategories, bookingIcon } from "../../bookings/types";
+import { TRANSPORT_MODES, modeDef, modeLabel, readMode } from "../../bookings/transportMode";
 import { countAttachmentsNamed, type BookingDraft } from "../../bookings/bookingWriter";
 import { tripCities, tripCountries, tripStops, type AwtySettings, type Trip } from "../../types";
 import { flightHops } from "../../bookings/flightHops";
@@ -198,6 +199,9 @@ export class BookingWizard extends Modal {
   private returnField: LegsField | null = null;
   /** "lat,lng" from a picked Food Spot entry, so nothing is geocoded twice. */
   private knownLocation = "";
+  /** Repainted when the mode changes, so a ferry stops calling itself a train. */
+  private headIconEl!: HTMLElement;
+  private headTitleEl!: HTMLElement;
   /**
    * The address this booking had when the form opened.
    *
@@ -268,6 +272,7 @@ export class BookingWizard extends Modal {
       ports: kind === "cruise" ? [emptyPort(start)] : [],
       where: "",
       cruise: "",
+      mode: "",
       ...initial,
     };
     this.hasReturn = (this.draft.returnLegs?.length ?? 0) > 0;
@@ -288,18 +293,15 @@ export class BookingWizard extends Modal {
     contentEl.addClass("awty-modal", "awty-wizard");
     this.modalEl.addClass("awty-modal-shell");
 
-    const def = BOOKING_KINDS.find((k) => k.id === this.draft.kind);
     const head = contentEl.createDiv({ cls: "awty-wizard-head" });
-    setIcon(head.createDiv({ cls: "awty-wizard-icon" }), def?.icon ?? "ticket");
+    this.headIconEl = head.createDiv({ cls: "awty-wizard-icon" });
     const headText = head.createDiv();
-    headText.createDiv({
-      cls: "awty-modal-title",
-      text: `${this.editing ? "Edit" : "Add"} ${def?.label.toLowerCase() ?? "booking"}`,
-    });
+    this.headTitleEl = headText.createDiv({ cls: "awty-modal-title" });
     headText.createDiv({
       cls: "awty-wizard-sub",
       text: `${this.trip.title} · ${formatDateRange(this.trip.startDate, this.trip.endDate)}`,
     });
+    this.paintHead();
 
     this.stepsEl = contentEl.createDiv({ cls: "awty-wizard-steps" });
     this.bodyEl = contentEl.createDiv({ cls: "awty-wizard-body" });
@@ -431,13 +433,69 @@ export class BookingWizard extends Modal {
     else this.renderAttachments();
   }
 
+  /**
+   * The icon and the title, which a transfer's mode gets a say in.
+   *
+   * "Add transport" with a train on it is what the form said while somebody
+   * booked a boat. The mode is chosen in the first field, so the header follows
+   * it rather than announcing the kind and leaving it at that.
+   */
+  private paintHead(): void {
+    const def = BOOKING_KINDS.find((k) => k.id === this.draft.kind);
+    setIcon(this.headIconEl, bookingIcon(this.draft));
+    const noun =
+      (this.draft.kind === "transport" ? modeLabel(this.draft.mode) : "") ||
+      def?.label ||
+      "booking";
+    this.headTitleEl.setText(`${this.editing ? "Edit" : "Add"} ${noun.toLowerCase()}`);
+  }
+
+  /** Placeholders for a transfer, in the words of the thing actually booked. */
+  private transportPlaceholder(spec: FieldSpec): string {
+    const def = modeDef(this.draft.mode);
+    if (!def) return spec.placeholder;
+    if (spec.key === "operator") return def.carrier;
+    if (spec.key === "title") return def.service;
+    if (spec.key === "from") return def.from;
+    if (spec.key === "to") return def.to;
+    return spec.placeholder;
+  }
+
+  /**
+   * Train, bus, ferry, taxi.
+   *
+   * First, because it changes how everything under it reads — and because a
+   * ferry crossing recorded as generic "transport" is a boat you cannot tell
+   * from a coach in the itinerary a week later.
+   */
+  private renderModeField(): void {
+    new Setting(this.bodyEl)
+      .setName("Mode")
+      .setDesc("What it is. Sets the icon, and what the boxes below suggest.")
+      .addDropdown((dd) => {
+        // Nothing is a real answer: every transfer written before this field
+        // existed gives it, and guessing a train for them would be inventing.
+        dd.addOption("", "Not specified");
+        for (const mode of TRANSPORT_MODES) dd.addOption(mode.id, mode.label);
+        dd.setValue(this.draft.mode);
+        dd.onChange((v) => {
+          this.draft.mode = readMode(v);
+          this.paintHead();
+          this.renderBody();
+        });
+      });
+  }
+
   private renderDetails(): void {
     if (this.draft.kind === "flight") {
       this.renderFlightLegs();
       this.renderStatusAndNotes();
       return;
     }
-    if (this.draft.kind === "transport") this.renderTransferShortcuts();
+    if (this.draft.kind === "transport") {
+      this.renderModeField();
+      this.renderTransferShortcuts();
+    }
 
     for (const spec of FIELDS[this.draft.kind]) {
       // Anything with a known set of answers gets a picker; only genuinely
@@ -463,7 +521,9 @@ export class BookingWizard extends Modal {
       const setting = new Setting(this.bodyEl).setName(spec.label);
       if (spec.required) markRequired(setting);
       setting.addText((t) => {
-        t.setPlaceholder(spec.placeholder);
+        t.setPlaceholder(
+          this.draft.kind === "transport" ? this.transportPlaceholder(spec) : spec.placeholder,
+        );
         t.setValue(this.draft[spec.key as TextFieldKey]);
         t.onChange((v) => (this.draft[spec.key as TextFieldKey] = v.trim()));
       });
@@ -1086,7 +1146,7 @@ export class BookingWizard extends Modal {
     // Only "from" and "to" reach here, never the address group.
     const key = spec.key as TextFieldKey;
     setting.addText((t) => {
-      t.setPlaceholder(spec.placeholder);
+      t.setPlaceholder(this.transportPlaceholder(spec));
       t.setValue(this.draft[key]);
       t.onChange((v) => (this.draft[key] = v.trim()));
       new EndpointSuggest(
@@ -1220,11 +1280,16 @@ export class BookingWizard extends Modal {
       const date = row.createEl("input", { cls: "awty-date-input" });
       date.type = "date";
       date.value = value;
-      // Nudge towards the trip's own dates without forbidding anything else.
-      // Bound the picker to the trip, so it opens on the right month.
-      if (isValidISODate(this.trip.startDate)) date.min = this.trip.startDate;
-      if (isValidISODate(this.trip.endDate)) date.max = this.trip.endDate;
-      date.addEventListener("change", () => onChange(date.value));
+      // No min or max. They were meant as a nudge towards the trip's own dates
+      // and are nothing of the sort: the native picker greys out every day
+      // outside them, so a ferry taken last week could not be written down at
+      // all. Bookings get entered after the fact — from a quay, from a hotel
+      // bar — and a form that refuses yesterday is a form you fight. The picker
+      // still opens on the right month, because the date starts on the trip's.
+      date.addEventListener("change", () => {
+        onChange(date.value);
+        this.renderBody();
+      });
 
       const time = row.createEl("input", { cls: "awty-time-input" });
       time.type = "time";
@@ -1239,11 +1304,9 @@ export class BookingWizard extends Modal {
       (v) => {
         this.draft.date = v;
         // The end has to follow, and be seen to: nudging the draft without
-        // redrawing left an end date on screen that was before the start.
-        if (oneMoment || this.draft.endDate < v) {
-          this.draft.endDate = v;
-          this.renderBody();
-        }
+        // redrawing left an end date on screen that was before the start. The
+        // redraw is the caller's now — every date change gets one.
+        if (oneMoment || this.draft.endDate < v) this.draft.endDate = v;
       },
       oneMoment ? "Time" : "Start time",
       this.draft.time,
@@ -1257,6 +1320,7 @@ export class BookingWizard extends Modal {
         cls: "awty-date-readout",
         text: "A table is booked for one sitting, so there is no end to give.",
       });
+      this.renderOutsideTrip(wrap);
       return;
     }
 
@@ -1274,6 +1338,28 @@ export class BookingWizard extends Modal {
       text: isStay
         ? "Leave check-out the same as check-in for a single night."
         : "Leave the end the same as the start for something that begins and ends on one day.",
+    });
+    this.renderOutsideTrip(wrap);
+  }
+
+  /**
+   * Said, not stopped.
+   *
+   * A date outside the trip is usually a typo and occasionally the point — a
+   * train the day before, a hotel night on the way home. Refusing it was the
+   * old behaviour and it made recording a leg after the fact impossible; saying
+   * so keeps the catch without the fence.
+   */
+  private renderOutsideTrip(wrap: HTMLElement): void {
+    const { startDate, endDate } = this.trip;
+    if (!isValidISODate(startDate) || !isValidISODate(endDate)) return;
+    const outside = [this.draft.date, this.draft.endDate].filter(
+      (date) => isValidISODate(date) && (date < startDate || date > endDate),
+    );
+    if (outside.length === 0) return;
+    wrap.createDiv({
+      cls: "awty-date-outside",
+      text: `Outside the trip (${formatDateRange(startDate, endDate)}) — saved anyway.`,
     });
   }
 

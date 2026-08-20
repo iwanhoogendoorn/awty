@@ -12,6 +12,7 @@ import type {
 import { BOOKING_KINDS, isBookingStatus } from "./types";
 import { composeAddress, readAddress } from "./postalAddress";
 import { readPorts } from "./cruise";
+import { readMode } from "./transportMode";
 import type { AwtySettings, Trip } from "../types";
 import { linkTarget } from "./linkTarget";
 import { groupJourneys } from "./legs";
@@ -301,6 +302,7 @@ export class BookingStore {
           ports: readPorts(fm.ports),
           where: str(fm.where),
           cruise: str(fm.cruise),
+          mode: readMode(fm.mode),
           attachments: list(fm.attachments),
         });
         continue;

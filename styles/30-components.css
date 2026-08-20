@@ -142,6 +142,15 @@
   min-height: 1.2em;
 }
 
+/* A date outside the trip is allowed and worth noticing, so it is coloured
+   like a remark rather than an error — nothing here is refused. */
+.awty-date-outside {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-accent);
+  padding-left: 4em;
+  margin-top: 2px;
+}
+
 /* -------------------------------------------------------- sub-note picker */
 
 .awty-subnote-row,

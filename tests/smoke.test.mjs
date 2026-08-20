@@ -77,6 +77,8 @@ export { worldPolygons } from "./src/map/baseLayer.ts";
 export { splitFrontmatter } from "./src/util/frontmatter.ts";
 export { moneyPattern, MONEY_CLASS } from "./src/util/moneyMask.ts";
 export { COMMON_CURRENCIES, symbolFor } from "./src/util/money.ts";
+export { TRANSPORT_MODES, readMode, modeDef, modeLabel, modeIcon } from "./src/bookings/transportMode.ts";
+export { bookingIcon } from "./src/bookings/types.ts";
 `;
 
 const outfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tp-test-")), "bundle.mjs");
@@ -2190,6 +2192,17 @@ test("a transfer records an address at both ends", () => {
   assert.match(body, /\| \*\*From address\*\* \| Čilipi, 20213 \|/, body);
   assert.match(body, /\| \*\*To address\*\* \| Kranjčevića 25, 20000 Dubrovnik, Croatia \|/, body);
   assert.ok(body.indexOf("From address") < body.indexOf("To address"), "in travel order");
+
+  // A city and a country prefilled from the trip are not an address. The
+  // frontmatter already refused them; the body was printing them anyway, so a
+  // ferry to Lopud carried a "To address" of Dubrovnik that nothing else in the
+  // note agreed with.
+  const bare = m.bookingBody(
+    { ...draft, fromPostal: { ...m.EMPTY_ADDRESS, city: "Dubrovnik", country: "Croatia" },
+      postal: { ...m.EMPTY_ADDRESS, city: "Dubrovnik", country: "Croatia" } },
+    [],
+  );
+  assert.ok(!bare.includes("address"), bare);
 
   // Anything else keeps the single plain "Address".
   const stay = m.bookingBody({ ...draft, kind: "stay", fromPostal: m.EMPTY_ADDRESS }, []);
@@ -4337,6 +4350,63 @@ test("a document built before cruises existed still renders", () => {
   delete old.portCountries;
   const html = m.renderTripDocument({ ...EMPTY_DOC, bookings: [old] });
   assert.match(html, /Sentral Wynwood/);
+});
+
+
+test("a transfer can be a ferry", () => {
+  // Islands are reached by boat. Every mode the picker offers has to survive
+  // the round trip through frontmatter, or it is a label and nothing more.
+  for (const mode of m.TRANSPORT_MODES) {
+    assert.equal(m.readMode(mode.id), mode.id, mode.id);
+    assert.equal(m.modeLabel(mode.id), mode.label);
+    assert.ok(mode.icon && mode.carrier && mode.service && mode.from && mode.to, mode.id);
+  }
+  assert.equal(m.modeLabel("ferry"), "Ferry");
+  assert.equal(m.modeIcon("ferry", "train-front"), "ship");
+
+  // Case and stray spaces come from notes edited by hand.
+  assert.equal(m.readMode(" Ferry "), "ferry");
+  // Anything else is silence, not a guess. Every transfer written before this
+  // field existed has no mode, and calling those trains would be inventing.
+  assert.equal(m.readMode("hovercraft"), "");
+  assert.equal(m.readMode(undefined), "");
+  assert.equal(m.readMode(7), "");
+  assert.equal(m.modeLabel(""), "");
+  assert.equal(m.modeIcon("", "train-front"), "train-front");
+});
+
+test("a ferry does not wear a train", () => {
+  const kindIcon = (id) => m.BOOKING_KINDS.find((k) => k.id === id).icon;
+
+  assert.equal(m.bookingIcon({ kind: "transport", mode: "ferry" }), "ship");
+  assert.equal(m.bookingIcon({ kind: "transport", mode: "bus" }), "bus");
+  // No mode recorded: exactly what it looked like before the field existed.
+  assert.equal(m.bookingIcon({ kind: "transport", mode: "" }), kindIcon("transport"));
+  assert.equal(m.bookingIcon({ kind: "transport" }), kindIcon("transport"));
+  // A mode on anything else is meaningless and must not leak into its icon.
+  assert.equal(m.bookingIcon({ kind: "stay", mode: "ferry" }), kindIcon("stay"));
+  assert.equal(m.bookingIcon({ kind: "cruise", mode: "" }), kindIcon("cruise"));
+});
+
+test("a ferry note says it is a ferry", () => {
+  const draft = {
+    kind: "transport", status: "booked", title: "Ferry to Lopud",
+    date: "2026-08-19", endDate: "2026-08-19", time: "10:15", endTime: "11:10",
+    amount: 12, currency: "EUR", category: "Transport", reference: "",
+    from: "Dubrovnik (Gruž port)", to: "Lopud harbour",
+    fromPostal: m.EMPTY_ADDRESS, postal: m.EMPTY_ADDRESS,
+    operator: "Jadrolinija", seat: "", notes: "", attachments: [],
+    legs: [], returnLegs: [], mode: "ferry",
+  };
+  const body = m.bookingBody(draft, []);
+  assert.match(body, /\| \*\*Mode\*\* \| Ferry \|/, body);
+  // Above the ends, because "Ferry" changes how "Gruž → Lopud" reads.
+  assert.ok(body.indexOf("Mode") < body.indexOf("**From**"), body);
+
+  // Unsaid stays unsaid: no empty row claiming to be an answer.
+  assert.ok(!m.bookingBody({ ...draft, mode: "" }, []).includes("**Mode**"));
+  // And a mode is a thing only a transfer has.
+  assert.ok(!m.bookingBody({ ...draft, kind: "activity" }, []).includes("**Mode**"));
 });
 
 console.log(`\n${passed} tests passed`);

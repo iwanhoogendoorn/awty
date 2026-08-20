@@ -4,6 +4,7 @@ import type { Trip } from "../types";
 import { SUB_NOTE_LABELS, kindDef, stageDef } from "../types";
 import { joinPlaces, tripCities, tripCountries } from "../types";
 import { BOOKING_KINDS } from "../bookings/types";
+import { modeLabel } from "../bookings/transportMode";
 import type { Booking } from "../bookings/types";
 import { fileFromLink, totalsByCategory } from "../bookings/bookingStore";
 import { checkVisa } from "../travel/visa";
@@ -213,7 +214,12 @@ export async function buildTripDocument(
 
     return {
       kind: booking.kind,
-      kindLabel: BOOKING_KINDS.find((k) => k.id === booking.kind)?.label ?? booking.kind,
+      // A ferry prints as a ferry. "Transport" is true of every transfer and
+      // tells the person holding the paper nothing about which one this is.
+      kindLabel:
+        modeLabel(booking.mode) ||
+        BOOKING_KINDS.find((k) => k.id === booking.kind)?.label ||
+        booking.kind,
       title: booking.title,
       status: booking.status,
       date: booking.date,

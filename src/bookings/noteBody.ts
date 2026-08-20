@@ -1,4 +1,4 @@
-import { composeAddress } from "./postalAddress";
+import { composeAddress, meaningfulAddress } from "./postalAddress";
 /**
  * The generated bodies of booking and expense notes.
  *
@@ -9,6 +9,7 @@ import { composeAddress } from "./postalAddress";
  */
 import { groupJourneys, layoverMinutes, formatLayover, type FlightLeg } from "./legs";
 import { cruiseShape, portTable } from "./cruise";
+import { modeLabel } from "./transportMode";
 import { formatMoney } from "../util/money";
 import type { BookingDraft } from "./bookingWriter";
 
@@ -23,12 +24,21 @@ export function bookingBody(draft: BookingDraft, attachmentLinks: string[]): str
   };
 
   add("Status", draft.status);
+  // Above the ends, because "Ferry" changes how you read "Dubrovnik → Lopud".
+  if (draft.kind === "transport") add("Mode", modeLabel(draft.mode));
   add("Date", draft.endDate && draft.endDate !== draft.date ? `${draft.date} → ${draft.endDate}` : draft.date);
   add("Time", draft.endTime ? `${draft.time} → ${draft.endTime}` : draft.time);
   add("From", draft.from);
-  add("From address", composeAddress(draft.fromPostal));
+  // The same test the frontmatter applies. A city and a country prefilled from
+  // the trip are not an address, and the body was printing them as one — so a
+  // ferry to Lopud claimed a "To address" of Dubrovnik that nothing else in the
+  // note agreed with.
+  add("From address", composeAddress(meaningfulAddress(draft.fromPostal)));
   add("To", draft.to);
-  add(draft.kind === "transport" ? "To address" : "Address", composeAddress(draft.postal));
+  add(
+    draft.kind === "transport" ? "To address" : "Address",
+    composeAddress(meaningfulAddress(draft.postal)),
+  );
   add(draft.kind === "cruise" ? "Cruise line" : "Operator", draft.operator);
   add(draft.kind === "cruise" ? "Cabin" : "Seat", draft.seat);
   add("Where", draft.where);

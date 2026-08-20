@@ -984,7 +984,8 @@ body.awty-phone .awty-stop-index {
 }
 
 /* 30-components.css:141 indents the readout past a 3.4em label. */
-body.awty-phone .awty-date-readout {
+body.awty-phone .awty-date-readout,
+body.awty-phone .awty-date-outside {
   padding-left: 0;
 }
 

@@ -4,7 +4,7 @@ import { bar, editItem, emptyState, readiness, sectionTitle, stateMark, statTile
 import { isMobile } from "../../../util/platform";
 import { renderGettingAround } from "../gettingAround";
 import { renderDocuments } from "../documents";
-import { BOOKING_KINDS, type BookingKind } from "../../../bookings/types";
+import { bookingIcon, type BookingKind } from "../../../bookings/types";
 import type { SubNoteId } from "../../../types";
 import { joinPlaces, stageDef, tripCities, tripCountries } from "../../../types";
 import { showStageMenu, stageNudge } from "../stageMenu";
@@ -59,7 +59,7 @@ function itemsFor(id: SubNoteId | null, ctx: DashboardContext): NoteItem[] {
       .filter((b) => kinds.includes(b.kind))
       .map((booking) => ({
         label: [booking.date, booking.title].filter(Boolean).join(" · "),
-        icon: BOOKING_KINDS.find((k) => k.id === booking.kind)?.icon ?? "ticket",
+        icon: bookingIcon(booking),
         open: () => void plugin.openBookingWizard(trip, booking.kind, booking),
         remove: () => plugin.deleteItem(trip, booking.file, booking.title),
       }));
@@ -336,8 +336,7 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
     const list = parent.createDiv({ cls: "awty-next-list" });
     for (const booking of upcoming) {
       const row = list.createDiv({ cls: "awty-next-row" });
-      const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
-      setIcon(row.createDiv({ cls: "awty-next-icon" }), def?.icon ?? "ticket");
+      setIcon(row.createDiv({ cls: "awty-next-icon" }), bookingIcon(booking));
       const text = row.createDiv({ cls: "awty-next-text" });
       text.createDiv({ cls: "awty-next-title", text: booking.title });
       text.createDiv({

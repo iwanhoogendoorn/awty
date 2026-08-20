@@ -148,6 +148,7 @@ export async function migrateFoodTables(
         ports: [],
         where: "",
         cruise: "",
+        mode: "",
       });
       migrated += 1;
     }

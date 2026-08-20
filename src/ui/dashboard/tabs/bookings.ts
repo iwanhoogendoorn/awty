@@ -2,7 +2,8 @@ import { Menu, setIcon } from "obsidian";
 import type { DashboardContext } from "../common";
 import { editItem, emptyState, itemMenu, renderToolbar, sectionTitle, noTripState, touchMenuButton } from "../common";
 import type { Booking, BookingKind } from "../../../bookings/types";
-import { BOOKING_KINDS, BOOKING_STATUSES } from "../../../bookings/types";
+import { BOOKING_KINDS, BOOKING_STATUSES, bookingIcon } from "../../../bookings/types";
+import { modeLabel } from "../../../bookings/transportMode";
 import { formatMoney } from "../../../util/money";
 import { formatDateRange } from "../../../util/dates";
 
@@ -58,16 +59,18 @@ export function renderBookings(parent: HTMLElement, ctx: DashboardContext): void
 }
 
 function renderRow(parent: HTMLElement, booking: Booking, ctx: DashboardContext): void {
-  const def = BOOKING_KINDS.find((k) => k.id === booking.kind);
   const status = BOOKING_STATUSES.find((s) => s.id === booking.status);
 
   const row = parent.createDiv({ cls: `awty-booking is-${booking.status}` });
-  setIcon(row.createDiv({ cls: "awty-booking-icon" }), def?.icon ?? "ticket");
+  setIcon(row.createDiv({ cls: "awty-booking-icon" }), bookingIcon(booking));
 
   const body = row.createDiv({ cls: "awty-booking-body" });
   body.createDiv({ cls: "awty-booking-title", text: booking.title });
 
   const meta = body.createDiv({ cls: "awty-booking-meta" });
+  // A ferry and a coach are the same row otherwise, and which one you booked is
+  // the first thing you want to know about a transfer.
+  if (modeLabel(booking.mode)) meta.createSpan({ text: modeLabel(booking.mode) });
   meta.createSpan({ text: formatDateRange(booking.date, booking.endDate) });
   const times = [booking.time, booking.endTime].filter(Boolean).join(" → ");
   if (times) meta.createSpan({ text: times });

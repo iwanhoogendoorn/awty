@@ -8,6 +8,7 @@ import { joinPath, sanitizeName } from "../util/paths";
 import { airportFromLabel } from "../ui/components/suggest";
 import { legsToFrontmatter, layoverMinutes, formatLayover, type FlightLeg } from "./legs";
 import { portsToFrontmatter, readPorts, type CruisePort } from "./cruise";
+import type { TransportMode } from "./transportMode";
 import { readLegs as legsFromFrontmatter } from "./flightSummary";
 import type { Booking } from "./types";
 import { fileFromLink } from "./bookingStore";
@@ -47,6 +48,8 @@ export interface BookingDraft {
   where: string;
   /** The cruise note this hangs off, as a path. */
   cruise: string;
+  /** How a transfer moves you. Empty on every other kind, and when unsaid. */
+  mode: TransportMode | "";
   /** "lat,lng" already known, so travel times skip a billed geocode. */
   location?: string;
 }
@@ -165,7 +168,7 @@ const BOOKING_KEYS = [
   "end_date", "time", "end_time", "cost", "currency", "reference", "from", "to",
   ...addressKeys(), ...addressKeys("from"),
   "operator", "seat", "legs", "return_legs", "attachments", "location",
-  "ports", "where", "cruise",
+  "ports", "where", "cruise", "mode",
 ];
 
 function writeBookingFrontmatter(
@@ -226,6 +229,9 @@ function writeBookingFrontmatter(
   // restaurant ashore does not carry an empty "where" that reads as an answer.
   if (draft.where) fm.where = draft.where;
   if (draft.cruise) fm.cruise = draft.cruise;
+  // Only on a transfer: a mode on a hotel would be a field that means nothing
+  // sitting in the note looking like it means something.
+  if (draft.kind === "transport" && draft.mode) fm.mode = draft.mode;
   if (draft.legs.length > 0) fm.legs = legsToFrontmatter(draft.legs);
   if (draft.returnLegs.length > 0) fm.return_legs = legsToFrontmatter(draft.returnLegs);
   if (links.length) fm.attachments = links;
@@ -309,6 +315,7 @@ export async function draftFromBooking(
     ports: readPorts(fm?.ports),
     where: booking.where,
     cruise: booking.cruise,
+    mode: booking.mode,
   };
 }
 
