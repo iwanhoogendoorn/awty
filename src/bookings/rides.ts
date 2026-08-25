@@ -19,6 +19,14 @@ import { formatMoney } from "../util/money";
 export interface Ride {
   /** ISO date it was taken. */
   date: string;
+  /**
+   * "HH:MM" it was taken, when the receipt says.
+   *
+   * A day out can be six rides, and several of them to the same address — the
+   * date and the fare alone made those indistinguishable rows that read like a
+   * bug. Optional, because a fare remembered later often has no time attached.
+   */
+  time: string;
   /** "Uber", "Bolt", the name of a local firm — whatever the receipt says. */
   service: string;
   from: string;
@@ -39,7 +47,7 @@ export const RIDE_SERVICES = ["Uber", "Bolt", "Taxi", "Lyft", "Grab", "FREE NOW"
 export const RIDES_DESCRIPTION = "Taxis & rides";
 
 export function emptyRide(date: string, service = ""): Ride {
-  return { date, service, from: "", to: "", amount: null };
+  return { date, time: "", service, from: "", to: "", amount: null };
 }
 
 /** Frontmatter rides are loose records; this is the only place that shape is known. */
@@ -60,13 +68,17 @@ export function readRides(value: unknown): Ride[] {
             : null;
       return {
         date: str(ride?.date),
+        time: str(ride?.time),
         service: str(ride?.service),
         from: str(ride?.from),
         to: str(ride?.to),
         amount: amount !== null && Number.isFinite(amount) ? amount : null,
       };
     })
-    .filter((ride) => ride.date || ride.service || ride.from || ride.to || ride.amount !== null);
+    .filter(
+      (ride) =>
+        ride.date || ride.time || ride.service || ride.from || ride.to || ride.amount !== null,
+    );
 }
 
 /** Frontmatter-friendly form: plain objects, empties omitted. */
@@ -74,6 +86,7 @@ export function ridesToFrontmatter(rides: Ride[]): Record<string, string | numbe
   return rides.map((ride) => {
     const out: Record<string, string | number> = {};
     if (ride.date) out.date = ride.date;
+    if (ride.time) out.time = ride.time;
     if (ride.service) out.service = ride.service;
     if (ride.from) out.from = ride.from;
     if (ride.to) out.to = ride.to;
@@ -85,7 +98,12 @@ export function ridesToFrontmatter(rides: Ride[]): Record<string, string | numbe
 /** By date, because the phone hands them over in whatever order it likes. */
 export function orderRides(rides: Ride[]): Ride[] {
   return [...rides].sort(
-    (a, b) => a.date.localeCompare(b.date) || a.service.localeCompare(b.service),
+    (a, b) =>
+      a.date.localeCompare(b.date) ||
+      // Untimed rides sort after the timed ones on their day rather than
+      // before all of them, which is where an empty string would put them.
+      (a.time ? (b.time ? a.time.localeCompare(b.time) : -1) : b.time ? 1 : 0) ||
+      a.service.localeCompare(b.service),
   );
 }
 
@@ -115,7 +133,9 @@ export function ridesTotal(rides: Ride[]): number {
  * price or with somewhere it went; a carried-forward service alone does not.
  */
 export function meaningfulRides(rides: Ride[]): Ride[] {
-  return rides.filter((ride) => ride.amount !== null || Boolean(ride.from) || Boolean(ride.to));
+  return rides.filter(
+    (ride) => ride.amount !== null || Boolean(ride.from) || Boolean(ride.to) || Boolean(ride.time),
+  );
 }
 
 export interface RidesShape {
@@ -167,20 +187,21 @@ export function ridesSummary(rides: Ride[], currency: string): string {
  */
 export function rideTable(rides: Ride[], currency: string): string[] {
   const ordered = orderRides(rides).filter(
-    (ride) => ride.date || ride.service || ride.from || ride.to || ride.amount !== null,
+    (ride) => ride.date || ride.time || ride.service || ride.from || ride.to || ride.amount !== null,
   );
   if (ordered.length === 0) return [];
   const rows = ordered.map((ride) => [
     ride.date,
+    ride.time,
     ride.service,
     ride.from,
     ride.to,
     ride.amount === null ? "" : formatMoney({ amount: ride.amount, currency }),
   ]);
   return [
-    "| Date | Service | From | To | Cost |",
-    "|---|---|---|---|---|",
+    "| Date | Time | Service | From | To | Cost |",
+    "|---|---|---|---|---|---|",
     ...rows.map((r) => `| ${r.join(" | ")} |`),
-    `| | | | **Total** | **${formatMoney({ amount: ridesTotal(ordered), currency })}** |`,
+    `| | | | | **Total** | **${formatMoney({ amount: ridesTotal(ordered), currency })}** |`,
   ];
 }

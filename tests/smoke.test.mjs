@@ -4411,7 +4411,7 @@ test("a ferry note says it is a ferry", () => {
 });
 
 test("a dozen taxis add up to one number", () => {
-  const ride = (date, amount, service = "Uber") => ({ date, service, from: "", to: "", amount });
+  const ride = (date, amount, service = "Uber") => ({ date, time: "", service, from: "", to: "", amount });
 
   // Floating point turns a dozen fares into 187.40000000000003, and that
   // number would go straight into the note and the budget.
@@ -4445,16 +4445,16 @@ test("a dozen taxis add up to one number", () => {
 
 test("a rides log survives the round trip through frontmatter", () => {
   const rides = [
-    { date: "2026-08-18", service: "Uber", from: "Airport", to: "Hotel", amount: 24.5 },
-    { date: "2026-08-17", service: "Taxi", from: "", to: "", amount: null },
+    { date: "2026-08-18", time: "09:12", service: "Uber", from: "Airport", to: "Hotel", amount: 24.5 },
+    { date: "2026-08-17", time: "", service: "Taxi", from: "", to: "", amount: null },
   ];
   const fm = m.ridesToFrontmatter(rides);
   // Empties are left out, so a half-typed row does not carry blank keys that
   // read as answers.
   assert.deepEqual(fm[1], { date: "2026-08-17", service: "Taxi" });
   assert.deepEqual(m.readRides(fm), [
-    { date: "2026-08-18", service: "Uber", from: "Airport", to: "Hotel", amount: 24.5 },
-    { date: "2026-08-17", service: "Taxi", from: "", to: "", amount: null },
+    { date: "2026-08-18", time: "09:12", service: "Uber", from: "Airport", to: "Hotel", amount: 24.5 },
+    { date: "2026-08-17", time: "", service: "Taxi", from: "", to: "", amount: null },
   ]);
 
   // Hand-edited notes write the fare as a string, and somebody Dutch writes it
@@ -4469,19 +4469,30 @@ test("a rides log survives the round trip through frontmatter", () => {
   // Adding a row carries the last service forward, so an untouched row looks
   // filled in. Saved as-is it became a ghost "Uber" in the table with no route
   // and no price, counting towards nothing.
-  const ghost = { date: "2026-08-18", service: "Uber", from: "", to: "", amount: null };
+  const ghost = { date: "2026-08-18", time: "", service: "Uber", from: "", to: "", amount: null };
   assert.deepEqual(m.meaningfulRides([ghost]), []);
   assert.equal(m.meaningfulRides([{ ...ghost, amount: 9 }]).length, 1, "a price earns the row");
   assert.equal(m.meaningfulRides([{ ...ghost, to: "Old town" }]).length, 1, "so does a route");
 
   // Order is by date: the phone hands them over however it likes.
   assert.deepEqual(m.orderRides(rides).map((r) => r.date), ["2026-08-17", "2026-08-18"]);
+
+  // Then by time, because a day out is several rides and a couple of them go
+  // to the same address — date and fare alone made those identical rows.
+  const day = [
+    { date: "2026-08-18", time: "22:13", service: "Uber", from: "", to: "Home", amount: 0 },
+    { date: "2026-08-18", time: "", service: "Uber", from: "", to: "Untimed", amount: 9 },
+    { date: "2026-08-18", time: "11:01", service: "Uber", from: "", to: "Old Town", amount: 11.55 },
+  ];
+  // An untimed ride sorts after its day's timed ones, not before all of them,
+  // which is where an empty string would put it.
+  assert.deepEqual(m.orderRides(day).map((r) => r.to), ["Old Town", "Home", "Untimed"]);
 });
 
 test("the rides note shows the fares its total is made of", () => {
   const rides = [
-    { date: "2026-08-18", service: "Uber", from: "Airport", to: "Hotel", amount: 24.5 },
-    { date: "2026-08-19", service: "Bolt", from: "Hotel", to: "Old town", amount: 8.2 },
+    { date: "2026-08-18", time: "09:12", service: "Uber", from: "Airport", to: "Hotel", amount: 24.5 },
+    { date: "2026-08-19", time: "20:40", service: "Bolt", from: "Hotel", to: "Old town", amount: 8.2 },
   ];
   const body = m.expenseBody(
     { description: m.RIDES_DESCRIPTION, currency: "EUR", rides },
@@ -4490,13 +4501,13 @@ test("the rides note shows the fares its total is made of", () => {
   assert.match(body, /# Taxis & rides/);
   assert.ok(body.includes(`2 rides · Uber, Bolt · ${m.formatMoney({ amount: 32.7, currency: "EUR" })}`), body);
   assert.ok(
-    body.includes(`| 2026-08-18 | Uber | Airport | Hotel | ${m.formatMoney({ amount: 24.5, currency: "EUR" })} |`),
+    body.includes(`| 2026-08-18 | 09:12 | Uber | Airport | Hotel | ${m.formatMoney({ amount: 24.5, currency: "EUR" })} |`),
     body,
   );
   // The total is written into the table, so it can be checked against the rows
   // rather than taken on trust.
   assert.ok(
-    body.includes(`| **Total** | **${m.formatMoney({ amount: 32.7, currency: "EUR" })}** |`),
+    body.includes(`| | | | | **Total** | **${m.formatMoney({ amount: 32.7, currency: "EUR" })}** |`),
     body,
   );
 

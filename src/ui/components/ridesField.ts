@@ -73,6 +73,8 @@ export class RidesField {
   private add(): void {
     const previous = this.rides[this.rides.length - 1];
     const next = emptyRide(previous?.date || this.opts.defaultDate, previous?.service ?? "");
+    // The time is not carried: two rides never share one, and a wrong time
+    // sitting there pre-filled is worse than an empty box.
     this.rides.push(next);
     this.render();
     this.opts.onChange();
@@ -83,7 +85,9 @@ export class RidesField {
 
     const head = box.createDiv({ cls: "awty-leg-head" });
     head.createSpan({ cls: "awty-leg-title", text: `Ride ${index + 1}` });
-    const trip = [ride.from, ride.to].filter(Boolean).join(" → ");
+    const trip = [ride.time, [ride.from, ride.to].filter(Boolean).join(" → ")]
+      .filter(Boolean)
+      .join(" · ");
     if (trip) head.createSpan({ cls: "awty-leg-note", text: trip });
 
     if (this.rides.length > 1) {
@@ -112,6 +116,16 @@ export class RidesField {
       // trip is exactly when somebody sits down to do it.
       input.addEventListener("change", () => {
         ride.date = input.value;
+        this.opts.onChange();
+      });
+    });
+
+    field("Time", (input) => {
+      input.type = "time";
+      input.value = ride.time;
+      input.setAttribute("aria-label", "Time the ride was taken. Optional.");
+      input.addEventListener("change", () => {
+        ride.time = input.value;
         this.opts.onChange();
       });
     });
