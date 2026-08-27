@@ -79,6 +79,7 @@ export { moneyPattern, MONEY_CLASS } from "./src/util/moneyMask.ts";
 export { COMMON_CURRENCIES, symbolFor } from "./src/util/money.ts";
 export { TRANSPORT_MODES, readMode, modeDef, modeLabel, modeIcon } from "./src/bookings/transportMode.ts";
 export { bookingIcon } from "./src/bookings/types.ts";
+export { readMoments, momentsToFrontmatter, keepMoments, orderMoments, momentsOn, undatedMoments, momentList, emptyMoment, momentSummary, isLongMoment, momentMarkdown, liftTitle, LONG_MOMENT } from "./src/trips/moments.ts";
 export { readRides, ridesToFrontmatter, orderRides, pricedRides, ridesTotal, meaningfulRides, ridesShape, ridesSummary, rideTable, emptyRide, RIDE_SERVICES, RIDES_DESCRIPTION } from "./src/bookings/rides.ts";
 `;
 
@@ -4682,6 +4683,168 @@ test("a night crossing home lands on the day it lands", () => {
   assert.equal(home[0].time, "06:15");
   assert.equal(home[0].detail, "Back · Ancona");
   assert.equal(home[0].covered, true, "the fare was paid on the way out");
+});
+
+test("a memory survives the round trip, dated or not", () => {
+  const raw = [
+    { date: "2026-08-21", text: "  Zaara fell asleep on the deck coming back  " },
+    { text: "The sunsets from the terrace, every night" },
+    { date: "2026-08-18", text: "" },
+  ];
+  const read = m.readMoments(raw);
+  // Blank ones are rows somebody started, not memories.
+  assert.equal(read.length, 2);
+  assert.equal(read[0].text, "Zaara fell asleep on the deck coming back");
+  assert.equal(read[1].date, "");
+
+  // A hand-written list of plain strings is a reasonable thing to find in a
+  // note, and refusing it would lose what somebody typed.
+  assert.deepEqual(m.readMoments(["Just a line"]), [{ date: "", title: "", text: "Just a line" }]);
+  assert.deepEqual(m.readMoments("not a list"), []);
+  assert.deepEqual(m.readMoments(undefined), []);
+
+  // The date is written only when there is one, so an undated memory does not
+  // carry an empty key that reads as an answer.
+  const fm = m.momentsToFrontmatter(read);
+  assert.deepEqual(fm[1], { text: "The sunsets from the terrace, every night" });
+  assert.deepEqual(m.readMoments(fm), read);
+});
+
+test("what belongs to the whole trip sorts last, not first", () => {
+  const moments = [
+    { date: "", title: "", text: "The sunsets" },
+    { date: "2026-08-21", title: "", text: "Lopud" },
+    { date: "2026-08-18", title: "", text: "Arrived" },
+  ];
+  // An empty string sorts before every real date, which would put "the
+  // sunsets, every night" above the day you arrived.
+  assert.deepEqual(m.orderMoments(moments).map((x) => x.text), ["Arrived", "Lopud", "The sunsets"]);
+
+  assert.deepEqual(m.momentsOn(moments, "2026-08-21").map((x) => x.text), ["Lopud"]);
+  // An undated memory belongs to no single day and must not leak onto one.
+  assert.deepEqual(m.momentsOn(moments, ""), []);
+  assert.deepEqual(m.undatedMoments(moments).map((x) => x.text), ["The sunsets"]);
+});
+
+test("the moments read as a list without the plugin", () => {
+  const label = (date) => (date === "2026-08-21" ? "Fri 21 Aug" : date);
+  const lines = m.momentList(
+    [
+      { date: "", title: "", text: "The sunsets" },
+      { date: "2026-08-21", title: "", text: "Fell asleep\non the deck" },
+    ],
+    label,
+  );
+  assert.deepEqual(lines, [
+    "- **Fri 21 Aug** — Fell asleep on the deck",
+    "- The sunsets",
+  ]);
+  // A memory typed as a small paragraph stays one bullet: a raw newline in the
+  // middle would end the list item and orphan the rest of the sentence.
+  assert.ok(lines.every((l) => !l.includes("\n")));
+  assert.deepEqual(m.momentList([], label), []);
+});
+
+test("a story gets a title, a line stays a line", () => {
+  const line = { date: "2026-08-21", title: "", text: "Zaara fell asleep on the deck" };
+  const story = {
+    date: "2026-08-20",
+    title: "The Long Way to Nowhere",
+    text: "The plan was simple.\n\nIt was not simple.",
+  };
+
+  // The list shows the title when there is one; without one it shows the
+  // opening, cut at a sentence rather than mid-clause.
+  assert.equal(m.momentSummary(story), "The Long Way to Nowhere");
+  assert.equal(m.momentSummary(line), "Zaara fell asleep on the deck");
+  const long = {
+    date: "",
+    title: "",
+    text: "It rained all afternoon and then it stopped dead. The whole bay went gold and nobody said anything for a while.",
+  };
+  assert.equal(m.momentSummary(long), "It rained all afternoon and then it stopped dead.");
+  // A sentence too short to be worth stopping at is not a summary, it is a
+  // wasted line — that one runs on to the full width instead.
+  const curt = { date: "", title: "", text: "It rained. " + "Then the whole bay went gold and nobody said anything for a good while afterwards." };
+  assert.ok(curt.text.length > 90 && m.momentSummary(curt).endsWith("…"), m.momentSummary(curt));
+  // Nothing to cut at falls back to an ellipsis rather than running on.
+  const runOn = { date: "", title: "", text: "a".repeat(300) };
+  assert.ok(m.momentSummary(runOn).endsWith("…"));
+  assert.ok(m.momentSummary(runOn).length <= 91);
+
+  // Folded away when it has a title or would swallow the page; shown in full
+  // when it is a line.
+  assert.equal(m.isLongMoment(story), true);
+  assert.equal(m.isLongMoment(line), false);
+  assert.equal(m.isLongMoment({ date: "", title: "", text: "x".repeat(m.LONG_MOMENT + 1) }), true);
+
+  // The title survives frontmatter, and is left out when there is none.
+  const fm = m.momentsToFrontmatter([story, line]);
+  assert.equal(fm[0].title, "The Long Way to Nowhere");
+  assert.ok(!("title" in fm[1]));
+  assert.deepEqual(m.readMoments(fm), [story, line]);
+});
+
+test("a titled memory is written out as prose, not crammed into a bullet", () => {
+  const label = (d) => (d === "2026-08-20" ? "Thu 20 Aug" : d);
+  const lines = m.momentList(
+    [
+      { date: "2026-08-20", title: "The Long Way to Nowhere", text: "The plan was simple.\n\nIt was not." },
+      { date: "2026-08-21", title: "", text: "Zaara fell asleep on the deck" },
+    ],
+    label,
+  );
+  const note = lines.join("\n");
+  // Its own heading and its own paragraphs, so the note it is preserved in is
+  // readable. A page of prose inside a list item is not.
+  assert.match(note, /^### The Long Way to Nowhere\n\n\*Thu 20 Aug\*\n\nThe plan was simple\.\n\nIt was not\./, note);
+  // The one-liner stays a bullet: a heading over six words is a heading
+  // pretending to be an essay.
+  assert.match(note, /- \*\*2026-08-21\*\* — Zaara fell asleep on the deck/, note);
+});
+
+test("a pasted memory keeps the shape it was pasted in", () => {
+  // Markdown says a single newline is a space, which turned a story with air
+  // in it into one unbroken slab. Every break the writer made is a break.
+  const pasted = "The plan was simple.\nIt was not simple.\n\n\nBest evening of the trip.";
+  assert.equal(
+    m.momentMarkdown(pasted),
+    "The plan was simple.\n\nIt was not simple.\n\nBest evening of the trip.",
+  );
+
+  // Runs of blank lines flatten to one break, so pasted text does not arrive
+  // with holes in it, and Windows line endings are still line endings.
+  assert.equal(m.momentMarkdown("a\r\n\r\n\r\nb"), "a\n\nb");
+  // Trailing spaces on a line are invisible and would survive into the note.
+  assert.equal(m.momentMarkdown("a   \nb  "), "a\n\nb");
+  assert.equal(m.momentMarkdown("  one line  "), "one line");
+  assert.equal(m.momentMarkdown(""), "");
+
+  // And it reaches the note that way: the paragraphs come out as paragraphs.
+  const note = m.momentList([{ date: "", title: "A night out", text: pasted }], (d) => d).join("\n");
+  assert.match(note, /### A night out\n\nThe plan was simple\.\n\nIt was not simple\.\n\nBest evening of the trip\./, note);
+});
+
+test("a title typed as a bold first line is offered as the title", () => {
+  const written = {
+    date: "2026-08-20",
+    title: "",
+    text: "**The Long Way to Nowhere**\n\nThe plan was simple.\n\nIt was not.",
+  };
+  const lifted = m.liftTitle(written);
+  assert.equal(lifted.title, "The Long Way to Nowhere");
+  assert.equal(lifted.text, "The plan was simple.\n\nIt was not.");
+  assert.equal(lifted.date, "2026-08-20", "nothing else moves");
+  // Underscores are bold too.
+  assert.equal(m.liftTitle({ date: "", title: "", text: "__Night ferry__\n\nIt was cold." }).title, "Night ferry");
+
+  // Left alone when there is already a title, when the bold line is the whole
+  // memory, or when the opening is emphasis rather than a heading.
+  assert.equal(m.liftTitle({ date: "", title: "Set", text: "**A**\n\nb" }), null);
+  assert.equal(m.liftTitle({ date: "", title: "", text: "**All of it**" }), null);
+  assert.equal(m.liftTitle({ date: "", title: "", text: "Just a line\n\nand another" }), null);
+  const shouty = { date: "", title: "", text: `**${"very ".repeat(20)}emphatic**\n\nthen prose` };
+  assert.equal(m.liftTitle(shouty), null, "a whole paragraph in bold is emphasis, not a heading");
 });
 
 console.log(`\n${passed} tests passed`);

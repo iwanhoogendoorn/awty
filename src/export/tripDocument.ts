@@ -116,6 +116,14 @@ export interface TripDocument {
   /** Travel times outward from where you are staying. */
   travel: { origin: string; groups: { heading: string; places: DocPlace[] }[] };
   restaurants: DocRestaurant[];
+  /**
+   * What the trip is remembered for.
+   *
+   * Printed like everything else, and the only part of this document that gets
+   * better with age: the flight times are worthless a week after landing, and
+   * these are the reason to keep the file at all.
+   */
+  moments: { when: string; title: string; text: string }[];
   notes: DocNote[];
   /** Images embedded as data URIs, so the file stands alone. */
   images: { caption: string; dataUri: string }[];
@@ -435,6 +443,36 @@ export function renderTripDocument(doc: TripDocument): string {
         ),
       );
     }
+  }
+
+  // Late in the document, not because it matters least — because it is the one
+  // part you go looking for rather than checking in a hurry at a gate.
+  const moments = doc.moments ?? [];
+  if (moments.length > 0) {
+    parts.push("<h2>Moments</h2>");
+    // A titled memory is a piece of writing and prints as one; a one-liner
+    // prints as a line. Cramming a page of prose into a bullet is how a keepsake
+    // ends up unreadable in the one copy that leaves the computer.
+    let open = false;
+    for (const moment of moments) {
+      const titled = Boolean((moment.title ?? "").trim());
+      if (titled) {
+        if (open) parts.push("</ul>");
+        open = false;
+        parts.push(`<h3>${escapeHtml(moment.title)}</h3>`);
+        if (moment.when) parts.push(`<p class="notes">${escapeHtml(moment.when)}</p>`);
+        for (const para of moment.text.split(/\n+/)) {
+          if (para.trim()) parts.push(`<p>${escapeHtml(para.trim())}</p>`);
+        }
+        continue;
+      }
+      if (!open) parts.push('<ul class="moments">');
+      open = true;
+      parts.push(
+        `<li>${moment.when ? `<strong>${escapeHtml(moment.when)}</strong> — ` : ""}${escapeHtml(moment.text)}</li>`,
+      );
+    }
+    if (open) parts.push("</ul>");
   }
 
   if (doc.travel.groups.length > 0) {

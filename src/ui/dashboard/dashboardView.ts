@@ -164,18 +164,32 @@ export class AwtyDashboardView extends ItemView {
     const trip = this.currentTrip();
     // A trip deleted, or renamed out from under the selection, drops you back
     // to the list rather than leaving a tab that can say nothing.
-    if (!trip && this.tripPath) {
+    //
+    // "Not in the store" is not the same as "gone", though. The store reads the
+    // metadata cache, and the cache updates a tick after a write — so saving
+    // anything onto the trip note itself made the trip vanish for one render.
+    // Throwing the selection away for that put you back on the trip list every
+    // time you saved, and the re-render that arrives when the cache settles had
+    // nothing left to restore. The file on disk is the thing to ask.
+    const stillOnDisk =
+      this.tripPath !== null &&
+      this.app.vault.getAbstractFileByPath(this.tripPath) instanceof TFile;
+    if (!trip && this.tripPath && !stillOnDisk) {
       this.tripPath = null;
       this.tab = "trips";
     }
-    if (!trip && TABS.find((t) => t.id === this.tab)?.tripScoped) this.tab = "trips";
+    // Same reasoning: a trip-scoped tab with nothing to show is worth falling
+    // back from, but not worth forgetting which tab you were on for.
+    const fallback = !trip && TABS.find((t) => t.id === this.tab)?.tripScoped;
+    const showing = fallback && !stillOnDisk ? "trips" : this.tab;
+    if (fallback && !stillOnDisk) this.tab = "trips";
 
     this.renderHeader(root, trip);
 
     const content = root.createDiv({ cls: "awty-dash-content" });
     const ctx = this.context(trip);
 
-    switch (this.tab) {
+    switch (showing) {
       case "trips":
         renderTrips(content, ctx, (selected) => this.showTrip(selected), {
           stage: this.stageFilter,

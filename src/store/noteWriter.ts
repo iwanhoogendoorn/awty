@@ -1,4 +1,7 @@
 import { App, Notice, TAbstractFile, TFile, TFolder, normalizePath } from "obsidian";
+import { keepMoments, momentList, momentsToFrontmatter, type Moment } from "../trips/moments";
+import { replaceSection } from "./sectionWriter";
+import { formatDayLabel } from "../util/dates";
 import type { SubNoteId, AwtySettings, Trip, TripDraft, TripStage } from "../types";
 import { isCreatableStage, kindDef } from "../types";
 import { buildSubNote, buildTripBody, type TemplateContext } from "./templates";
@@ -229,6 +232,33 @@ export async function updateTrip(
  * would rewrite every other field, rename the folder if the pattern moved, and
  * make an answer to one question into a save of everything.
  */
+/**
+ * Saves the trip's memorable moments.
+ *
+ * Both at once, on purpose: the frontmatter is what the dashboard and the
+ * export read, and the markdown list is what somebody reads in five years with
+ * this plugin long uninstalled. Everything else here makes that same bargain —
+ * a cruise writes its ports twice too — and it matters most for the one kind of
+ * record that cannot be rebuilt from a receipt.
+ */
+export async function saveMoments(app: App, trip: Trip, moments: Moment[]): Promise<void> {
+  const kept = keepMoments(moments);
+  await app.fileManager.processFrontMatter(trip.file, (fm) => {
+    if (kept.length > 0) fm.moments = momentsToFrontmatter(kept);
+    // Deleting the last one has to actually empty it, or the note keeps
+    // claiming a memory that was taken off the list.
+    else delete fm.moments;
+  });
+  await replaceSection(
+    app,
+    trip.file,
+    "Moments",
+    kept.length > 0
+      ? momentList(kept, (date) => formatDayLabel(date)).join("\n")
+      : "_Nothing written down yet._",
+  );
+}
+
 export async function setTripStage(app: App, trip: Trip, stage: TripStage): Promise<void> {
   await app.fileManager.processFrontMatter(trip.file, (fm) => {
     fm.stage = stage;

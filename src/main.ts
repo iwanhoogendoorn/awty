@@ -36,6 +36,7 @@ import { AwtyDashboardView } from "./ui/dashboard/dashboardView";
 import { BookingWizard } from "./ui/modals/bookingWizard";
 import { ExpenseModal } from "./ui/modals/expenseModal";
 import { RidesModal } from "./ui/modals/ridesModal";
+import { MomentsModal } from "./ui/modals/momentsModal";
 import { BudgetModal } from "./ui/modals/budgetModal";
 import { PackingModal } from "./ui/modals/packingModal";
 import { EventDetailsModal } from "./ui/modals/eventDetailsModal";
@@ -75,7 +76,14 @@ import { replaceSection } from "./store/sectionWriter";
 import { canExportPdf, exportTrip, saveTextFile } from "./export/pdfExport";
 import { mapSavePlanFor, mapSavedInVaultMessage, type ExportCapabilities } from "./export/exportPlan";
 import { isMobile, markPlatform } from "./util/platform";
-import { createTrip, deleteTrip, notifyError, setTripStage, updateTrip } from "./store/noteWriter";
+import {
+  createTrip,
+  deleteTrip,
+  notifyError,
+  saveMoments,
+  setTripStage,
+  updateTrip,
+} from "./store/noteWriter";
 import { readTripQuotes, removeQuote, repointBookings, saveQuote } from "./planning/priceStore";
 import { nextQuoteId, trackQuotes, unbookMissing, type PriceQuote, type PriceTrack } from "./planning/priceWatch";
 import { bookingFromQuote, kindsForCategory } from "./planning/bookFromQuote";
@@ -276,6 +284,16 @@ export default class AwtyPlugin extends Plugin {
         const trip = this.contextTrip();
         if (!trip) return false;
         if (!checking) this.openExpenseModal(trip);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "add-moment",
+      name: "Add a memorable moment",
+      checkCallback: (checking) => {
+        const trip = this.contextTrip();
+        if (!trip) return false;
+        if (!checking) this.openMomentsModal(trip);
         return true;
       },
     });
@@ -658,6 +676,21 @@ export default class AwtyPlugin extends Plugin {
         this.refreshViews();
         new Notice(`Deleted “${label}”.`);
       },
+    }).open();
+  }
+
+  /** What you want to remember about a trip, kept on the trip itself. */
+  openMomentsModal(trip: Trip, focusDate = ""): void {
+    new MomentsModal(this.app, trip, focusDate, async (moments) => {
+      await saveMoments(this.app, trip, moments);
+      this.store.invalidate();
+      this.progress.clear();
+      this.refreshViews();
+      new Notice(
+        moments.length === 0
+          ? "Moments cleared."
+          : `Saved ${moments.length} moment${moments.length === 1 ? "" : "s"}.`,
+      );
     }).open();
   }
 

@@ -344,3 +344,195 @@
 .awty-rides .awty-leg-grid {
   grid-template-columns: repeat(auto-fit, minmax(7em, 1fr));
 }
+
+/* ------------------------------------------------------------- moments
+   The one part of a trip that is prose rather than data, so it is given
+   room to read like prose: no table, no columns, no alignment to defend. */
+
+/* One card per memory in the editor too, so a list of fifteen is fifteen
+   things rather than one long ribbon of boxes. */
+.awty-moment-box {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+.awty-moment-box:focus-within {
+  border-color: var(--text-accent);
+}
+
+.awty-moment-day {
+  font-size: var(--font-ui-smaller);
+}
+
+/* Written in, not just filled in: a comfortable measure and real leading,
+   because some of these are a page long and get read back years later. */
+.awty-moment-text {
+  width: 100%;
+  margin-top: 4px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: var(--font-ui-small);
+  line-height: 1.65;
+  padding: 8px 10px;
+}
+
+.awty-moments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* Cards stretched to a 1800px window put six words on a line and left the
+     rest of the row empty. Prose wants a measure; so does the card holding it. */
+  max-width: 74ch;
+}
+
+/* A card each, because these are the one thing on the page somebody sits and
+   reads rather than scans — and a flat list of rows reads as data. */
+.awty-moment-fold,
+.awty-moments-list > .awty-moment-row {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+}
+
+.awty-moment-fold[open] {
+  border-color: var(--text-accent);
+}
+
+.awty-moment-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+  padding: 10px 12px;
+}
+
+.awty-moment-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.awty-moment-icon {
+  color: var(--text-accent);
+  flex: 0 0 auto;
+}
+
+.awty-moment-when {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+/* The day as a chip rather than a line above the title: it is a label on the
+   memory, not a heading over it. */
+.awty-moment-chip {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  white-space: nowrap;
+}
+
+.awty-moment-body {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7em;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.awty-moment-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  margin-top: 10px;
+  padding: 3px 10px;
+  border-radius: var(--radius-s);
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.awty-moment-edit:hover {
+  color: var(--text-normal);
+  border-color: var(--text-accent);
+}
+
+.awty-moment-what {
+  line-height: 1.5;
+}
+
+.awty-moments-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  padding: 4px 8px 8px;
+}
+
+/* A titled moment folds away. The whole reason is that one of these can run
+   to nine hundred words, and an accordion is the difference between a
+   keepsake and a wall of text over the rest of the page. */
+
+.awty-moment-fold > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.awty-moment-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* The disclosure arrow, drawn rather than inherited, so it sits on the
+   baseline of the title instead of wherever the browser feels like. */
+.awty-moment-fold > summary::after {
+  content: "›";
+  margin-left: auto;
+  padding-left: 0.5em;
+  color: var(--text-faint);
+  transition: transform 120ms ease;
+}
+
+.awty-moment-fold[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+.awty-moment-title-row {
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.awty-moment-full {
+  padding: 4px 14px 14px 2.6em;
+  line-height: 1.7;
+  color: var(--text-normal);
+  /* Unfolded, a nine-hundred-word memory pushed the whole overview off the
+     screen — which is the thing folding it was meant to prevent. It opens to a
+     readable panel and scrolls inside itself. */
+  max-height: 24em;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.awty-moment-full p {
+  margin: 0 0 0.7em;
+}
+
+.awty-moment-full p:last-child {
+  margin-bottom: 0;
+}
+
+.awty-moment-title {
+  width: 100%;
+  margin-top: 4px;
+  font-family: inherit;
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+}

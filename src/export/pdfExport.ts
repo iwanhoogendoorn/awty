@@ -1,4 +1,5 @@
 import { App, Notice, TFile, TFolder, arrayBufferToBase64 } from "obsidian";
+import { keepMoments, orderMoments } from "../trips/moments";
 import type AwtyPlugin from "../main";
 import type { Trip } from "../types";
 import { SUB_NOTE_LABELS, kindDef, stageDef } from "../types";
@@ -15,6 +16,7 @@ import { formatMoney, formatTotals, sumMoney } from "../util/money";
 import {
   datesInRange,
   formatDateRange,
+  formatDayLabel,
   formatDuration,
   monthName,
   parseISO,
@@ -467,6 +469,13 @@ export async function buildTripDocument(
     facts,
     documents,
     bookings: docBookings,
+    // The one part of this document that cannot be rebuilt from the vault's
+    // receipts if it is left out.
+    moments: orderMoments(keepMoments(trip.moments)).map((moment) => ({
+      when: moment.date ? formatDayLabel(moment.date) : "",
+      title: moment.title,
+      text: moment.text,
+    })),
     days,
     costs,
     packing,

@@ -1,4 +1,5 @@
 import { TFile, setIcon } from "obsidian";
+import { momentSummary, momentsOn } from "../../../trips/moments";
 import type { DashboardContext } from "../common";
 import { editItem, emptyState, itemMenu, sectionTitle, noTripState, touchMenuButton } from "../common";
 import type { Booking } from "../../../bookings/types";
@@ -69,6 +70,18 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
     });
     if (date === today) head.createSpan({ cls: "awty-day-today", text: "Today" });
 
+    // Capture where it happened. Remembering a day and then hunting for the
+    // place to write it down is how it stays unwritten.
+    const jot = head.createEl("button", { cls: "awty-day-jot" });
+    jot.type = "button";
+    jot.setAttribute("aria-label", `Add a moment to ${date}`);
+    jot.setAttribute("title", "Add a moment to this day");
+    setIcon(jot.createSpan(), "sparkles");
+    jot.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      plugin.openMomentsModal(trip, date);
+    });
+
     // Where you are sleeping, as a quiet one-liner rather than another card.
     for (const stay of ongoing) {
       const rail = body.createDiv({ cls: "awty-day-ongoing" });
@@ -77,8 +90,30 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
       rail.addEventListener("click", () => ctx.openFile(stay.file));
     }
 
+    // What the day is remembered for, under what was booked for it. Not an
+    // event: a memory has no time and nothing to click through to — it is the
+    // one line of the day that was never scheduled.
+    const remember = (): void => {
+      const kept = momentsOn(trip.moments, date);
+      if (kept.length === 0) return;
+      const box = body.createDiv({ cls: "awty-day-moments" });
+      for (const moment of kept) {
+        // The day gets the headline, never the essay: one nine-hundred-word
+        // memory laid out in full turns the itinerary into a wall of prose and
+        // hides the day it happened on. Clicking opens it where it is editable.
+        const line = box.createDiv({ cls: "awty-day-moment" });
+        setIcon(line.createSpan({ cls: "awty-day-moment-icon" }), "sparkles");
+        line.createSpan({ text: momentSummary(moment) });
+        line.setAttribute("title", moment.text);
+        line.addEventListener("click", () => plugin.openMomentsModal(trip, moment.date));
+      }
+    };
+
     if (events.length === 0) {
-      if (ongoing.length === 0) body.createDiv({ cls: "awty-day-empty", text: "Nothing planned" });
+      if (ongoing.length === 0 && momentsOn(trip.moments, date).length === 0) {
+        body.createDiv({ cls: "awty-day-empty", text: "Nothing planned" });
+      }
+      remember();
       continue;
     }
 
@@ -126,6 +161,8 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
         router.hop(list, router.placeFor(event.file), router.placeFor(next.file));
       }
     }
+
+    remember();
   }
 }
 

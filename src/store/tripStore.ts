@@ -1,4 +1,5 @@
 import { App, Plugin, TFile, TFolder, normalizePath } from "obsidian";
+import { readMoments } from "../trips/moments";
 import type { SubNoteId, AwtySettings, Trip, TripStage, TripStatus, TripStop } from "../types";
 import { SUB_NOTE_LABELS, isTripKind, isTripStage, stageDef } from "../types";
 
@@ -219,6 +220,7 @@ export class TripStore {
         })(),
         passports: list(fm.passports),
         entryDone: list(fm.entry_done),
+        moments: readMoments(fm.moments),
       });
     }
 

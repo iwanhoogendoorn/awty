@@ -1377,3 +1377,66 @@ body.awty-mobile .awty-gallery-remove {
 .awty-dash-quick-btn.is-active:hover {
   background: var(--interactive-accent-hover);
 }
+
+/* A memory on its day: indented past the times so the column of clock
+   readings stays a column, and marked as the one line nobody scheduled. */
+
+.awty-day-moments {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.awty-day-moment {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  padding: 4px 8px;
+  border-left: 2px solid var(--text-accent);
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  background: var(--background-secondary);
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.awty-day-moment:hover {
+  background: var(--background-modifier-hover);
+}
+
+.awty-day-moment-icon {
+  color: var(--text-accent);
+  flex: 0 0 auto;
+}
+
+/* The per-day capture button. Quiet until you are on the day, because a row
+   of sparkles down the itinerary is noise on the twenty days nothing
+   memorable happened. */
+.awty-day-jot {
+  margin-left: auto;
+  padding: 2px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  border-radius: var(--radius-s);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.awty-day:hover .awty-day-jot,
+.awty-day-jot:focus-visible {
+  opacity: 1;
+}
+
+.awty-day-jot:hover {
+  color: var(--text-accent);
+  background: var(--background-modifier-hover);
+}
+
+.awty-day-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+}

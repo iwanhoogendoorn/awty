@@ -1,4 +1,5 @@
 import type { TFile } from "obsidian";
+import type { Moment } from "./trips/moments";
 
 /**
  * A trip is anything that needs planning around a date and a place — a
@@ -330,6 +331,13 @@ export interface Trip {
    * amber — it showed real tasks and offered no way to complete them.
    */
   entryDone: string[];
+  /**
+   * What you want to remember about this one.
+   *
+   * The only thing here that cannot be reconstructed from a receipt, so it
+   * lives on the trip itself rather than in a sub-note that might not exist.
+   */
+  moments: Moment[];
 }
 
 /** The form payload shared by the new-trip and edit-trip modals. */

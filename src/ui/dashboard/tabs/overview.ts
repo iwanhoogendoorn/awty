@@ -1,4 +1,12 @@
 import { Menu, Notice, setIcon } from "obsidian";
+import {
+  isLongMoment,
+  keepMoments,
+  momentMarkdown,
+  momentSummary,
+  orderMoments,
+} from "../../../trips/moments";
+import { renderMarkdown } from "../../../export/markdown";
 import type { DashboardContext } from "../common";
 import { bar, editItem, emptyState, readiness, sectionTitle, stateMark, statTiles, noTripState, touchMenuButton } from "../common";
 import { isMobile } from "../../../util/platform";
@@ -227,6 +235,112 @@ function renderTripNotes(parent: HTMLElement, ctx: DashboardContext): void {
 }
 
 /** Everything about one trip that should be true at a glance. */
+/**
+ * What you want to remember, on the trip's own front page.
+ *
+ * Above "Needs attention" once the trip is behind you, because at that point
+ * nothing needs attention and this is the only part still worth opening. On a
+ * trip not yet taken it is one quiet line rather than a section shouting to be
+ * filled in — there is nothing to remember yet.
+ */
+function renderMoments(parent: HTMLElement, ctx: DashboardContext): void {
+  const { trip, plugin } = ctx;
+  if (!trip) return;
+  const moments = orderMoments(keepMoments(trip.moments));
+  const been = trip.stage === "went" || trip.status === "past" || trip.status === "current";
+  if (moments.length === 0 && !been) return;
+
+  sectionTitle(parent, "Moments", {
+    label: moments.length > 0 ? "Edit" : "Add",
+    icon: moments.length > 0 ? "pencil" : "sparkles",
+    onClick: () => plugin.openMomentsModal(trip),
+  });
+
+  if (moments.length === 0) {
+    const empty = parent.createDiv({ cls: "awty-moments-empty" });
+    empty.createSpan({
+      text: "Nothing written down yet. The receipts will still be here in ten years; this will not.",
+    });
+    const start = empty.createEl("button", { cls: "awty-moment-edit" });
+    start.type = "button";
+    setIcon(start.createSpan(), "sparkles");
+    start.createSpan({ text: "Write the first one" });
+    start.addEventListener("click", () => plugin.openMomentsModal(trip));
+    return;
+  }
+
+  const list = parent.createDiv({ cls: "awty-moments-list" });
+  for (const [index, moment] of moments.entries()) {
+    // A line stays a line. Anything with a title, or long enough to swallow the
+    // page, arrives folded — one of these ran to nine hundred words and pushed
+    // everything else off the screen.
+    if (!isLongMoment(moment)) {
+      const row = list.createDiv({ cls: "awty-moment-row" });
+      setIcon(row.createSpan({ cls: "awty-moment-icon" }), "sparkles");
+      const body = row.createDiv({ cls: "awty-moment-body" });
+      if (moment.date) {
+        body.createDiv({ cls: "awty-moment-when", text: formatDayLabel(moment.date) });
+      }
+      writeMoment(body.createDiv({ cls: "awty-moment-what" }), moment.text);
+      continue;
+    }
+
+    const fold = list.createEl("details", { cls: "awty-moment-fold" });
+    // Saving redraws the tab, and a story you had open closing itself under you
+    // reads as having been taken somewhere else. The open ones are remembered
+    // across the redraw, keyed by what they are rather than where they sit, so
+    // adding an earlier memory does not shuffle which one is unfolded.
+    const key = `${trip.file.path}::${moment.date}::${momentSummary(moment)}::${index}`;
+    fold.open = OPEN_MOMENTS.has(key);
+    fold.addEventListener("toggle", () => {
+      if (fold.open) OPEN_MOMENTS.add(key);
+      else OPEN_MOMENTS.delete(key);
+    });
+
+    const head = fold.createEl("summary", { cls: "awty-moment-row" });
+    setIcon(head.createSpan({ cls: "awty-moment-icon" }), "sparkles");
+    const body = head.createDiv({ cls: "awty-moment-body" });
+    if (moment.date) {
+      body.createSpan({ cls: "awty-moment-chip", text: formatDayLabel(moment.date) });
+    }
+    body.createDiv({ cls: "awty-moment-title-row", text: momentSummary(moment) });
+
+    const full = fold.createDiv({ cls: "awty-moment-full" });
+    writeMoment(full, moment.text);
+    // Editing from where you are reading it, rather than from a button at the
+    // top of a section that may be a screen away by the time you get here.
+    const edit = full.createEl("button", { cls: "awty-moment-edit" });
+    edit.type = "button";
+    setIcon(edit.createSpan(), "pencil");
+    edit.createSpan({ text: "Edit" });
+    edit.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      plugin.openMomentsModal(trip, moment.date);
+    });
+  }
+}
+
+/**
+ * Which stories are unfolded, across a redraw.
+ *
+ * Module-level because the tab is rebuilt from nothing every refresh — there is
+ * no component left to hang it on, and losing it is what made saving feel like
+ * being moved somewhere else.
+ */
+const OPEN_MOMENTS = new Set<string>();
+
+/**
+ * A moment's text as it was written.
+ *
+ * Set as plain text it showed its own asterisks — somebody who types a story
+ * into a box types markdown into it, because that is what every other box in
+ * this application accepts. The same renderer the PDF uses, which escapes
+ * before it adds any markup, so a note can never inject HTML here.
+ */
+function writeMoment(el: HTMLElement, text: string): void {
+  el.innerHTML = renderMarkdown(momentMarkdown(text));
+}
+
 export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void {
   const { trip, plugin } = ctx;
   if (!trip) {
@@ -375,6 +489,8 @@ export function renderOverview(parent: HTMLElement, ctx: DashboardContext): void
     }
   }
   if (budgetTotal === 0) attention.push({ text: "No budget specified for this trip" });
+
+  renderMoments(parent, ctx);
 
   sectionTitle(parent, "Needs attention");
   if (attention.length === 0) {
