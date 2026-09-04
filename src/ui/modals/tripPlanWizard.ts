@@ -16,6 +16,10 @@ import { formatMoney, formatTotals, sumMoney } from "../../util/money";
 import { checkVisa, exceedsAllowance } from "../../travel/visa";
 import { entryExtrasChecked, entryExtrasFor } from "../../data/entryExtras";
 import { ADVICE_MEANING } from "../../travel/advice";
+import type { Booking } from "../../bookings/types";
+import { bookingIcon } from "../../bookings/types";
+import { modeLabel } from "../../bookings/transportMode";
+import { chooseTravel } from "../travelMenu";
 
 interface Step {
   key: string;
@@ -30,10 +34,30 @@ interface Step {
   attention?: boolean;
   /** What you'd say out loud about this step's current state. */
   summary: string;
-  action: () => void;
+  /** Handed the button's own click, for the steps that answer with a menu. */
+  action: (evt: MouseEvent) => void;
   actionLabel: string;
   /** Steps that don't apply to this kind of trip are left out entirely. */
   applies: boolean;
+}
+
+/**
+ * What you took, rather than how many rows there are.
+ *
+ * "2 bookings" is true of every trip and tells you nothing; "Flight · Ferry"
+ * is the answer to the question the step is asking. Transfers written before
+ * the mode field existed have no mode, so they say the generic thing rather
+ * than being guessed into a train.
+ */
+function travelSummary(bookings: Booking[]): string {
+  const labels: string[] = [];
+  for (const booking of bookings) {
+    const label =
+      booking.kind === "flight" ? "Flight" : modeLabel(booking.mode ?? "") || "Transport";
+    if (!labels.includes(label)) labels.push(label);
+  }
+  const shown = labels.slice(0, 3).join(" · ");
+  return labels.length > 3 ? `${shown} +${labels.length - 3} more` : shown;
 }
 
 /**
@@ -197,14 +221,25 @@ export class TripPlanWizard extends Modal {
       {
         key: "getting-there",
         title: "Getting there",
-        detail: "Flights, trains, buses — anything that moves you.",
-        icon: "plane",
+        detail: "Flight, train, ferry, car, bike — anything that moves you.",
+        // A plane while there is nothing to go on, because that is what a trip
+        // looks like before you know; once something is booked the step wears
+        // what you actually took, so a rail trip stops being filed under a
+        // picture of an aeroplane.
+        icon: flights.length > 0 ? bookingIcon(flights[0]) : "plane",
         done: flights.length > 0,
-        summary:
-          flights.length === 0
-            ? "Nothing booked"
-            : `${flights.length} booking${flights.length === 1 ? "" : "s"}`,
-        action: () => plugin.openBookingWizard(trip, "flight"),
+        summary: flights.length === 0 ? "Nothing booked" : travelSummary(flights),
+        // Straight to the flight form was the right guess for one kind of trip
+        // and wrong for every other. Ask first.
+        action: (evt: MouseEvent) =>
+          chooseTravel(evt, (choice) =>
+            void plugin.openBookingWizard(
+              trip,
+              choice.kind,
+              undefined,
+              choice.mode ? { mode: choice.mode } : undefined,
+            ),
+          ),
         actionLabel: flights.length ? "Add another" : "Add",
         applies: true,
       },
@@ -376,7 +411,7 @@ export class TripPlanWizard extends Modal {
         cls: `awty-plan-btn${step.done ? "" : " is-cta"}`,
         text: step.actionLabel,
       });
-      btn.addEventListener("click", () => step.action());
+      btn.addEventListener("click", (evt) => step.action(evt));
     }
 
     new Setting(contentEl).addButton((b) =>

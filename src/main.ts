@@ -60,7 +60,7 @@ import {
   tripMapNote,
   type MapPlace,
 } from "./export/mapsExport";
-import { dayEvents } from "./store/dayPlan";
+import { dayEvents, dayNumber, tripDays } from "./store/dayPlan";
 import { datesInRange, formatDateRange, todayISO } from "./util/dates";
 import { formatMoney } from "./util/money";
 import { joinPath, sanitizeName } from "./util/paths";
@@ -646,6 +646,7 @@ export default class AwtyPlugin extends Plugin {
       existing ? await draftFromBooking(this.app, existing) : prefill,
       existing ? () => this.deleteItem(trip, existing.file, existing.title) : undefined,
       () => this.bookings.getBookings(trip),
+      existing !== undefined,
     ).open();
   }
 
@@ -691,7 +692,9 @@ export default class AwtyPlugin extends Plugin {
           ? "Moments cleared."
           : `Saved ${moments.length} moment${moments.length === 1 ? "" : "s"}.`,
       );
-    }).open();
+    },
+      tripDays(trip, this.bookings.getBookings(trip).filter((b) => b.status !== "cancelled"), 90),
+    ).open();
   }
 
   openExpenseModal(trip: Trip, existing?: Expense): void {
@@ -926,11 +929,14 @@ export default class AwtyPlugin extends Plugin {
     const live = this.bookings.getBookings(trip).filter((b) => b.status !== "cancelled");
     const byPath = new Map(places.map((p) => [p.name.toLowerCase(), p]));
     const days: { label: string; places: MapPlace[] }[] = [];
-    for (const [index, date] of datesInRange(trip.startDate, trip.endDate, 90).entries()) {
+    for (const date of tripDays(trip, live, 90)) {
       const stops = dayEvents(live, date)
         .map((e) => byPath.get(e.title.toLowerCase()))
         .filter((p): p is MapPlace => p !== undefined);
-      if (stops.length >= 2) days.push({ label: `Day ${index + 1} · ${date}`, places: stops });
+      const number = dayNumber(trip.startDate, date);
+      if (stops.length >= 2) {
+        days.push({ label: number > 0 ? `Day ${number} · ${date}` : date, places: stops });
+      }
     }
 
     const notePath = joinPath(trip.folderPath, `${sanitizeName(trip.title)} places.md`);
@@ -1540,9 +1546,10 @@ export default class AwtyPlugin extends Plugin {
       // rarely start at the hotel: airport to hotel on arrival, activity to
       // activity in the afternoon. Without these the day-by-day view asks the
       // cache for pairs that were never measured, and shows nothing.
+      const forPairs = this.bookings.getBookings(trip).filter((b) => b.status !== "cancelled");
       const pairs = itineraryPairs(
-        this.bookings.getBookings(trip).filter((b) => b.status !== "cancelled"),
-        datesInRange(trip.startDate, trip.endDate, 90),
+        forPairs,
+        tripDays(trip, forPairs, 90),
         [...places.hotels, ...places.airports, ...places.activities, ...places.restaurants],
         origin,
       );

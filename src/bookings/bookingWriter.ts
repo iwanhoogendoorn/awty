@@ -65,6 +65,10 @@ export interface BookingDraft {
   /** When the way back lands. Empty when there is nothing worth recording. */
   returnEndDate: string;
   returnEndTime: string;
+  returnFrom: string;
+  returnTo: string;
+  returnOperator: string;
+  returnService: string;
   /** "lat,lng" already known, so travel times skip a billed geocode. */
   location?: string;
 }
@@ -192,6 +196,10 @@ const BOOKING_KEYS = [
   "operator", "seat", "legs", "return_legs", "attachments", "location",
   "ports", "where", "cruise", "mode", "return_date", "return_time",
   "return_end_date", "return_end_time",
+  // The way home's own route. Left off this list, taking a return's separate
+  // station back off the form would leave it in the note — the booking would
+  // go on claiming a journey nobody was making.
+  "return_from", "return_to", "return_operator", "return_service",
 ];
 
 function writeBookingFrontmatter(
@@ -257,15 +265,26 @@ function writeBookingFrontmatter(
   if (draft.kind === "transport" && draft.mode) fm.mode = draft.mode;
   // A return is a fact about the journey, not about the form: written only when
   // there is one, so its absence means one-way rather than not-asked.
-  if (draft.returnDate && draft.returnTime) {
+  // The date is what "there is a way home" means; the time is as optional as
+  // the outbound's. Demanding both threw the whole return away — its route and
+  // its service with it — when the departure time was not to hand, which is
+  // easy to do now that the return is asked for two steps before the clock is.
+  if (draft.returnDate) {
     fm.return_date = draft.returnDate;
-    fm.return_time = draft.returnTime;
+    if (draft.returnTime) fm.return_time = draft.returnTime;
     // Only alongside a return, and only when there is one: an arrival on a
     // journey nobody said they were making would be an orphan.
     if (draft.returnEndTime) {
       fm.return_end_date = draft.returnEndDate || draft.returnDate;
       fm.return_end_time = draft.returnEndTime;
     }
+    // Only what the way home does differently. Writing the reversed outbound
+    // back out would freeze it: correct the outbound's stations later and the
+    // return would still be running the old route.
+    if (draft.returnFrom) fm.return_from = draft.returnFrom;
+    if (draft.returnTo) fm.return_to = draft.returnTo;
+    if (draft.returnOperator) fm.return_operator = draft.returnOperator;
+    if (draft.returnService) fm.return_service = draft.returnService;
   }
   if (draft.legs.length > 0) fm.legs = legsToFrontmatter(draft.legs);
   if (draft.returnLegs.length > 0) fm.return_legs = legsToFrontmatter(draft.returnLegs);
@@ -356,6 +375,10 @@ export async function draftFromBooking(
     returnTime: booking.kind === "flight" ? "" : booking.returnTime,
     returnEndDate: booking.kind === "flight" ? "" : booking.returnEndDate,
     returnEndTime: booking.kind === "flight" ? "" : booking.returnEndTime,
+    returnFrom: booking.kind === "flight" ? "" : booking.returnFrom,
+    returnTo: booking.kind === "flight" ? "" : booking.returnTo,
+    returnOperator: booking.kind === "flight" ? "" : booking.returnOperator,
+    returnService: booking.kind === "flight" ? "" : booking.returnService,
   };
 }
 

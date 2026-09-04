@@ -31,6 +31,62 @@ export function airportPoint(label: string): MapPoint | null {
 }
 
 /**
+ * The point a ground label names, when it is not an airport.
+ *
+ * A train station has no IATA code, so "Rotterdam Alexander" resolved to
+ * nothing and the map drew an empty world for a trip taken entirely by rail.
+ * There is no station dataset here, but the airport list carries a city and a
+ * position for several thousand cities, and at the scale a route is drawn on
+ * an airport is the same dot as the station across town.
+ *
+ * A stand-in, and labelled as its city rather than its code so the map never
+ * claims you caught a plane. Matched on whole words only: "Bar" the Montenegrin
+ * port must not be found inside "Barcelona Sants".
+ */
+const BY_CITY = (() => {
+  const map = new Map<string, MapPoint>();
+  for (const a of AIRPORTS) {
+    const key = a.c.trim().toLowerCase();
+    // First wins: the dataset leads with the airport that serves the city.
+    if (key && !map.has(key)) {
+      map.set(key, { code: a.i, city: a.c, country: a.y, lat: a.a, lng: a.o });
+    }
+  }
+  return map;
+})();
+
+/** Letters and spaces only, so "Dubrovnik (Gruž port)" can be read word by word. */
+function words(label: string): string[] {
+  return label
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+}
+
+export function cityPoint(label: string): MapPoint | null {
+  const parts = words(label);
+  // Longest run first, so "Frankfurt Oder" is not answered with "Frankfurt".
+  for (let size = Math.min(3, parts.length); size >= 1; size -= 1) {
+    for (let at = 0; at + size <= parts.length; at += 1) {
+      const hit = BY_CITY.get(parts.slice(at, at + size).join(" "));
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+/** Where a journey's end is, however you got there. */
+export function routePoint(label: string, surface: boolean): MapPoint | null {
+  const airport = airportPoint(label);
+  if (airport) return airport;
+  return surface ? cityPoint(label) : null;
+}
+
+/**
  * Booked is a fact, proposed is an intention, cancelled is a thing that did not
  * happen. Drawn differently, because a map that shows an idea the same as a
  * ticket is a map that will get someone to an airport on the wrong day.
@@ -58,6 +114,12 @@ export interface Route {
   bothWays: boolean;
   /** Titles of the trips this hop belongs to, for the tooltip. */
   trips: string[];
+  /**
+   * Travelled on the ground every time, so the line is drawn as a road or a
+   * railway rather than a flight path. One flight along the pair is enough to
+   * make it a flight route: a great circle is then the honest shape.
+   */
+  surface: boolean;
 }
 
 export interface RouteSet {
@@ -72,7 +134,12 @@ export interface RouteInput {
   tripTitle: string;
   stage: TripStage;
   /** Each flight as booked, connections already grouped. */
-  journeys: FlightLeg[][];
+  journeys?: FlightLeg[][];
+  /**
+   * Journeys made on the ground — a train, a ferry, a drive. Ends are place
+   * names rather than airport codes, so they resolve through their city.
+   */
+  hops?: { from: string; to: string }[];
   /** Booking status of the flight these legs came from. */
   status: string;
 }
@@ -139,10 +206,19 @@ export function routesFrom(inputs: RouteInput[]): RouteSet {
           ? "booked"
           : "proposed";
 
-    for (const journey of input.journeys) {
-      for (const leg of journey) {
-        const from = airportPoint(leg.from);
-        const to = airportPoint(leg.to);
+    // Flights and ground journeys reduced to the same thing: two ends and how
+    // you covered the distance between them.
+    const hops = [
+      ...(input.journeys ?? []).flatMap((journey) =>
+        journey.map((leg) => ({ from: leg.from, to: leg.to, surface: false })),
+      ),
+      ...(input.hops ?? []).map((hop) => ({ ...hop, surface: true })),
+    ];
+
+    {
+      for (const leg of hops) {
+        const from = routePoint(leg.from, leg.surface);
+        const to = routePoint(leg.to, leg.surface);
         if (!from || !to || from.code === to.code) {
           unknown += 1;
           continue;
@@ -158,6 +234,8 @@ export function routesFrom(inputs: RouteInput[]): RouteSet {
         const existing = byPair.get(key);
         if (existing) {
           existing.flights += 1;
+          // One flight along the pair and the line is a flight path.
+          if (!leg.surface) existing.surface = false;
           // One booked flight on a pair makes the line solid: the route is
           // real, whatever else is being considered or called off along it.
           if (PRECEDENCE[kind] > PRECEDENCE[existing.kind]) existing.kind = kind;
@@ -171,6 +249,7 @@ export function routesFrom(inputs: RouteInput[]): RouteSet {
             kind,
             bothWays: false,
             trips: [input.tripTitle],
+            surface: leg.surface,
           });
         }
       }

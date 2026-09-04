@@ -7,6 +7,7 @@ import {
   orderMoments,
 } from "../../../trips/moments";
 import { renderMarkdown } from "../../../export/markdown";
+import { dayNumber, tripDays } from "../../../store/dayPlan";
 import type { DashboardContext } from "../common";
 import { bar, editItem, emptyState, readiness, sectionTitle, stateMark, statTiles, noTripState, touchMenuButton } from "../common";
 import { isMobile } from "../../../util/platform";
@@ -93,11 +94,15 @@ function itemsFor(id: SubNoteId | null, ctx: DashboardContext): NoteItem[] {
   // only added to. Which of them have content is a read of the itinerary note,
   // and the planner shows that anyway once it opens.
   if (id === "itinerary") {
-    return datesInRange(trip.startDate, trip.endDate, 90).map((date, index) => ({
-      label: `Day ${index + 1} · ${formatDayLabel(date)}`,
-      icon: "calendar-days",
-      open: () => plugin.openAddDayModal(trip, date),
-    }));
+    const live = plugin.bookings.getBookings(trip).filter((b) => b.status !== "cancelled");
+    return tripDays(trip, live, 90).map((date) => {
+      const number = dayNumber(trip.startDate, date);
+      return {
+        label: number > 0 ? `Day ${number} · ${formatDayLabel(date)}` : formatDayLabel(date),
+        icon: "calendar-days",
+        open: () => plugin.openAddDayModal(trip, date),
+      };
+    });
   }
   return [];
 }

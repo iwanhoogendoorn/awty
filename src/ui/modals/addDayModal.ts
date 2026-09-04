@@ -10,6 +10,7 @@ import { insertItineraryDay } from "../../store/noteWriter";
 import { emptyDayDates, readDaySections } from "../../store/itinerary";
 import { formatMoney } from "../../util/money";
 import { datesInRange, isValidISODate, monthName, parseISO, todayISO } from "../../util/dates";
+import { tripDays } from "../../store/dayPlan";
 
 interface Placement {
   date: string;
@@ -199,7 +200,13 @@ export class AddDayModal extends Modal {
   }
 
   private days(): string[] {
-    return this.trip ? datesInRange(this.trip.startDate, this.trip.endDate, 90) : [];
+    // The same span the timeline shows: a day that has a booking on it is a
+    // day of this trip, whatever the trip note's two dates say.
+    if (!this.trip) return [];
+    const live = this.plugin.bookings
+      .getBookings(this.trip)
+      .filter((b) => b.status !== "cancelled");
+    return tripDays(this.trip, live, 90);
   }
 
   private notes(): Notes {

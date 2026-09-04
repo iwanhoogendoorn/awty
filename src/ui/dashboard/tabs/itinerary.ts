@@ -4,7 +4,7 @@ import type { DashboardContext } from "../common";
 import { editItem, emptyState, itemMenu, sectionTitle, noTripState, touchMenuButton } from "../common";
 import type { Booking } from "../../../bookings/types";
 import type { DayEvent } from "../../../store/dayPlan";
-import { BAND, dayEvents, ongoingOn } from "../../../store/dayPlan";
+import { BAND, dayEvents, dayNumber, ongoingOn, tripDays } from "../../../store/dayPlan";
 import { readLegs, summariseFlight } from "../../../bookings/flightSummary";
 import { datesInRange, monthName, parseISO, todayISO } from "../../../util/dates";
 import type { Place } from "../../../travel/types";
@@ -24,13 +24,16 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
     return;
   }
 
-  const days = datesInRange(trip.startDate, trip.endDate, 90);
+  // The days this trip actually covers, not the two dates its note claims —
+  // a booking that runs past the end has to have somewhere to be shown.
+  const live = plugin.bookings.getBookings(trip).filter((b) => b.status !== "cancelled");
+  const days = tripDays(trip, live, 90);
   if (days.length === 0) {
     emptyState(parent, "calendar-days", "No dates", "This trip has no valid start date.");
     return;
   }
 
-  const bookings = plugin.bookings.getBookings(trip).filter((b) => b.status !== "cancelled");
+  const bookings = live;
   const today = todayISO();
 
   const itineraryNote = plugin.store.getSubNotes(trip).find((s) => s.id === "itinerary");
@@ -48,7 +51,7 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
   const router = makeRouter(ctx);
   const timeline = parent.createDiv({ cls: "awty-timeline" });
 
-  for (const [index, date] of days.entries()) {
+  for (const date of days) {
     const parsed = parseISO(date);
     const events = dayEvents(bookings, date);
     const ongoing = ongoingOn(bookings, date);
@@ -63,7 +66,10 @@ export function renderItinerary(parent: HTMLElement, ctx: DashboardContext): voi
 
     const body = row.createDiv({ cls: "awty-day-body" });
     const head = body.createDiv({ cls: "awty-day-head" });
-    head.createSpan({ cls: "awty-day-label", text: `Day ${index + 1}` });
+    // Numbered from the trip's own first day, so a journey logged the evening
+    // before does not renumber the holiday. A day before it has no number.
+    const number = dayNumber(trip.startDate, date);
+    if (number > 0) head.createSpan({ cls: "awty-day-label", text: `Day ${number}` });
     head.createSpan({
       cls: "awty-day-date",
       text: parsed ? `${parsed.getUTCDate()} ${monthName(date)}` : date,

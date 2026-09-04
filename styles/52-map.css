@@ -106,6 +106,28 @@
   }
 }
 
+/* Travelled on the ground: the same green when it is booked, drawn thinner and
+   in a fine dotted line. A train from Rotterdam to Berlin does not follow a
+   great circle and did not touch either airport, so it should not look like the
+   flight beside it — but it is every bit as booked, so it keeps the colour. */
+
+.awty-map-route.is-surface {
+  stroke-width: 3;
+  stroke-linecap: butt;
+}
+
+/* Booked and on the ground: dotted in real pixels rather than drawn in. These
+   paths carry no pathLength, so the pattern means the same thing at any zoom
+   and does not have to be shared with the draw-in animation. */
+
+.awty-map-route.is-surface.is-booked {
+  stroke-dasharray: 1 5;
+  stroke-dashoffset: 0;
+  opacity: 0;
+  animation: awty-arc-appear 0.6s ease-out forwards;
+  animation-delay: var(--awty-arc-delay, 0s);
+}
+
 /* Proposed: dashed, and the dashes crawl. Different in kind rather than just
    in colour, because a map that shows an idea like a ticket is one that gets
    somebody to an airport on the wrong day. */

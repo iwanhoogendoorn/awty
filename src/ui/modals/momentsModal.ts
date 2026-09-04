@@ -33,6 +33,12 @@ export class MomentsModal extends Modal {
      */
     private focusDate: string,
     private onSubmit: (moments: Moment[]) => Promise<void>,
+    /**
+     * The days to offer. Handed in rather than worked out here, because the
+     * trip's own two dates are not the days it covers — a booking that runs
+     * past the end adds days, and the journey home is worth remembering.
+     */
+    private tripDays: string[] = [],
   ) {
     super(app);
     // Openings with nothing in them still get a row: an empty panel with an
@@ -165,9 +171,12 @@ export class MomentsModal extends Modal {
     picker.createEl("option", { value: "", text: "The whole trip" });
     // The trip's own days, named. Nothing outside them: a moment on a date the
     // trip does not cover is a moment on somebody else's holiday.
-    const days = isValidISODate(this.trip.startDate) && isValidISODate(this.trip.endDate)
-      ? datesInRange(this.trip.startDate, this.trip.endDate)
-      : [];
+    const days =
+      this.tripDays.length > 0
+        ? this.tripDays
+        : isValidISODate(this.trip.startDate) && isValidISODate(this.trip.endDate)
+          ? datesInRange(this.trip.startDate, this.trip.endDate)
+          : [];
     for (const date of days) picker.createEl("option", { value: date, text: formatDayLabel(date) });
     // A date written before the trip's own dates moved still has to be
     // offerable, or reopening the form would silently reassign it.

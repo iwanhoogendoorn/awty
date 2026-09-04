@@ -153,6 +153,10 @@ export async function migrateFoodTables(
         returnTime: "",
         returnEndDate: "",
         returnEndTime: "",
+        returnFrom: "",
+        returnTo: "",
+        returnOperator: "",
+        returnService: "",
       });
       migrated += 1;
     }

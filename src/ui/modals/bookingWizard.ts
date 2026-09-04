@@ -3,6 +3,7 @@ import { keepOpenOnBackgroundClick } from "../modalUtils";
 import type { Booking, BookingKind, BookingStatus, CostCategory } from "../../bookings/types";
 import { BOOKING_KINDS, BOOKING_STATUSES, allCategories, bookingIcon } from "../../bookings/types";
 import { TRANSPORT_MODES, modeDef, modeLabel, readMode } from "../../bookings/transportMode";
+import { returnDefaultDate, returnLeg } from "../../bookings/returnLeg";
 import { countAttachmentsNamed, type BookingDraft } from "../../bookings/bookingWriter";
 import { tripCities, tripCountries, tripStops, type AwtySettings, type Trip } from "../../types";
 import { flightHops } from "../../bookings/flightHops";
@@ -73,6 +74,8 @@ type FieldKey =
  * generic "read a field, write a field" code must never reach for them.
  */
 type TextFieldKey = Exclude<FieldKey, "address" | "fromAddress" | "where">;
+/** The way home's own route, filled in beside the way out's. */
+type ReturnFieldKey = "returnOperator" | "returnService" | "returnFrom" | "returnTo";
 
 export type StarKind = "airline" | "airport";
 
@@ -240,6 +243,16 @@ export class BookingWizard extends Modal {
     private onDelete?: () => void,
     /** This trip's other bookings, which a transfer travels between. */
     private tripBookings?: () => Booking[],
+    /**
+     * Whether there is a booking behind this form already.
+     *
+     * Not the same question as "were any fields filled in for me": a form
+     * opened from a price quote, or from the Getting there menu with a mode
+     * already picked, arrives pre-filled and is still a new booking. Reading
+     * that as editing put "Edit transport" over a booking that did not exist
+     * and offered to "Save changes" to it.
+     */
+    private existing = false,
   ) {
     super(app);
     const start = isValidISODate(trip.startDate) ? trip.startDate : todayISO();
@@ -281,6 +294,10 @@ export class BookingWizard extends Modal {
       returnTime: "",
       returnEndDate: "",
       returnEndTime: "",
+      returnFrom: "",
+      returnTo: "",
+      returnOperator: "",
+      returnService: "",
       ...initial,
     };
     this.hasReturn = (this.draft.returnLegs?.length ?? 0) > 0;
@@ -291,7 +308,7 @@ export class BookingWizard extends Modal {
 
   /** True when this is changing something that already exists. */
   private get editing(): boolean {
-    return this.initial !== undefined;
+    return this.existing;
   }
 
   onOpen(): void {
@@ -537,7 +554,69 @@ export class BookingWizard extends Modal {
       });
     }
 
+    if (this.draft.kind === "transport") this.renderReturnLeg();
     this.renderStatusAndNotes();
+  }
+
+  /**
+   * The way back, asked where the way out is described.
+   *
+   * A flight has had this since the beginning: an "Outbound" block, a toggle,
+   * and a "Return" block filled in reversed. A transfer had a checkbox two
+   * steps away that only took dates, so a train booked out and back could say
+   * when it came home but never which train — and standing on the Details step
+   * there was no sign a return existed at all.
+   *
+   * Boxes left empty stay empty rather than being filled with the reversed
+   * outbound: blank means "the way out, backwards" everywhere it is read, so
+   * correcting a station on the outbound still corrects the journey home. A
+   * copied-in value would have frozen the old one.
+   */
+  private renderReturnLeg(): void {
+    const on = Boolean(this.draft.returnDate);
+    new Setting(this.bodyEl)
+      .setName("Return journey")
+      .setDesc("Same ticket, coming back. Its dates and times are on the next step.")
+      .addToggle((t) => {
+        t.setValue(on);
+        t.onChange((value) => {
+          // The same fact the When step's tick-box sets, so the two cannot
+          // disagree about whether there is a way home.
+          this.returnAsked = true;
+          this.returnLifted = false;
+          this.draft.returnDate = value
+            ? this.draft.returnDate ||
+              returnDefaultDate(this.draft.mode, this.draft.date, this.trip.endDate)
+            : "";
+          this.renderBody();
+        });
+      });
+    if (!on) return;
+
+    this.bodyEl.createDiv({ cls: "awty-section-label", text: "Return" });
+    const back = returnLeg(this.draft);
+    // Nothing typed on the outbound yet: fall back to the same suggestions its
+    // own boxes are showing, the ends swapped over.
+    const mode = modeDef(this.draft.mode);
+    const rows: { key: ReturnFieldKey; label: string; hint: string }[] = [
+      { key: "returnOperator", label: "Carrier", hint: back.operator || (mode?.carrier ?? "") },
+      { key: "returnService", label: "Service", hint: back.service || (mode?.service ?? "") },
+      { key: "returnFrom", label: "From", hint: back.from || (mode?.to ?? "") },
+      { key: "returnTo", label: "To", hint: back.to || (mode?.from ?? "") },
+    ];
+    for (const row of rows) {
+      new Setting(this.bodyEl).setName(row.label).addText((t) => {
+        // What the journey home would be if you typed nothing — which is the
+        // way out reversed, and usually right.
+        t.setPlaceholder(row.hint);
+        t.setValue(this.draft[row.key]);
+        t.onChange((v) => (this.draft[row.key] = v.trim()));
+      });
+    }
+    this.bodyEl.createDiv({
+      cls: "awty-date-readout",
+      text: "Leave a box alone and the way home is the way out, reversed.",
+    });
   }
 
   /**
@@ -1422,7 +1501,10 @@ export class BookingWizard extends Modal {
       // Only the date is cleared. Throwing the time away too meant an untick
       // and a change of mind lost 18:45 for good — and the date alone is what
       // "there is a way back" means, so nothing is written either way.
-      this.draft.returnDate = check.checked ? this.draft.returnDate || this.draft.date : "";
+      this.draft.returnDate = check.checked
+        ? this.draft.returnDate ||
+          returnDefaultDate(this.draft.mode, this.draft.date, this.trip.endDate)
+        : "";
       this.renderBody();
     });
     ask.createEl("label", { text: "Coming back the same way", attr: { for: check.id } });
@@ -1463,7 +1545,7 @@ export class BookingWizard extends Modal {
       cls: "awty-date-readout",
       text: this.returnLifted
         ? "Taken from this booking's end time. Untick it if the journey was one-way."
-        : "The same ticket, the other way. It gets its own line in the itinerary.",
+        : "The same ticket, the other way. It gets its own line in the itinerary, and its own route back on the Details step.",
     });
   }
 

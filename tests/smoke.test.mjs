@@ -43,7 +43,7 @@ export {
 } from "./src/travel/types.ts";
 export { COUNTRIES, FOODSPOT_COUNTRIES } from "./src/data/countries.ts";
 export { CITIES } from "./src/data/cities.ts";
-export { dayEvents, ongoingOn, eventsFor, BAND } from "./src/store/dayPlan.ts";
+export { dayEvents, ongoingOn, eventsFor, BAND, tripDays, dayNumber } from "./src/store/dayPlan.ts";
 export { itineraryPairs, groupByOrigin } from "./src/travel/routePlan.ts";
 export { readLegs, summariseFlight, summariseJourneys } from "./src/bookings/flightSummary.ts";
 export { flyingMinutes } from "./src/bookings/legs.ts";
@@ -69,7 +69,7 @@ export { suggestStage } from "./src/planning/stageSignals.ts";
 export { moneyStats, placeStats, flightStats, planningStats, legDistanceKm, iataOf, formatHours, formatKm } from "./src/stats/tripStats.ts";
 export { greatCirclePath, interpolate as gcInterpolate, distanceKm, angularDistance } from "./src/map/greatCircle.ts";
 export { worldRings, RING_COUNT } from "./src/data/worldMap.ts";
-export { routesFrom, airportPoint, scopesFor } from "./src/map/flightRoutes.ts";
+export { routesFrom, airportPoint, cityPoint, routePoint, scopesFor } from "./src/map/flightRoutes.ts";
 export { kindsForCategory, bookingFromQuote, bookingNoteFrom } from "./src/planning/bookFromQuote.ts";
 export { PLACE_KINDS, placeKindDef, orderPlaces, routeThrough, countByKind, connectionsOf, connectionBetween, placeScopes, scopeIdOf, zoomForKind, MAX_MAP_ZOOM, unscheduled, MAX_AIRPORT_TRANSFER_KM } from "./src/map/tripPlaces.ts";
 export { bookedTotals, openTracks, unbookMissing, rebindBooking } from "./src/planning/priceWatch.ts";
@@ -77,7 +77,8 @@ export { worldPolygons } from "./src/map/baseLayer.ts";
 export { splitFrontmatter } from "./src/util/frontmatter.ts";
 export { moneyPattern, MONEY_CLASS } from "./src/util/moneyMask.ts";
 export { COMMON_CURRENCIES, symbolFor } from "./src/util/money.ts";
-export { TRANSPORT_MODES, readMode, modeDef, modeLabel, modeIcon } from "./src/bookings/transportMode.ts";
+export { TRANSPORT_MODES, TRAVEL_CHOICES, readMode, modeDef, modeLabel, modeIcon } from "./src/bookings/transportMode.ts";
+export { returnLeg, returnRoute, returnDefaultDate } from "./src/bookings/returnLeg.ts";
 export { bookingIcon } from "./src/bookings/types.ts";
 export { readMoments, momentsToFrontmatter, keepMoments, orderMoments, momentsOn, undatedMoments, momentList, emptyMoment, momentSummary, isLongMoment, momentMarkdown, liftTitle, LONG_MOMENT } from "./src/trips/moments.ts";
 export { readRides, ridesToFrontmatter, orderRides, pricedRides, ridesTotal, meaningfulRides, ridesShape, ridesSummary, rideTable, emptyRide, RIDE_SERVICES, RIDES_DESCRIPTION } from "./src/bookings/rides.ts";
@@ -4377,6 +4378,35 @@ test("a transfer can be a ferry", () => {
   assert.equal(m.modeIcon("", "train-front"), "train-front");
 });
 
+test("getting there is not only a flight", () => {
+  // The step said "flights, trains, buses" and then opened the flight form,
+  // so a trip taken by rail had nowhere to go. Every way of arriving is one
+  // pick from one list.
+  const choices = m.TRAVEL_CHOICES;
+  assert.equal(choices[0].kind, "flight", "a flight is still the common answer, so it leads");
+  assert.equal(choices[0].mode, "", "a flight is a kind, not a mode of transfer");
+
+  // Everything after it opens the transfer form on a mode that form knows.
+  for (const choice of choices.slice(1)) {
+    assert.equal(choice.kind, "transport", choice.label);
+    assert.equal(m.readMode(choice.mode), choice.mode, choice.label);
+    assert.equal(m.modeLabel(choice.mode), choice.label, choice.label);
+    assert.ok(choice.icon, choice.label);
+  }
+
+  // The ones asked for by name, plus the ones nobody thinks of until they are
+  // standing at the dock.
+  const labels = choices.map((c) => c.label);
+  for (const wanted of ["Flight", "Train", "Bus", "Ferry", "Car", "Bike", "On foot"]) {
+    assert.ok(labels.includes(wanted), `${wanted} is not offered`);
+  }
+  assert.equal(new Set(labels).size, labels.length, "two choices read the same");
+
+  // A picture per mode, or the menu is eleven identical rows.
+  const icons = choices.map((c) => c.icon);
+  assert.equal(new Set(icons).size, icons.length, "two choices wear the same icon");
+});
+
 test("a ferry does not wear a train", () => {
   const kindIcon = (id) => m.BOOKING_KINDS.find((k) => k.id === id).icon;
 
@@ -4683,6 +4713,258 @@ test("a night crossing home lands on the day it lands", () => {
   assert.equal(home[0].time, "06:15");
   assert.equal(home[0].detail, "Back · Ancona");
   assert.equal(home[0].covered, true, "the fare was paid on the way out");
+});
+
+test("the way home can be its own journey", () => {
+  const out = {
+    from: "Rotterdam Alexander",
+    to: "Berlin Hauptbahnhof",
+    operator: "IC & ICE",
+    title: "ICE 241",
+    returnFrom: "",
+    returnTo: "",
+    returnOperator: "",
+    returnService: "",
+  };
+
+  // Nothing said: the way out, backwards. This is what every transfer written
+  // before the return had a route of its own means, so it has to keep meaning it.
+  assert.deepEqual(m.returnLeg(out), {
+    from: "Berlin Hauptbahnhof",
+    to: "Rotterdam Alexander",
+    operator: "IC & ICE",
+    service: "ICE 241",
+  });
+  assert.equal(m.returnRoute(out), "Berlin Hauptbahnhof → Rotterdam Alexander");
+
+  // The train home is a different train, which is the whole point.
+  const named = { ...out, returnService: "ICE 648" };
+  assert.equal(m.returnLeg(named).service, "ICE 648");
+  // Naming it does not disturb the route it did not mention.
+  assert.equal(m.returnRoute(named), "Berlin Hauptbahnhof → Rotterdam Alexander");
+
+  // And it need not start where the outbound stopped — the ferry back can
+  // leave from the other harbour.
+  const moved = { ...out, returnFrom: "Lopud harbour", returnTo: "Dubrovnik (Gruž port)" };
+  assert.equal(m.returnRoute(moved), "Lopud harbour → Dubrovnik (Gruž port)");
+
+  // A half-filled journey home still gets a whole one: the box left alone is
+  // answered from the outbound rather than left blank.
+  const half = { ...out, returnFrom: "Berlin Südkreuz" };
+  assert.deepEqual(m.returnLeg(half), {
+    from: "Berlin Südkreuz",
+    to: "Rotterdam Alexander",
+    operator: "IC & ICE",
+    service: "ICE 241",
+  });
+});
+
+test("the date offered for the way home depends on what you took", () => {
+  // A ferry to an island is a day out: you are back before dinner.
+  assert.equal(m.returnDefaultDate("ferry", "2026-08-21", "2026-08-28"), "2026-08-21");
+  assert.equal(m.returnDefaultDate("taxi", "2026-08-21", "2026-08-28"), "2026-08-21");
+  assert.equal(m.returnDefaultDate("bike", "2026-08-21", "2026-08-28"), "2026-08-21");
+
+  // A train to another country is not. Offering the same day made every
+  // long-haul return arrive pre-filled with a date nobody meant.
+  assert.equal(m.returnDefaultDate("train", "2026-09-05", "2026-09-12"), "2026-09-12");
+  assert.equal(m.returnDefaultDate("bus", "2026-09-05", "2026-09-12"), "2026-09-12");
+  assert.equal(m.returnDefaultDate("car", "2026-09-05", "2026-09-12"), "2026-09-12");
+
+  // Never before you set off, whatever the trip note claims — a transfer
+  // written after the fact sits outside the trip's own dates.
+  assert.equal(m.returnDefaultDate("train", "2026-09-20", "2026-09-12"), "2026-09-20");
+  // Nor when the trip has no end to offer.
+  assert.equal(m.returnDefaultDate("train", "2026-09-05", ""), "2026-09-05");
+  // A transfer with no mode gets no opinion.
+  assert.equal(m.returnDefaultDate("", "2026-09-05", "2026-09-12"), "2026-09-05");
+});
+
+test("a different train home is the one the itinerary names", () => {
+  const train = {
+    kind: "transport", status: "booked", title: "ICE 241",
+    date: "2026-09-05", endDate: "2026-09-05", time: "08:12", endTime: "13:40",
+    returnDate: "2026-09-12", returnTime: "16:20",
+    returnEndDate: "2026-09-12", returnEndTime: "21:55",
+    returnService: "ICE 648", returnFrom: "Berlin Südkreuz", returnTo: "Rotterdam Centraal",
+    returnOperator: "",
+    from: "Rotterdam Alexander", to: "Berlin Hauptbahnhof",
+    cost: { amount: 118, currency: "EUR" }, category: "Transport",
+    mode: "train", slot: "", reference: "", operator: "IC & ICE", seat: "",
+    address: "", fromAddress: "", notes: "", attachments: [],
+    journeys: [], legs: [], returnLegs: [], ports: [], where: "", cruise: "",
+    file: { path: "Bookings/ICE 241.md", basename: "ICE 241" },
+  };
+
+  const out = m.eventsFor(train, "2026-09-05");
+  assert.equal(out.length, 1);
+  assert.equal(out[0].title, "ICE 241");
+  assert.match(out[0].detail, /^Outbound · Rotterdam Alexander → Berlin Hauptbahnhof · lands 13:40$/);
+
+  // The way home runs its own route under its own number. Called "ICE 241" it
+  // would send you to the wrong platform.
+  const home = m.eventsFor(train, "2026-09-12");
+  assert.equal(home.length, 1, JSON.stringify(home));
+  assert.equal(home[0].title, "ICE 648");
+  assert.equal(home[0].detail, "Return · Berlin Südkreuz → Rotterdam Centraal · lands 21:55");
+  assert.equal(home[0].covered, true, "the fare was paid on the way out");
+
+  // Say nothing and it is the way out reversed, exactly as before.
+  const plain = { ...train, returnService: "", returnFrom: "", returnTo: "" };
+  const back = m.eventsFor(plain, "2026-09-12");
+  assert.equal(back[0].title, "ICE 241");
+  assert.equal(back[0].detail, "Return · Berlin Hauptbahnhof → Rotterdam Alexander · lands 21:55");
+});
+
+test("the note says what the way home does differently, and nothing else", () => {
+  const draft = {
+    kind: "transport", status: "booked", title: "ICE 241",
+    date: "2026-09-05", endDate: "2026-09-05", time: "08:12", endTime: "",
+    returnDate: "2026-09-12", returnTime: "16:20",
+    returnEndDate: "", returnEndTime: "",
+    returnFrom: "", returnTo: "", returnOperator: "", returnService: "",
+    amount: 118, currency: "EUR", category: "Transport", reference: "",
+    from: "Rotterdam Alexander", to: "Berlin Hauptbahnhof",
+    fromPostal: m.EMPTY_ADDRESS, postal: m.EMPTY_ADDRESS,
+    operator: "IC & ICE", seat: "", notes: "", attachments: [],
+    legs: [], returnLegs: [], mode: "train",
+  };
+
+  // A plain there-and-back is unchanged: the body of every booking written
+  // before the return had a route of its own says exactly what it said.
+  const plain = m.bookingBody(draft, []);
+  assert.match(plain, /\| \*\*Back\*\* \| 2026-09-12 16:20 \|/, plain);
+  assert.ok(!plain.includes("Back service"), plain);
+  assert.ok(!plain.includes("Back route"), plain);
+  assert.ok(!plain.includes("Back carrier"), plain);
+
+  // A different train, from a different station, says so.
+  const named = m.bookingBody(
+    { ...draft, returnService: "ICE 648", returnFrom: "Berlin Südkreuz" },
+    [],
+  );
+  assert.match(named, /\| \*\*Back service\*\* \| ICE 648 \|/, named);
+  assert.match(named, /\| \*\*Back route\*\* \| Berlin Südkreuz → Rotterdam Alexander \|/, named);
+  // The carrier was never contradicted, so it is not repeated.
+  assert.ok(!named.includes("Back carrier"), named);
+});
+
+test("a return with no departure time is still a return", () => {
+  // The toggle now sits two steps before the clock does, so "I know I am
+  // coming back, I do not yet know when" is easy to arrive at. Demanding a
+  // time threw the whole way home away — its route and its service with it.
+  const draft = {
+    kind: "transport", status: "booked", title: "ICE 241",
+    date: "2026-09-05", endDate: "2026-09-05", time: "08:12", endTime: "",
+    returnDate: "2026-09-12", returnTime: "",
+    returnEndDate: "", returnEndTime: "",
+    returnFrom: "", returnTo: "", returnOperator: "", returnService: "ICE 648",
+    amount: 118, currency: "EUR", category: "Transport", reference: "",
+    from: "Rotterdam Alexander", to: "Berlin Hauptbahnhof",
+    fromPostal: m.EMPTY_ADDRESS, postal: m.EMPTY_ADDRESS,
+    operator: "IC & ICE", seat: "", notes: "", attachments: [],
+    legs: [], returnLegs: [], mode: "train",
+  };
+  const body = m.bookingBody(draft, []);
+  assert.match(body, /\| \*\*Back\*\* \| 2026-09-12 \|/, body);
+  assert.match(body, /\| \*\*Back service\*\* \| ICE 648 \|/, body);
+  // No stray "2026-09-12 " with nothing after it.
+  assert.ok(!body.includes("2026-09-12  |"), body);
+
+  // A same-day return with no time gives the day rather than an empty cell.
+  const sameDay = m.bookingBody({ ...draft, returnDate: "2026-09-05" }, []);
+  assert.match(sameDay, /\| \*\*Back\*\* \| 2026-09-05 \|/, sameDay);
+
+  // And it still earns its row in the itinerary, untimed.
+  const booking = {
+    ...draft, cost: { amount: 118, currency: "EUR" }, slot: "",
+    address: "", fromAddress: "", journeys: [], ports: [], where: "", cruise: "",
+    file: { path: "Bookings/ICE 241.md", basename: "ICE 241" },
+  };
+  const home = m.eventsFor(booking, "2026-09-12");
+  assert.equal(home.length, 1, JSON.stringify(home));
+  assert.equal(home[0].time, "");
+  assert.equal(home[0].title, "ICE 648");
+  assert.equal(home[0].detail, "Return · Berlin Hauptbahnhof → Rotterdam Alexander");
+});
+
+test("the timeline covers the days the trip actually has", () => {
+  const trip = { startDate: "2026-09-05", endDate: "2026-09-05" };
+  const stay = {
+    kind: "stay", status: "booked", date: "2026-09-05", endDate: "2026-09-07",
+    returnDate: "", returnEndDate: "",
+  };
+  const train = {
+    kind: "transport", status: "booked", date: "2026-09-05", endDate: "2026-09-05",
+    returnDate: "2026-09-07", returnEndDate: "2026-09-07",
+  };
+
+  // The trip note says one day. The hotel says three and the train home says
+  // the seventh — and both were invisible, priced in the costs and shown
+  // nowhere you would look for them.
+  assert.deepEqual(m.tripDays(trip, []), ["2026-09-05"]);
+  assert.deepEqual(m.tripDays(trip, [stay, train]), ["2026-09-05", "2026-09-06", "2026-09-07"]);
+
+  // Widened by what is booked, never narrowed: a long trip with one early
+  // booking still shows every one of its own days.
+  const fortnight = { startDate: "2026-08-15", endDate: "2026-08-28" };
+  assert.equal(m.tripDays(fortnight, [{ ...stay, date: "2026-08-15", endDate: "2026-08-17" }]).length, 14);
+
+  // A leg logged the evening before is a day of this trip too.
+  const early = { kind: "transport", status: "booked", date: "2026-09-04", endDate: "2026-09-04", returnDate: "", returnEndDate: "" };
+  assert.deepEqual(m.tripDays(trip, [early]), ["2026-09-04", "2026-09-05"]);
+
+  // But it does not renumber the holiday: the trip's own first day stays Day 1,
+  // and the evening before has no number at all.
+  assert.equal(m.dayNumber("2026-09-05", "2026-09-04"), 0);
+  assert.equal(m.dayNumber("2026-09-05", "2026-09-05"), 1);
+  assert.equal(m.dayNumber("2026-09-05", "2026-09-07"), 3);
+
+  // A booking with a nonsense date cannot run the timeline away: the cap holds.
+  const typo = { ...stay, endDate: "2036-09-05" };
+  assert.equal(m.tripDays(trip, [typo], 90).length, 90);
+});
+
+test("a train is drawn on the map, and not as a flight", () => {
+  // No station dataset exists, but the airport list carries a position for the
+  // city — and at this scale the airport is the same dot as the station.
+  assert.equal(m.cityPoint("Rotterdam Alexander").city, "Rotterdam");
+  assert.equal(m.cityPoint("Berlin Hbf").city, "Berlin");
+  assert.equal(m.cityPoint("Dubrovnik (Gruž port)").city, "Dubrovnik");
+  // Whole words only, or "Bar" the Montenegrin port turns up inside every
+  // station name that happens to contain it.
+  assert.equal(m.cityPoint("Barcelona Sants")?.city, "Barcelona");
+  assert.equal(m.cityPoint("Knesebeckstraße 38"), null);
+
+  // A flight's ends are still airport codes and nothing else: a leg reading
+  // "Rotterdam" must not quietly resolve to an airport it never used.
+  assert.equal(m.routePoint("Rotterdam Alexander", false), null);
+  assert.equal(m.routePoint("Amsterdam (AMS)", false).code, "AMS");
+
+  const set = m.routesFrom([
+    {
+      tripTitle: "Berlin - September - 2026",
+      stage: "going",
+      status: "booked",
+      hops: [
+        { from: "Rotterdam Alexander", to: "Berlin Hbf" },
+        { from: "Berlin Hbf", to: "Rotterdam Alexander" },
+      ],
+    },
+  ]);
+  assert.equal(set.routes.length, 1, "one line, whichever way round you went");
+  assert.equal(set.routes[0].surface, true, "a train is not a flight path");
+  assert.equal(set.routes[0].bothWays, true, "it came home again");
+  assert.equal(set.points.length, 2);
+
+  // One flight along the same pair and the line is a flight path again — a
+  // great circle is then the honest shape.
+  const mixed = m.routesFrom([
+    { tripTitle: "t", stage: "going", status: "booked", hops: [{ from: "Rotterdam", to: "Berlin" }] },
+    { tripTitle: "t", stage: "going", status: "booked", journeys: [[LEG("RTM", "BER")]] },
+  ]);
+  assert.equal(mixed.routes.length, 1);
+  assert.equal(mixed.routes[0].surface, false);
 });
 
 test("a memory survives the round trip, dated or not", () => {

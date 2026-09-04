@@ -6,6 +6,7 @@ import { SUB_NOTE_LABELS, kindDef, stageDef } from "../types";
 import { joinPlaces, tripCities, tripCountries } from "../types";
 import { BOOKING_KINDS } from "../bookings/types";
 import { modeLabel } from "../bookings/transportMode";
+import { returnLeg, returnRoute } from "../bookings/returnLeg";
 import type { Booking } from "../bookings/types";
 import { fileFromLink, totalsByCategory } from "../bookings/bookingStore";
 import { checkVisa } from "../travel/visa";
@@ -47,7 +48,7 @@ import {
   type SaveTextOutcome,
 } from "./exportPlan";
 import { isMobile } from "../util/platform";
-import { BAND, dayEvents, ongoingOn } from "../store/dayPlan";
+import { BAND, dayEvents, dayNumber, ongoingOn, tripDays } from "../store/dayPlan";
 import { readLegs as readFlightLegs, summariseFlight } from "../bookings/flightSummary";
 import { TRAVEL_MODES, formatDistance, formatDuration as formatTravelTime } from "../travel/types";
 import type { Place } from "../travel/types";
@@ -121,13 +122,19 @@ function cruiseOf(booking: Booking): {
  * outbound times — where "10:00 → 18:45" reads as one very long crossing.
  */
 function backOf(booking: Booking): string {
-  if (booking.kind === "flight" || !booking.returnDate || !booking.returnTime) return "";
+  if (booking.kind === "flight" || !booking.returnDate) return "";
   const stamp = (date: string, time: string): string =>
-    date === booking.date ? time : `${date} ${time}`;
+    date === booking.date ? time || date : [date, time].filter(Boolean).join(" ");
   const lands = booking.returnEndTime
     ? ` → ${stamp(booking.returnEndDate || booking.returnDate, booking.returnEndTime)}`
     : "";
-  return `${stamp(booking.returnDate, booking.returnTime)}${lands}`;
+  const back = returnLeg(booking);
+  // Named and routed only when it differs, so a plain there-and-back prints
+  // the times alone the way it always has.
+  const named = back.service !== booking.title ? ` · ${back.service}` : "";
+  const routed =
+    back.from !== booking.to || back.to !== booking.from ? ` · ${returnRoute(booking)}` : "";
+  return `${stamp(booking.returnDate, booking.returnTime)}${lands}${named}${routed}`;
 }
 
 /** The same, for whichever end of a return ticket this day belongs to. */
@@ -287,7 +294,7 @@ export async function buildTripDocument(
   };
 
   const live = bookings.filter((b) => b.status !== "cancelled");
-  const days: DocDay[] = datesInRange(trip.startDate, trip.endDate, 90).map((date, index) => {
+  const days: DocDay[] = tripDays(trip, live, 90).map((date) => {
     const parsed = parseISO(date);
     const events = dayEvents(live, date);
     const staying = ongoingOn(live, date)[0];
@@ -311,7 +318,9 @@ export async function buildTripDocument(
 
     return {
       date,
-      label: `Day ${index + 1}`,
+      // Counted from the trip's own first day, so a leg logged the night
+      // before does not push the holiday's Day 1 down to Day 2.
+      label: dayNumber(trip.startDate, date) > 0 ? `Day ${dayNumber(trip.startDate, date)}` : "",
       weekday: parsed ? `${WEEKDAYS[parsed.getUTCDay()]} ${parsed.getUTCDate()} ${monthName(date)}` : date,
       items,
       staying: staying ? `Staying at ${staying.title}` : "",

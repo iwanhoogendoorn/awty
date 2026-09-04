@@ -4,6 +4,8 @@ import type { DashboardContext } from "./common";
 import { emptyState, sectionTitle } from "./common";
 import type { Trip, TripStage } from "../../types";
 import { groupJourneys } from "../../bookings/legs";
+import { returnLeg } from "../../bookings/returnLeg";
+import { chooseTravel } from "../travelMenu";
 import { renderStageFilter } from "./stageFilter";
 import type { Route, RouteInput, RouteKind, RouteSet } from "../../map/flightRoutes";
 import { routesFrom, scopesFor } from "../../map/flightRoutes";
@@ -64,12 +66,29 @@ function collect(ctx: DashboardContext, trips: Trip[]): RouteSet {
   const inputs: RouteInput[] = [];
   for (const trip of trips) {
     for (const booking of ctx.plugin.bookings.getBookings(trip)) {
-      if (booking.kind !== "flight") continue;
+      if (booking.kind === "flight") {
+        inputs.push({
+          tripTitle: trip.title,
+          stage: trip.stage,
+          status: booking.status,
+          journeys: [...groupJourneys(booking.legs), ...groupJourneys(booking.returnLegs)],
+        });
+        continue;
+      }
+      // A trip taken by rail drew an empty world: the map knew flights and
+      // nothing else, so the one journey that got you there was the one thing
+      // it would not show. A ferry, a coach and a drive are journeys between
+      // two places exactly as a flight is.
+      if (booking.kind !== "transport" || !booking.from || !booking.to) continue;
+      const back = returnLeg(booking);
       inputs.push({
         tripTitle: trip.title,
         stage: trip.stage,
         status: booking.status,
-        journeys: [...groupJourneys(booking.legs), ...groupJourneys(booking.returnLegs)],
+        hops: [
+          { from: booking.from, to: booking.to },
+          ...(booking.returnDate ? [{ from: back.from, to: back.to }] : []),
+        ],
       });
     }
   }
@@ -84,10 +103,10 @@ function collect(ctx: DashboardContext, trips: Trip[]): RouteSet {
  * from all four produces "trips you planning" for at least one of them.
  */
 const STAGE_TITLE: Record<TripStage, string> = {
-  planning: "Flights on trips you are planning",
-  going: "Flights on trips you are going on",
-  went: "Flights on trips you went on",
-  cancelled: "Flights on trips you called off",
+  planning: "Journeys on trips you are planning",
+  going: "Journeys on trips you are going on",
+  went: "Journeys on trips you went on",
+  cancelled: "Journeys on trips you called off",
 };
 
 const KIND_LABEL: Record<RouteKind, string> = {
@@ -133,7 +152,7 @@ export function renderFlightMap(
   // stage views and the all-trips view really are only flights, and say so.
   sectionTitle(
     parent,
-    trip ? `Where ${trip.title} takes you` : stage ? STAGE_TITLE[stage] : "Everywhere you fly",
+    trip ? `Where ${trip.title} takes you` : stage ? STAGE_TITLE[stage] : "Everywhere you go",
   );
 
   if (!trip && options.filter) {
@@ -145,15 +164,29 @@ export function renderFlightMap(
   if (set.routes.length === 0) {
     emptyState(
       parent,
-      "plane",
-      "No flights to draw",
+      "route",
+      "No journeys to draw",
       trip
-        ? "Add a flight to this trip and its path appears here, over the route an aeroplane would actually take."
+        ? "Add the way you are getting there — a flight, a train, a ferry — and its path appears here."
         : stage
-          ? "These trips have no flight on them yet. Clear the filter to see the routes on the others."
-          : "No trip has a flight booked or proposed yet. Once one does, every route you fly is drawn here.",
+          ? "These trips have no journey on them yet. Clear the filter to see the routes on the others."
+          : "No trip has a journey booked or proposed yet. Once one does, every route you take is drawn here.",
       trip
-        ? [{ label: "Add flight", icon: "plane", onClick: () => void plugin.openBookingWizard(trip, "flight") }]
+        ? [
+            {
+              label: "Add a journey",
+              icon: "route",
+              onClick: (evt: MouseEvent) =>
+                chooseTravel(evt, (choice) =>
+                  void plugin.openBookingWizard(
+                    trip,
+                    choice.kind,
+                    undefined,
+                    choice.mode ? { mode: choice.mode } : undefined,
+                  ),
+                ),
+            },
+          ]
         : stage && options.filter
           ? [{ label: "Show all trips", icon: "layers", onClick: () => options.filter?.onChange(null) }]
           : [],
@@ -239,16 +272,21 @@ export function renderFlightMap(
   const bounds = L.latLngBounds([]);
 
   set.routes.forEach((route, index) => {
+    // A train route names its cities: it never touched the airport whose
+    // position is standing in for the station.
+    const end = (point: { code: string; city: string }) =>
+      route.surface ? point.city : point.code;
+    const times = route.surface ? "journeys" : "flights";
     const label =
-      `${route.from.code} → ${route.to.code} · ${formatKm(route.km)}` +
-      `${route.flights > 1 ? ` · ${route.flights} flights` : ""}` +
+      `${end(route.from)} → ${end(route.to)} · ${formatKm(route.km)}` +
+      `${route.flights > 1 ? ` · ${route.flights} ${times}` : ""}` +
       `<br>${route.trips.join(", ")}${route.kind === "booked" ? "" : ` (${KIND_LABEL[route.kind]})`}`;
 
     for (const run of greatCirclePath(route.from, route.to, SAMPLES)) {
       const line = L.polyline(ring(run), {
         pane: ROUTE_PANE,
         renderer: routeRenderer,
-        className: `awty-map-route is-${route.kind}`,
+        className: `awty-map-route is-${route.kind}${route.surface ? " is-surface" : ""}`,
         // Weight here, colour and dashes in the stylesheet; Leaflet's own
         // default would otherwise paint every route the same blue.
         weight: route.kind === "booked" ? 2.5 : 2,
@@ -262,7 +300,10 @@ export function renderFlightMap(
         // draw-in behaves identically at every zoom. Only booked routes get it:
         // it would also rescale the dash pattern that makes a proposal look
         // like a proposal, and one dash would then span the whole flight.
-        if (route.kind === "booked") path.setAttribute("pathLength", "1");
+        // Ground routes are drawn dotted rather than drawn in, so they must
+        // not be normalised: with pathLength="1" one dot would span the whole
+        // journey from Rotterdam to Berlin.
+        if (route.kind === "booked" && !route.surface) path.setAttribute("pathLength", "1");
         // Staggered, so a map of eight routes reads as eight flights rather
         // than one flash.
         path.style.setProperty("--awty-arc-delay", `${(index * 0.18).toFixed(2)}s`);
@@ -272,6 +313,12 @@ export function renderFlightMap(
   });
 
   // ----------------------------------------------------------- the airports
+  // An airport reached by air is named by its code. A dot standing in for a
+  // station is named by its city — calling it "BER" would claim a flight
+  // nobody took.
+  const flown = new Set(
+    set.routes.filter((r) => !r.surface).flatMap((r) => [r.from.code, r.to.code]),
+  );
   for (const point of set.points) {
     L.circleMarker([point.lat, point.lng], {
       pane: ROUTE_PANE,
@@ -279,7 +326,12 @@ export function renderFlightMap(
       radius: 4,
       className: "awty-map-airport",
     })
-      .bindTooltip(`${point.code} — ${point.city}, ${point.country}`, { className: "awty-map-tip" })
+      .bindTooltip(
+        flown.has(point.code)
+          ? `${point.code} — ${point.city}, ${point.country}`
+          : `${point.city}, ${point.country}`,
+        { className: "awty-map-tip" },
+      )
       .addTo(flightLayer);
   }
 

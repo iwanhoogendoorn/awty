@@ -10,6 +10,7 @@ import { composeAddress, meaningfulAddress } from "./postalAddress";
 import { groupJourneys, layoverMinutes, formatLayover, type FlightLeg } from "./legs";
 import { cruiseShape, portTable } from "./cruise";
 import { modeLabel } from "./transportMode";
+import { returnLeg, returnRoute } from "./returnLeg";
 import { formatMoney } from "../util/money";
 import type { BookingDraft, ExpenseDraft } from "./bookingWriter";
 import { rideTable, ridesSummary } from "./rides";
@@ -32,14 +33,21 @@ export function bookingBody(draft: BookingDraft, attachmentLinks: string[]): str
   // The way home, said as its own fact rather than folded into the times —
   // "10:00 → 18:45" reads as one long crossing, which is exactly the confusion
   // that kept the return off the itinerary.
-  if (draft.returnDate && draft.returnTime) {
+  if (draft.returnDate) {
     const stamp = (date: string, time: string): string =>
-      date === draft.date ? time : `${date} ${time}`;
+      date === draft.date ? time || date : [date, time].filter(Boolean).join(" ");
     // The way back reads like the way out: when it leaves, and when it lands.
     const lands = draft.returnEndTime
       ? ` → ${stamp(draft.returnEndDate || draft.returnDate, draft.returnEndTime)}`
       : "";
     add("Back", `${stamp(draft.returnDate, draft.returnTime)}${lands}`);
+    // Only what the way home does differently. A return that is simply the way
+    // out reversed says nothing extra, so the body of every booking written
+    // before the return had a route of its own is unchanged.
+    const back = returnLeg(draft);
+    if (back.service !== draft.title) add("Back service", back.service);
+    if (back.operator !== draft.operator) add("Back carrier", back.operator);
+    if (back.from !== draft.to || back.to !== draft.from) add("Back route", returnRoute(draft));
   }
   add("From", draft.from);
   // The same test the frontmatter applies. A city and a country prefilled from

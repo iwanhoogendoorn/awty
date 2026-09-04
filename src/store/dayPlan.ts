@@ -2,8 +2,9 @@ import type { TFile } from "obsidian";
 import type { Booking, BookingKind, DaySlot } from "../bookings/types";
 import { bookingIcon } from "../bookings/types";
 import { formatAshore, minutesAshore, portLabel, portOn } from "../bookings/cruise";
+import { returnLeg, returnRoute } from "../bookings/returnLeg";
 import { formatMoney } from "../util/money";
-import { datesInRange } from "../util/dates";
+import { datesInRange, daysBetween, isValidISODate } from "../util/dates";
 
 /**
  * The shape of one day on a trip.
@@ -268,12 +269,15 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
         // The way home runs the other way, and saying so is the whole reason
         // the return is asked for rather than inferred from an end time.
         detail: [
-          `Return · ${[booking.to, booking.from].filter(Boolean).join(" → ")}`,
+          `Return · ${returnRoute(booking)}`,
           lands(booking.returnEndDate, booking.returnEndTime, booking.returnDate),
         ]
           .filter(Boolean)
           .join(" · "),
-        title: booking.title,
+        // Named after the service that is actually running: the train home is
+        // rarely the train out, and calling it by the outbound's number sends
+        // you to the wrong platform.
+        title: returnLeg(booking).service || booking.title,
         cost: "",
         covered: Boolean(cost),
         band: BAND.During,
@@ -294,8 +298,8 @@ export function eventsFor(booking: Booking, date: string): DayEvent[] {
       out.push({
         ...base,
         time: booking.returnEndTime,
-        title: booking.title,
-        detail: ["Back", booking.from].filter(Boolean).join(" · "),
+        title: returnLeg(booking).service || booking.title,
+        detail: ["Back", returnLeg(booking).to].filter(Boolean).join(" · "),
         cost: "",
         covered: Boolean(cost),
         band: BAND.During,
@@ -358,4 +362,47 @@ export function dayEvents(bookings: Booking[], date: string): DayEvent[] {
 /** The stays covering a date without starting or ending on it. */
 export function ongoingOn(bookings: Booking[], date: string): Ongoing[] {
   return bookings.map((b) => ongoingFor(b, date)).filter((o): o is Ongoing => o !== null);
+}
+
+/**
+ * Every day the trip actually covers.
+ *
+ * The day-by-day view ran on the trip note's own two dates, which are a plan
+ * and not a record. A one-day trip to Berlin with two hotel nights and a train
+ * home on the Monday showed one day: the checkout and the journey home existed
+ * in the bookings, were priced in the costs, and appeared nowhere you would
+ * look for them. Bookings are deliberately allowed to fall outside the trip's
+ * dates — the form says "saved anyway" — so the timeline has to be able to
+ * reach them.
+ *
+ * Widened by what is booked, never narrowed: a trip with no bookings still
+ * shows exactly the days it always did.
+ */
+export function tripDays(
+  trip: { startDate: string; endDate: string },
+  bookings: Booking[],
+  cap = 90,
+): string[] {
+  const dates = bookings
+    .flatMap((b) => [b.date, b.endDate, b.returnDate, b.returnEndDate])
+    .filter((date) => isValidISODate(date));
+  const start = dates.reduce((a, b) => (b < a ? b : a), trip.startDate);
+  const end = dates.reduce(
+    (a, b) => (b > a ? b : a),
+    isValidISODate(trip.endDate) && trip.endDate > trip.startDate ? trip.endDate : trip.startDate,
+  );
+  return datesInRange(start, end, cap);
+}
+
+/**
+ * "Day 3", counted from the trip's own first day.
+ *
+ * Anchored to the trip rather than to the position in the list, so a taxi
+ * logged the evening before does not renumber the whole holiday and make the
+ * first real day Day 2. A day before the trip starts has no number — it is
+ * shown by its date alone.
+ */
+export function dayNumber(tripStart: string, date: string): number {
+  if (!isValidISODate(tripStart) || !isValidISODate(date) || date < tripStart) return 0;
+  return daysBetween(tripStart, date);
 }

@@ -145,6 +145,15 @@ export interface Booking {
    */
   returnEndDate: string;
   returnEndTime: string;
+  /**
+   * The way home as its own journey, when it is not simply the way out
+   * reversed. Blank means "the reverse of the outbound" — see `returnLeg` —
+   * so every booking written before these existed still reads correctly.
+   */
+  returnFrom: string;
+  returnTo: string;
+  returnOperator: string;
+  returnService: string;
   cost: Money | null;
   category: CostCategory;
   reference: string;

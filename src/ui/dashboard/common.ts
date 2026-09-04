@@ -56,7 +56,8 @@ export function bar(parent: HTMLElement, ratio: number, tone?: "good" | "warn" |
 export interface EmptyAction {
   label: string;
   icon?: string;
-  onClick: () => void;
+  /** Handed the button's own click, for the actions that answer with a menu. */
+  onClick: (evt: MouseEvent) => void;
 }
 
 /**

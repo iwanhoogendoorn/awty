@@ -15,7 +15,18 @@
  * Kept free of Obsidian so the labels and the fallbacks can be checked.
  */
 
-export type TransportMode = "train" | "bus" | "ferry" | "taxi" | "car" | "shuttle" | "other";
+export type TransportMode =
+  | "train"
+  | "bus"
+  | "ferry"
+  | "car"
+  | "camper"
+  | "metro"
+  | "taxi"
+  | "shuttle"
+  | "bike"
+  | "walk"
+  | "other";
 
 export interface TransportModeDef {
   id: TransportMode;
@@ -67,12 +78,30 @@ export const TRANSPORT_MODES: TransportModeDef[] = [
   },
   {
     id: "car",
-    label: "Car hire",
+    label: "Car",
     icon: "car-front",
-    carrier: "Sixt",
+    carrier: "Sixt, or your own",
     service: "Compact, five days",
     from: "Pick-up desk",
     to: "Drop-off desk",
+  },
+  {
+    id: "camper",
+    label: "Campervan",
+    icon: "caravan",
+    carrier: "McRent",
+    service: "Four-berth, two weeks",
+    from: "Depot",
+    to: "Depot",
+  },
+  {
+    id: "metro",
+    label: "Metro or tram",
+    icon: "tram-front",
+    carrier: "BVG",
+    service: "U2",
+    from: "Alexanderplatz",
+    to: "Zoologischer Garten",
   },
   {
     id: "shuttle",
@@ -82,6 +111,24 @@ export const TRANSPORT_MODES: TransportModeDef[] = [
     service: "Airport shuttle",
     from: "Dubrovnik Airport (DBV)",
     to: "Hotel Excelsior",
+  },
+  {
+    id: "bike",
+    label: "Bike",
+    icon: "bike",
+    carrier: "Swapfiets",
+    service: "City bike, three days",
+    from: "The apartment",
+    to: "The old town",
+  },
+  {
+    id: "walk",
+    label: "On foot",
+    icon: "footprints",
+    carrier: "Just you",
+    service: "The walk down to the harbour",
+    from: "The apartment",
+    to: "Gruž port",
   },
   {
     id: "other",
@@ -121,3 +168,35 @@ export function modeLabel(mode: TransportMode | ""): string {
 export function modeIcon(mode: TransportMode | "", fallback: string): string {
   return modeDef(mode)?.icon ?? fallback;
 }
+
+/**
+ * How you are getting there, offered as one list.
+ *
+ * "Getting there" only ever opened the flight form, so a trip taken by train
+ * had to be filed as a flight or found somewhere else entirely — the step said
+ * "Flights, trains, buses" and then handed you a box asking for a flight
+ * number. A plane is a booking kind and a train is a mode of another kind,
+ * which is a distinction the code needs and nobody planning a trip does.
+ *
+ * So this flattens the two into the one question actually being asked, and
+ * lives here — free of Obsidian — so the list can be checked rather than
+ * eyeballed in a menu.
+ */
+export interface TravelChoice {
+  /** Which booking form opens. */
+  kind: "flight" | "transport";
+  /** The mode to start that form on, when it is a transfer. */
+  mode: TransportMode | "";
+  label: string;
+  icon: string;
+}
+
+export const TRAVEL_CHOICES: TravelChoice[] = [
+  { kind: "flight", mode: "", label: "Flight", icon: "plane" },
+  ...TRANSPORT_MODES.map((mode) => ({
+    kind: "transport" as const,
+    mode: mode.id,
+    label: mode.label,
+    icon: mode.icon,
+  })),
+];
