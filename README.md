@@ -63,6 +63,27 @@ does not make you give it twice.
 - Full PDF export, and a KML of every place for Google My Maps
 - Mobile: the whole thing, at phone width, with real tap targets
 
+## Local API
+
+AWTY can serve JSON at `http://127.0.0.1:27131/awty/v1`, so a script, a
+shortcut, an agent or your phone can read trips and add to them. It is off
+until you switch it on in **Settings → Local API**.
+
+- Every request needs the token from that page: `Authorization: Bearer <token>`.
+- It listens on this Mac only, or on its Tailscale address. It never listens
+  on every interface.
+- Other devices can read. They can only write once you turn on **Allow writes
+  from other devices**.
+- Trips, bookings (flights, stays and transport) and moments can be listed,
+  read, created, changed and deleted. Every write goes through the same code
+  as the forms, and replies with the vault paths it touched.
+
+```bash
+curl -s http://127.0.0.1:27131/awty/v1/trips?stage=going -H "Authorization: Bearer $AWTY_TOKEN"
+```
+
+Every route, field and error is in [docs/api.md](docs/api.md).
+
 ## Not travel advice
 
 Visa outcomes, entry requirements, arrival cards, travel advice and travel times

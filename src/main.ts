@@ -95,6 +95,9 @@ import { ConfirmDeleteModal } from "./ui/modals/confirmDelete";
 import { ConfirmModal } from "./ui/modals/confirmModal";
 import { AddDayModal } from "./ui/modals/addDayModal";
 import { AwtySettingTab } from "./settings/settingsTab";
+import { ApiBridge } from "./api/bridge";
+import { randomToken, startApiServer, type ApiServer } from "./api/server";
+import { apiUrl, resolveBindHost, type ApiBind } from "./api/bind";
 
 /**
  * `app.plugins` is real but not part of the public typings, so this is the
@@ -120,6 +123,17 @@ export default class AwtyPlugin extends Plugin {
   private adviceTried = new Set<string>();
   /** Body classes this plugin put on, so unload can take exactly those off. */
   private platformClasses: string[] = [];
+  /** The local API, when it is switched on and listening. */
+  private api?: ApiServer;
+  private apiError?: string;
+  /**
+   * Bumped by every restart and by unload. A server that finishes starting
+   * after a newer restart, or after the plugin went away, closes itself:
+   * otherwise it would keep the port and answer with the old token, owned by
+   * nothing that will ever close it.
+   */
+  private apiGeneration = 0;
+  apiBridge!: ApiBridge;
 
   async onload(): Promise<void> {
     this.loadedAt = new Date().toLocaleTimeString();
@@ -133,6 +147,7 @@ export default class AwtyPlugin extends Plugin {
     this.store.register(this);
     this.progress = new ProgressCache(this.app);
     this.bookings = new BookingStore(this.app, () => this.settings);
+    this.apiBridge = new ApiBridge(this);
     this.travel = new TravelService(
       this.app,
       () => this.settings,
@@ -331,6 +346,10 @@ export default class AwtyPlugin extends Plugin {
     // Repairs flights saved before a direct flight stored its legs. Deferred
     // so it never delays opening the vault.
     this.app.workspace.onLayoutReady(() => {
+      // After the vault's initial load, so opening it is not counted as a write.
+      this.apiBridge.register(this);
+      void this.restartApi();
+
       // Tables typed before restaurants were bookings become bookings, or the
       // first sync of the Food note would generate over the top of them.
       void migrateFoodTables(this.app, this.settings, this.store.getTrips())
@@ -409,6 +428,9 @@ export default class AwtyPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.apiGeneration += 1;
+    this.api?.close();
+    this.api = undefined;
     // Leaves are detached by Obsidian; the store's listeners came from
     // registerEvent/registerInterval and unwind with the plugin.
     // The body classes are ours, though, and nothing else removes them. On the
@@ -468,11 +490,34 @@ export default class AwtyPlugin extends Plugin {
     }
     this.settings.subNotesByKind = merged;
 
+    // data.json can be edited by hand. A bind this version does not offer, or
+    // a port that is not one, falls back to the safe default rather than
+    // opening something nobody chose.
+    if (this.settings.apiBind !== "tailscale") this.settings.apiBind = "loopback";
+    const port = Number(this.settings.apiPort);
+    this.settings.apiPort = Number.isInteger(port) && port > 0 && port < 65536 ? port : DEFAULT_SETTINGS.apiPort;
+    this.settings.apiRemoteWrites = this.settings.apiRemoteWrites === true;
+    this.settings.apiEnabled = this.settings.apiEnabled === true;
+
     this.travelCache = {
       legs: raw?.travelCache?.legs ?? {},
       geocode: raw?.travelCache?.geocode ?? {},
       advice: raw?.travelCache?.advice ?? {},
     };
+  }
+
+  /**
+   * data.json changed on disk: Obsidian Sync bringing in what another device
+   * saved. Without this the running plugin keeps the settings it loaded, and
+   * the next save writes them back over the other device's — and a local API
+   * switched off over there would go on serving here.
+   */
+  async onExternalSettingsChange(): Promise<void> {
+    await this.loadSettings();
+    this.store.invalidate();
+    this.bookings.invalidate();
+    this.refreshViews();
+    await this.restartApi();
   }
 
   private async persist(): Promise<void> {
@@ -1070,7 +1115,7 @@ export default class AwtyPlugin extends Plugin {
    * budget saved and then regenerated from the cache lost whichever category
    * had just been added — it was in the trip note and absent from the table.
    */
-  private async syncTripNotes(
+  async syncTripNotes(
     trip: Trip,
     known?: { targets?: Map<CostCategory, number>; currency?: string },
   ): Promise<void> {
@@ -1463,21 +1508,43 @@ export default class AwtyPlugin extends Plugin {
     }
   }
 
+  /**
+   * Deletes a trip and everything cached about it, without asking.
+   *
+   * The confirm dialog and the API both end up here, so a trip removed over
+   * HTTP leaves no more behind than one removed with the button.
+   */
+  async removeTrip(trip: Trip): Promise<number> {
+    const count = await deleteTrip(this.app, trip);
+    // Nothing about the trip should survive it: places, cached routes and
+    // the advice fetched for its country all go too.
+    this.travelPlaces.delete(trip.folderPath);
+    for (const country of tripCountries(trip)) {
+      if (this.travelCache.advice) delete this.travelCache.advice[country];
+    }
+    await this.travel.forgetTrip(trip);
+    this.bookings.invalidate();
+    this.progress.clear();
+    this.store.invalidate();
+    return count;
+  }
+
+  /** The resolved places for a trip, dropped because its notes just changed. */
+  forgetPlaces(trip: Trip): void {
+    this.travelPlaces.delete(trip.folderPath);
+  }
+
+  /** After a write from outside the views: progress recounted, every view redrawn. */
+  repaint(): void {
+    this.progress.clear();
+    this.refreshViews();
+  }
+
   deleteTrip(trip: Trip): void {
     const run = async (): Promise<void> => {
       try {
-        const count = await deleteTrip(this.app, trip);
-        // Nothing about the trip should survive it: places, cached routes and
-        // the advice fetched for its country all go too.
-        this.travelPlaces.delete(trip.folderPath);
-        for (const country of tripCountries(trip)) {
-          if (this.travelCache.advice) delete this.travelCache.advice[country];
-        }
-        await this.travel.forgetTrip(trip);
+        const count = await this.removeTrip(trip);
         new Notice(`Deleted “${trip.title}” (${count} file${count === 1 ? "" : "s"}).`);
-        this.bookings.invalidate();
-        this.progress.clear();
-        this.store.invalidate();
       } catch (err) {
         notifyError(err, "Could not delete the trip.");
       }
@@ -1488,6 +1555,80 @@ export default class AwtyPlugin extends Plugin {
       return;
     }
     new ConfirmDeleteModal(this.app, trip, run).open();
+  }
+
+  // --------------------------------------------------------------- local API
+
+  /** Whether the server is up, where, and why not when it is not. */
+  apiStatus(): { running: boolean; url?: string; host?: string; error?: string; mobile: boolean } {
+    return {
+      running: this.api !== undefined,
+      ...(this.api ? { url: apiUrl(this.api.host, this.api.port), host: this.api.host } : {}),
+      ...(this.apiError ? { error: this.apiError } : {}),
+      mobile: isMobile(),
+    };
+  }
+
+  /** The URL a client would use with a given bind, for the settings preview. */
+  apiUrlFor(bind: ApiBind, port: number): string {
+    return apiUrl(resolveBindHost(bind, this.interfaces()).host, port);
+  }
+
+  newApiToken(): string {
+    return randomToken();
+  }
+
+  private interfaces(): ReturnType<typeof import("os")["networkInterfaces"]> {
+    try {
+      return (require("os") as typeof import("os")).networkInterfaces();
+    } catch {
+      return {};
+    }
+  }
+
+  /** Brings the server in line with the settings: starts, stops or moves it. */
+  async restartApi(): Promise<void> {
+    const generation = (this.apiGeneration += 1);
+    this.api?.close();
+    this.api = undefined;
+    this.apiError = undefined;
+    if (!this.settings.apiEnabled) return;
+    // node's http is not there in the mobile app. Settings sync between
+    // devices, so without this the phone would complain at every launch about
+    // a server it can never run.
+    if (isMobile()) return;
+    if (!this.settings.apiToken) {
+      this.apiError = "no token";
+      return;
+    }
+    const bind = resolveBindHost(this.settings.apiBind, this.interfaces());
+    if (bind.fallback) {
+      console.warn(`[awty/api] ${bind.fallback}`);
+      new Notice(`AWTY API: ${bind.fallback}.`);
+    }
+    try {
+      const server = await startApiServer({
+        port: this.settings.apiPort,
+        host: bind.host,
+        token: this.settings.apiToken,
+        deps: this.apiBridge.deps(),
+        allowRemoteWrites: () => this.settings.apiRemoteWrites,
+        log: (m) => console.log(`[awty/api] ${m}`),
+      });
+      if (generation !== this.apiGeneration) {
+        server.close();
+        return;
+      }
+      this.api = server;
+    } catch (err) {
+      if (generation !== this.apiGeneration) return;
+      this.apiError =
+        err instanceof Error && /EADDRINUSE/.test(err.message)
+          ? `port ${this.settings.apiPort} is taken`
+          : "could not start";
+      console.error("[awty/api]", err);
+      new Notice(`AWTY API: ${this.apiError}.`);
+    }
   }
 
   // ------------------------------------------------------------ travel times

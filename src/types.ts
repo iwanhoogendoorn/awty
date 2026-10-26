@@ -433,6 +433,20 @@ export interface AwtySettings {
   homeAirport: string;
   /** Everyone who might come along; a new trip starts with the first of these. */
   household: string[];
+  /**
+   * The local HTTP API, for scripts and other devices. Off by default: nothing
+   * listens on any port until it is switched on, and then only with a token.
+   */
+  apiEnabled: boolean;
+  apiPort: number;
+  apiToken: string;
+  /** This Mac only, or the Tailscale address too. Never every interface. */
+  apiBind: "loopback" | "tailscale";
+  /**
+   * Whether anything but this Mac may change notes. Off by default: a phone on
+   * the tailnet can read the trips without being able to rewrite them.
+   */
+  apiRemoteWrites: boolean;
 }
 
 /** Google travel modes; duplicated here to keep the settings type dependency-free. */
@@ -471,6 +485,11 @@ export const DEFAULT_SETTINGS: AwtySettings = {
   homeCity: "",
   homeAirport: "",
   household: [],
+  apiEnabled: false,
+  apiPort: 27131,
+  apiToken: "",
+  apiBind: "loopback",
+  apiRemoteWrites: false,
 };
 
 export const AWTY_SIDEBAR_TYPE = "awty-sidebar";

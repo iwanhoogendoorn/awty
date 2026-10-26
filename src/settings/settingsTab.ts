@@ -34,6 +34,7 @@ const NAV_SECTIONS: { id: string; label: string; icon: string }[] = [
   { id: "documents", label: "Documents", icon: "shield-check" },
   { id: "distances", label: "Distances", icon: "route" },
   { id: "food", label: "Food Spot", icon: "utensils" },
+  { id: "api", label: "Local API", icon: "plug" },
   { id: "about", label: "About", icon: "info" },
 ];
 
@@ -178,6 +179,9 @@ export class AwtySettingTab extends PluginSettingTab {
         break;
       case "food":
         this.renderFoodSpot(body);
+        break;
+      case "api":
+        this.renderApi(body);
         break;
       case "about":
         this.renderAbout(body);
@@ -862,6 +866,145 @@ export class AwtySettingTab extends PluginSettingTab {
     this.note(
       group.content,
       "Country names are copied from Food Spot so its filters match, and its restaurants already carry coordinates — which is why they cost nothing to place on a map.",
+    );
+  }
+
+  // -------------------------------------------------------------- local API
+
+  private renderApi(body: HTMLElement): void {
+    const s = this.plugin.settings;
+    const state = this.plugin.apiStatus();
+    const url = state.url ?? this.plugin.apiUrlFor(s.apiBind, s.apiPort);
+    const restart = async (): Promise<void> => {
+      await this.save();
+      await this.plugin.restartApi();
+      this.renderBody();
+    };
+
+    const server = this.group(body, {
+      icon: "plug",
+      title: "Local API",
+      subtitle: "JSON over HTTP, so scripts and your other devices can read and change trips.",
+      chip: state.mobile
+        ? { text: s.apiEnabled ? "desktop only" : "off", tone: "pending" }
+        : state.error
+          ? { text: state.error, tone: "warn" }
+          : state.running
+            ? { text: `on · ${state.host ?? "127.0.0.1"}:${s.apiPort}`, tone: "ok" }
+            : { text: "off", tone: "pending" },
+    });
+
+    this.note(
+      server.content,
+      "Off unless you switch it on. Every request has to carry the token below, and every write goes through the same code as the buttons, so the budget table, the Moments section and links that follow a rename stay right.",
+    );
+
+    new Setting(server.content).setName("Serve the API").addToggle((t) =>
+      t.setValue(s.apiEnabled).onChange(async (v) => {
+        if (v && !s.apiToken) s.apiToken = this.plugin.newApiToken();
+        s.apiEnabled = v;
+        await restart();
+      }),
+    );
+
+    new Setting(server.content)
+      .setName("Port")
+      .setDesc("27131 unless something else already has it.")
+      .addText((t) => {
+        t.setPlaceholder("27131").setValue(String(s.apiPort));
+        // Applied when you leave the box, not on every keystroke: typing 27131
+        // would otherwise start a server on 2, then 27, then 271.
+        t.inputEl.addEventListener("change", () => {
+          const n = Number(t.getValue().trim());
+          if (!Number.isInteger(n) || n < 1024 || n > 65535) {
+            new Notice("AWTY: the port has to be a number from 1024 to 65535.");
+            t.setValue(String(s.apiPort));
+            return;
+          }
+          s.apiPort = n;
+          void restart();
+        });
+      });
+
+    const reach = new Setting(server.content)
+      .setName("Reachable from")
+      .addDropdown((d) =>
+        d
+          .addOptions({ loopback: "This Mac only (127.0.0.1)", tailscale: "Tailscale (your tailnet)" })
+          .setValue(s.apiBind)
+          .onChange(async (v) => {
+            s.apiBind = v === "tailscale" ? "tailscale" : "loopback";
+            await restart();
+          }),
+      );
+    this.help(
+      reach,
+      "This Mac only is the safe default. Tailscale listens on this Mac's Tailscale address instead, so your other devices on the tailnet can reach it; WireGuard encrypts the traffic, and the token is still required. There is no option for every interface, because the API speaks plain HTTP and the token would cross the network in clear text.",
+    );
+
+    const writes = new Setting(server.content)
+      .setName("Allow writes from other devices")
+      .setDesc(
+        s.apiRemoteWrites
+          ? "On: another device with the token can create, change and delete trips."
+          : "Off: other devices can read; only this Mac can change anything.",
+      )
+      .addToggle((t) =>
+        t.setValue(s.apiRemoteWrites).onChange(async (v) => {
+          s.apiRemoteWrites = v;
+          // Read per request, so no restart: the next write is judged by the new answer.
+          await this.save();
+          this.renderBody();
+        }),
+      );
+    this.help(
+      writes,
+      "Requests from 127.0.0.1 can always write. Anything else — your phone, another Mac, or this Mac calling its own Tailscale address — gets a 403 on every POST, PATCH and DELETE until this is on.",
+    );
+
+    new Setting(server.content)
+      .setName("Token")
+      .setDesc("Send it as “Authorization: Bearer <token>”. Treat it like a password.")
+      .addText((t) => {
+        t.setValue(s.apiToken ? `${s.apiToken.slice(0, 4)}…${s.apiToken.slice(-4)}` : "none yet").setDisabled(true);
+      })
+      .addButton((b) =>
+        b
+          .setButtonText("Copy")
+          .setDisabled(!s.apiToken)
+          .onClick(() => {
+            void navigator.clipboard.writeText(s.apiToken);
+            new Notice("Token copied.");
+          }),
+      )
+      .addButton((b) =>
+        b
+          .setButtonText("New token")
+          .setWarning()
+          .onClick(async () => {
+            s.apiToken = this.plugin.newApiToken();
+            await restart();
+            new Notice("New token: anything using the old one has to be updated.");
+          }),
+      );
+
+    new Setting(server.content)
+      .setName(state.running ? "Base URL" : "Base URL (when on)")
+      .setDesc(url)
+      .addButton((b) =>
+        b.setButtonText("Copy").onClick(() => {
+          void navigator.clipboard.writeText(url);
+          new Notice("URL copied.");
+        }),
+      );
+
+    if (s.apiBind === "tailscale" && !/\/\/100\./.test(url)) {
+      this.note(server.content, "No Tailscale address on this Mac: is Tailscale running? Until it is, the API listens on 127.0.0.1.");
+    }
+
+    this.note(
+      server.content,
+      `Try it: curl -s ${url}/health -H "Authorization: Bearer $AWTY_TOKEN". Every route is described in docs/api.md in the repository.`,
     );
   }
 
