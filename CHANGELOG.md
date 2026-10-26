@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.36.2 — 2026-10-26
 
 ### Changed (local API)
 
