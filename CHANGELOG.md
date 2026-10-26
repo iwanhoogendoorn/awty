@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.36.1 — 2026-10-26
+
+- Version bump only; no changes from 2.36.0.
+
 ## 2.36.0 — 2026-10-26
 
 ### Added
