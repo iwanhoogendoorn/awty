@@ -79,6 +79,7 @@ import { isMobile, markPlatform } from "./util/platform";
 import {
   createTrip,
   deleteTrip,
+  stampId,
   notifyError,
   saveMoments,
   setTripStage,
@@ -403,6 +404,8 @@ export default class AwtyPlugin extends Plugin {
       this.app.vault.on("rename", (file, oldPath) => {
         if (!(file instanceof TFile) || file.extension !== "md") return;
         void this.repointQuoteBookings(oldPath, file.path);
+        // A trip or booking moved by hand keeps the id the API knew it by.
+        void stampId(this.app, file, oldPath).catch((err) => console.error(`[awty] could not keep the id of ${file.path}`, err));
       }),
     );
   }
@@ -1515,7 +1518,7 @@ export default class AwtyPlugin extends Plugin {
    * HTTP leaves no more behind than one removed with the button.
    */
   async removeTrip(trip: Trip): Promise<number> {
-    const count = await deleteTrip(this.app, trip);
+    const count = await deleteTrip(this.app, trip, this.settings.tripsFolder);
     // Nothing about the trip should survive it: places, cached routes and
     // the advice fetched for its country all go too.
     this.travelPlaces.delete(trip.folderPath);

@@ -33,6 +33,15 @@ export interface Moment {
    */
   date: string;
   text: string;
+  /**
+   * What the API calls it, once it has been named.
+   *
+   * Stored with the moment so that correcting a typo does not make it a
+   * different moment to anything holding on to it. Absent on moments written
+   * by hand or before ids existed; those are named by their content until the
+   * API next saves the trip.
+   */
+  id?: string;
 }
 
 export function emptyMoment(date = ""): Moment {
@@ -49,7 +58,8 @@ export function readMoments(value: unknown): Moment[] {
       if (typeof raw === "string") return { date: "", title: "", text: raw.trim() };
       const moment = raw as Record<string, unknown>;
       const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
-      return { date: str(moment?.date), title: str(moment?.title), text: str(moment?.text) };
+      const id = str(moment?.id);
+      return { date: str(moment?.date), title: str(moment?.title), text: str(moment?.text), ...(id ? { id } : {}) };
     })
     .filter((moment) => moment.text);
 }
@@ -66,6 +76,7 @@ export function momentsToFrontmatter(moments: Moment[]): Record<string, string>[
     if (moment.date) out.date = moment.date;
     if (moment.title) out.title = moment.title;
     out.text = moment.text;
+    if (moment.id) out.id = moment.id;
     return out;
   });
 }

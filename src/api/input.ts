@@ -452,24 +452,35 @@ export function sameBooking(a: BookingDraft, b: BookingDraft): boolean {
 
 const MOMENT_FIELDS = ["date", "title", "text"] as const;
 
-function applyMomentFields(moment: Moment, body: Body): Moment {
+/** The days a moment can belong to: the trip's own, start to end. */
+type TripDays = Pick<Trip, "startDate" | "endDate">;
+
+function applyMomentFields(moment: Moment, body: Body, trip: TripDays): Moment {
   const next = { ...moment };
   if (has(body, "date")) next.date = date(body.date, "date");
   if (has(body, "title")) next.title = line(body.title, "title", 200);
   if (has(body, "text")) next.text = prose(body.text, "text");
   if (!next.text) throw new BadInput("text must not be empty");
+  // A moment over the API is a day of the trip. One that "happened" a week
+  // before it began is a typo, and the trip's timeline has nowhere to put it.
+  if (!next.date) throw new BadInput("date is required, YYYY-MM-DD, within the trip");
+  const end = trip.endDate || trip.startDate;
+  if (next.date < trip.startDate || next.date > end) {
+    throw new BadInput(`date must be within the trip, ${trip.startDate} to ${end}`);
+  }
   return next;
 }
 
-export function newMoment(raw: unknown): Moment {
+export function newMoment(raw: unknown, trip: TripDays): Moment {
   const body = asBody(raw);
   only(body, MOMENT_FIELDS);
   if (!has(body, "text")) throw new BadInput("text is required");
-  return applyMomentFields({ date: "", title: "", text: "" }, body);
+  if (!has(body, "date")) throw new BadInput("date is required, YYYY-MM-DD, within the trip");
+  return applyMomentFields({ date: "", title: "", text: "" }, body, trip);
 }
 
-export function patchMoment(current: Moment, raw: unknown): Moment {
+export function patchMoment(current: Moment, raw: unknown, trip: TripDays): Moment {
   const body = asBody(raw);
   only(body, MOMENT_FIELDS);
-  return applyMomentFields(current, body);
+  return applyMomentFields(current, body, trip);
 }

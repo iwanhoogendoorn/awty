@@ -289,6 +289,12 @@ export const entryKey = {
 /** A trip as read back out of the vault. */
 export interface Trip {
   file: TFile;
+  /**
+   * The id the API names this trip by, as stored in its note (`awty_id`), or
+   * "" for a note made before ids were stored. Kept on the note so renaming
+   * the trip, which moves the note and its folder, does not change it.
+   */
+  apiId: string;
   /** Folder holding the trip note and its sub-notes. */
   folderPath: string;
   title: string;

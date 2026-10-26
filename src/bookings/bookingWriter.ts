@@ -15,6 +15,7 @@ import type { Booking } from "./types";
 import { fileFromLink } from "./bookingStore";
 import { customParts, sectionText, weaveKept } from "./noteSections";
 import { bookingBody, expenseBody, isImage } from "./noteBody";
+import { freshId, isStoredId, pathId } from "../util/hash";
 
 export interface BookingDraft {
   kind: BookingKind;
@@ -308,6 +309,8 @@ export async function updateBooking(
 
   await app.fileManager.processFrontMatter(file, (fm) => {
     writeBookingFrontmatter(app, fm, trip, file.path, draft, links);
+    // Named by its path until now; a new title is about to move it.
+    if (!isStoredId("b", fm.awty_id)) fm.awty_id = pathId("b", file.path);
   });
 
   const head = await app.vault.read(file);
@@ -400,6 +403,7 @@ export async function createBooking(
 
   await app.fileManager.processFrontMatter(file, (fm) => {
     writeBookingFrontmatter(app, fm, trip, path, draft, links);
+    fm.awty_id = freshId("b");
   });
 
   const head = await app.vault.read(file);

@@ -20,6 +20,7 @@ import { groupJourneys } from "./legs";
 import { readLegs } from "./flightSummary";
 import { isValidISODate } from "../util/dates";
 import { parseAmount } from "../util/money";
+import { isStoredId } from "../util/hash";
 
 /**
  * Every flight a booking holds, in order.
@@ -270,6 +271,7 @@ export class BookingStore {
         const endDate = str(fm.end_date);
         entryFor(tripFolder).bookings.push({
           file,
+          apiId: isStoredId("b", fm.awty_id) ? String(fm.awty_id).trim() : "",
           tripFolder,
           kind,
           status: asStatus(fm.status),

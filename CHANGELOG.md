@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Changed (local API)
+
+- **Ids are stable.** Trips and bookings carry their id in the note
+  (`awty_id`), so renaming one no longer changes it and an id keeps resolving.
+  New notes get one when they are made. Older notes get their path-derived id
+  written in the first time they are about to move: an edit, or a rename by
+  hand. Moments store theirs too, so editing a moment keeps its id.
+- **Moments need a date within the trip.** `POST` and `PATCH` return 400 for a
+  missing date, or one before the trip starts or after it ends.
+- **`DELETE` replies** list removed paths under `deleted`, apart from
+  `written`. The id of what was deleted is now `id`.
+- **Unsupported methods** on a known route are a 405 with an `Allow` header,
+  decided before any id is looked up. A `PUT` from another device is a 405
+  too, not a 403.
+
+### Fixed
+
+- Deleting the last trip of a year no longer leaves an empty year folder
+  behind, from the delete button or the API.
+
 ## 2.36.1 — 2026-10-26
 
 - Version bump only; no changes from 2.36.0.

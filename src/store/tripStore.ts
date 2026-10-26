@@ -10,6 +10,7 @@ export interface SubNote {
   label: string;
 }
 import { effectiveStage, impliedStage, isValidISODate, todayISO, tripStatus } from "../util/dates";
+import { isStoredId } from "../util/hash";
 
 type Listener = () => void;
 
@@ -196,6 +197,7 @@ export class TripStore {
 
       trips.push({
         file,
+        apiId: isStoredId("t", fm.awty_id) ? fm.awty_id.trim() : "",
         folderPath: file.parent?.path ?? root,
         // `destination` is the 1.x field name; reading it keeps old notes visible.
         title: str(fm.title) || str(fm.destination) || file.basename,

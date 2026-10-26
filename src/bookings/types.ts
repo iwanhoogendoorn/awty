@@ -122,6 +122,8 @@ export interface Money {
 
 export interface Booking {
   file: TFile;
+  /** The id the API names it by, as stored in the note (`awty_id`); "" for an older note. */
+  apiId: string;
   tripFolder: string;
   kind: BookingKind;
   status: BookingStatus;

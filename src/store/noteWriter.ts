@@ -9,6 +9,8 @@ import { expandFolderPattern, joinPath, sanitizeName } from "../util/paths";
 import { joinPlaces, tripCities, tripCountries, tripStops } from "../types";
 import { isValidISODate, parseISO } from "../util/dates";
 import { emptyDayDates } from "./itinerary";
+import { freshId, isStoredId, pathId } from "../util/hash";
+import { foldersToPrune } from "../util/paths";
 
 export { emptyDayDates } from "./itinerary";
 
@@ -147,7 +149,8 @@ export async function createTrip(
   const tripNotePath = uniquePath(app, folderPath, sanitizeName(normalized.title));
   // Created empty-of-frontmatter first, then stamped, so the YAML is Obsidian's.
   const tripFile = await app.vault.create(tripNotePath, "");
-  await writeFrontmatter(app, tripFile, tripFrontmatter(normalized));
+  // Its id is minted here, once, and travels with the note from now on.
+  await writeFrontmatter(app, tripFile, { ...tripFrontmatter(normalized), awty_id: freshId("t") });
 
   const subNotes = normalized.subNotes;
   const ctx: TemplateContext = {
@@ -199,6 +202,9 @@ export async function updateTrip(
     for (const [key, value] of Object.entries(tripFrontmatter(normalized))) fm[key] = value;
     // Venue is meaningless once a concert becomes a holiday.
     if (!def.hasVenue) delete fm.venue;
+    // A trip from before ids were stored is named by its path. This edit may
+    // be about to move it, so the name it has now is written down first.
+    if (!isStoredId("t", fm.awty_id)) fm.awty_id = pathId("t", trip.file.path);
   });
 
   const desiredFolder = tripFolderPath(settings, normalized);
@@ -207,6 +213,8 @@ export async function updateTrip(
   if (desiredFolder !== trip.folderPath) {
     const folder = app.vault.getAbstractFileByPath(trip.folderPath);
     if (folder instanceof TFolder && !app.vault.getAbstractFileByPath(desiredFolder)) {
+      // Every booking in the folder is about to move with it.
+      await stampIdsIn(app, folder);
       await ensureFolder(app, desiredFolder.split("/").slice(0, -1).join("/"));
       await app.fileManager.renameFile(folder, desiredFolder);
       folderPath = desiredFolder;
@@ -306,13 +314,66 @@ export function describeDeletion(app: App, targets: TAbstractFile[]): string[] {
  * Sends the trip to wherever the user's "Deleted files" setting points — system
  * trash, vault .trash, or permanent. Never bypasses that preference.
  */
-export async function deleteTrip(app: App, trip: Trip): Promise<number> {
+export async function deleteTrip(app: App, trip: Trip, tripsRoot?: string): Promise<number> {
   const targets = tripDeletionTargets(app, trip);
   const count = describeDeletion(app, targets).length;
   for (const target of targets) {
     await app.fileManager.trashFile(target);
   }
+  if (tripsRoot !== undefined) await pruneEmptyFolders(app, targets, normalizePath(tripsRoot));
   return count;
+}
+
+/**
+ * Folders a deletion left empty, between it and the trips folder.
+ *
+ * Deleting the last trip of 2027 otherwise leaves a `2027` folder with nothing
+ * in it, and the next person to open the file explorer wonders what is
+ * missing from it. Only ever folders that are now truly empty, never the trips
+ * folder itself, and through the same trash setting as everything else.
+ */
+export async function pruneEmptyFolders(app: App, deleted: TAbstractFile[], root: string): Promise<string[]> {
+  const pruned: string[] = [];
+  const childrenOf = (path: string): string[] => {
+    const folder = app.vault.getAbstractFileByPath(path);
+    return folder instanceof TFolder ? folder.children.map((c) => c.path) : [];
+  };
+  for (const target of deleted) {
+    for (const path of foldersToPrune(target.path, root, childrenOf)) {
+      const folder = app.vault.getAbstractFileByPath(path);
+      if (!(folder instanceof TFolder) || folder.children.length > 0) break;
+      await app.fileManager.trashFile(folder);
+      pruned.push(path);
+    }
+  }
+  return pruned;
+}
+
+/** The prefix a note's id carries, by what the note is: trip or booking. */
+function idPrefix(fm: Record<string, unknown> | undefined): "t" | "b" | null {
+  return fm?.type === "trip" ? "t" : fm?.type === "booking" ? "b" : null;
+}
+
+/**
+ * Writes a trip's or booking's path-derived id into it, if it has none stored.
+ *
+ * `fromPath` is where the note was when that id was derived: the old path for a
+ * note that has just been moved, so it keeps the id it was known by.
+ */
+export async function stampId(app: App, file: TFile, fromPath = file.path): Promise<void> {
+  const cached = app.metadataCache.getFileCache(file)?.frontmatter;
+  const prefix = idPrefix(cached);
+  if (!prefix || isStoredId(prefix, cached?.awty_id)) return;
+  await app.fileManager.processFrontMatter(file, (fm) => {
+    if (!isStoredId(prefix, fm.awty_id)) fm.awty_id = pathId(prefix, fromPath);
+  });
+}
+
+async function stampIdsIn(app: App, folder: TFolder): Promise<void> {
+  for (const child of folder.children) {
+    if (child instanceof TFolder) await stampIdsIn(app, child);
+    else if (child instanceof TFile && child.extension === "md") await stampId(app, child);
+  }
 }
 
 /**

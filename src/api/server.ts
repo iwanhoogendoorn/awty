@@ -19,7 +19,12 @@ export interface ApiServer {
 /** A trip is a page of frontmatter; anything larger is a mistake or an attack. */
 const MAX_BODY = 1_000_000;
 
-const READS = new Set(["GET", "HEAD", "OPTIONS"]);
+/**
+ * The methods that change notes. Only these are held back from other devices;
+ * anything else (PUT, HEAD, …) goes on to the router, which answers it with
+ * the same 405 wherever it came from.
+ */
+const WRITES = new Set(["POST", "PATCH", "DELETE"]);
 
 /** Constant-time over digests of equal length, so neither the bytes nor the token's length leak through timing. */
 export function sameToken(a: string, b: string): boolean {
@@ -64,9 +69,9 @@ export async function startApiServer(opts: {
       "x-content-type-options": "nosniff",
       ...(authed ? { "x-awty-revision": String(opts.deps.revision()) } : {}),
     });
-    const send = (status: number, body: unknown): void => {
+    const send = (status: number, body: unknown, extra: Record<string, string> = {}): void => {
       if (res.headersSent) return;
-      res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...headers() });
+      res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...extra, ...headers() });
       res.end(JSON.stringify(body ?? null));
     };
     const fail = (e: unknown): void => {
@@ -96,7 +101,7 @@ export async function startApiServer(opts: {
       authed = true;
 
       const method = (req.method ?? "GET").toUpperCase();
-      if (!READS.has(method) && !isLocal(address) && !opts.allowRemoteWrites()) {
+      if (WRITES.has(method) && !isLocal(address) && !opts.allowRemoteWrites()) {
         send(403, {
           error: "Writes from other devices are switched off. Turn on Settings → Are We There Yet? → Local API → Allow writes from other devices.",
         });
@@ -154,7 +159,7 @@ export async function startApiServer(opts: {
               { method, path: url.pathname.slice(API_BASE.length).replace(/^\/+|\/+$/g, ""), query, body },
               opts.deps,
             );
-            send(r.status, r.body);
+            send(r.status, r.body, r.headers);
           } catch (e) {
             fail(e);
           }

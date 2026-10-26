@@ -46,25 +46,38 @@ The order of checks for every request:
 1. **403** if the caller is not loopback and not on the tailnet (`100.64.0.0/10`).
 2. **404** if the path is not under `/awty/v1`.
 3. **401** if the token is missing or wrong. Nothing else is revealed, not even the revision.
-4. **403** if it is a write, the caller is not `127.0.0.1`, and *Allow writes from
-   other devices* is off. The switch is read on every request, so flipping it
-   needs no restart.
-5. **413** if the body is over 1 MB, **400** if it is not JSON.
+4. **403** if it is a write (`POST`, `PATCH`, `DELETE`), the caller is not
+   `127.0.0.1`, and *Allow writes from other devices* is off. The switch is read
+   on every request, so flipping it needs no restart.
+5. **404** if there is no such route; **405** (with an `Allow` header) if the
+   route exists but not the method. This is decided before any id is looked
+   up, so `PUT /trips/t-anything` is a 405 whether or not the trip exists, and
+   from any device.
+6. **413** if the body is over 1 MB, **400** if it is not JSON.
 
 A request from this Mac to its *own* Tailscale address arrives from that
 address and counts as another device. Use `127.0.0.1` for local scripts.
 
 ## Ideas you need
 
-- **Ids are derived, never stored.** A trip's id (`t-…`) and a booking's id
-  (`b-…`) are hashes of the note's path. Reading a trip never writes an id into
-  your note. The catch is that renaming changes the id. A new title renames the
-  note, and its folder too for a trip, so the write that does it replies with
-  the new id. Use that one from then on.
-- A **moment's** id (`m-…`) is a hash of its date, title and text. Editing a
-  moment gives it a new id, and the reply carries it.
-- **`written`**: every write replies with the vault paths it created, changed,
-  renamed or deleted, sorted. For a rename it lists both the old and the new path.
+- **Ids are stable.** A trip's id (`t-…`) and a booking's id (`b-…`) are stored
+  in the note as `awty_id`, so renaming a trip or a booking (which moves the
+  note, and a trip's folder) does not change it. An id you were given keeps
+  working.
+  - Trips and bookings created from this version on, through the API or the
+    forms, get an id when they are made.
+  - An older note has no stored id. It is named by a hash of its path until
+    something is about to move it: an edit through the API or the forms, or a
+    rename by hand in Obsidian. Then that same id is written into it first.
+    Reading never writes anything.
+- A **moment's** id (`m-…`) is stored with the moment. Editing its text, title
+  or date keeps it. Moments written by hand or before ids existed are named by
+  their content until the API next saves that trip, which stores the ids of
+  every moment on it.
+- **`written`**: every write replies with the vault paths it created, changed or
+  renamed, sorted. For a rename it lists both the old and the new path.
+- **`deleted`**: a `DELETE` reply lists the vault paths it removed, separately
+  from `written`. Nothing appears in both.
 - **`x-awty-revision`**: on every authenticated response. It is a number that
   changes when a note under the trips folder actually changes, whether through
   the API or because you edited it in Obsidian. Reads, refused writes and
@@ -93,7 +106,7 @@ All errors are JSON: `{ "error": "what went wrong" }`.
 | 401 | Token missing or wrong |
 | 403 | Caller outside loopback/tailnet, or a write from another device with remote writes off |
 | 404 | No such route, trip, booking or moment |
-| 405 | Route exists, method does not |
+| 405 | Route exists, method does not. The `Allow` header lists what does |
 | 413 | Body over 1 MB |
 | 500 | `{ "error": "Internal error", "requestId": "…" }`. The full error is in Obsidian's console (`[awty/api] request … failed`) |
 
@@ -218,7 +231,17 @@ Sends the trip to wherever your **Deleted files** setting points (system trash,
 dialog. The whole folder goes when it holds just this trip. If your folder
 pattern puts several trips in one folder, only the trip note goes.
 
-`200 { "deleted": "t-…", "written": [ every file that went ] }`
+When that leaves a folder empty between the trip and the trips folder (the
+`2027` folder, after its last trip goes), the empty folder goes too, through
+the same **Deleted files** setting. The trips folder itself is never removed.
+The delete button does the same.
+
+```json
+{ "id": "t-…",
+  "deleted": [ "…/2027/2027-01-15 Porto", "…/2027/2027-01-15 Porto/Porto.md",
+               "…/2027/2027-01-15 Porto/Bookings/…", "…/2027" ],
+  "written": [] }
+```
 
 ---
 
@@ -335,7 +358,7 @@ the note and gives the booking a new id.
 Trashes the note (per your **Deleted files** setting), unhooks any price check
 that pointed at it, and regenerates the trip's budget table.
 
-`200 { "deleted": "b-…", "written": [ … ] }`
+`200 { "id": "b-…", "deleted": [ "…/Bookings/TP669.md" ], "written": [ "…/Budget.md" ] }`
 
 ---
 
@@ -349,8 +372,11 @@ whoever reads it in five years.
 { "id": "m-3n8b1k0c7zq", "date": "2025-04-02", "title": null, "text": "Gelato twice before noon" }
 ```
 
-`date` is optional, because some moments belong to the whole trip, and so is
-`title`. `text` is required and may contain line breaks. Lists come in the order
+`date` is required, and must fall within the trip, from its start date to its
+end date. A date outside it is a 400 that names the range. `title` is
+optional. `text` is required and may contain line breaks. Moments written by
+hand can have no date. They are listed, but they can't be changed through
+the API until they're given a date in range. Lists come in the order
 the trip shows them: by date, undated ones last.
 
 #### `GET /trips/:id/moments`
@@ -371,14 +397,15 @@ the trip shows them: by date, undated ones last.
 
 #### `PATCH /trips/:id/moments/:mid`
 
-Any of `date`, `title`, `text`. `null` or `""` clears `date` and `title`. The
-reply carries the moment's new id.
+Any of `date`, `title`, `text`. `null` or `""` clears `title`. `date` cannot
+be cleared, and stays within the trip. The id does not change.
 
 `200 { "moment": { … }, "written": [ … ] }`. `written` is `[]` when nothing changed.
 
 #### `DELETE /trips/:id/moments/:mid`
 
-`200 { "deleted": "m-…", "written": [ "…/Rome.md" ] }`
+`200 { "id": "m-…", "deleted": [], "written": [ "…/Rome.md" ] }`. A moment is
+lines in the trip note, not a file, so nothing is deleted from the vault.
 
 ---
 

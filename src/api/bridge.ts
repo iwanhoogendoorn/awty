@@ -24,8 +24,8 @@ import { createTrip, describeDeletion, saveMoments, tripDeletionTargets, updateT
 import { repointBookings } from "../planning/priceStore";
 import { todayISO } from "../util/dates";
 import { emptyBookingDraft } from "./input";
-import { hash } from "./json";
-import type { ApiDeps } from "./routes";
+import { hash } from "../util/hash";
+import type { ApiDeps, WriteResult } from "./routes";
 
 /** What the bridge needs from the plugin, and nothing more. */
 export interface ApiHost {
@@ -55,8 +55,8 @@ export class ApiBridge {
    * for nothing having changed.
    */
   private rev = Math.floor(Date.now() / 1000);
-  /** Paths touched by the write in progress; null between writes. */
-  private recording: Set<string> | null = null;
+  /** Paths the write in progress wrote and deleted; null between writes. */
+  private recording: { written: Set<string>; deleted: Set<string> } | null = null;
   /** Markdown files written whose metadata Obsidian has not re-read yet. */
   private pending = new Set<string>();
   private queue: Promise<unknown> = Promise.resolve();
@@ -82,9 +82,10 @@ export class ApiBridge {
     const { vault, metadataCache } = this.host.app;
     const touched = (file: TAbstractFile, oldPath?: string): void => {
       if (this.recording) {
-        if (oldPath) this.recording.add(oldPath);
+        if (oldPath) this.recording.written.add(oldPath);
         if (file instanceof TFile) {
-          this.recording.add(file.path);
+          this.recording.written.add(file.path);
+          this.recording.deleted.delete(file.path);
           if (file.extension === "md") this.pending.add(file.path);
         }
         if (oldPath) this.pending.delete(oldPath);
@@ -109,8 +110,12 @@ export class ApiBridge {
       vault.on("delete", (f) => {
         this.pending.delete(f.path);
         this.seen.delete(f.path);
+        if (this.recording) {
+          this.recording.deleted.add(f.path);
+          this.recording.written.delete(f.path);
+          return;
+        }
         touched(f);
-        if (this.recording) this.recording.add(f.path);
       }),
     );
     plugin.registerEvent(metadataCache.on("changed", (f) => this.pending.delete(f.path)));
@@ -163,26 +168,27 @@ export class ApiBridge {
     this.host.store.invalidate();
   }
 
-  private async write<T>(fn: () => Promise<T>): Promise<{ value: T; written: string[] }> {
+  private async write<T>(fn: () => Promise<T>): Promise<WriteResult<T>> {
     // One write at a time: two requests interleaving would share a write log
     // and could each regenerate a budget from half of the other's bookings.
-    const run = async (): Promise<{ value: T; written: string[] }> => {
-      const log = new Set<string>();
+    const run = async (): Promise<WriteResult<T>> => {
+      const log = { written: new Set<string>(), deleted: new Set<string>() };
       this.recording = log;
       this.pending.clear();
       let value!: T;
       try {
         value = await fn();
         await this.settle();
-        await this.remember(log);
+        await this.remember(log.written);
       } finally {
         this.recording = null;
         // Counted even when the write failed halfway: what did land is a change.
-        if (log.size > 0) this.rev += 1;
+        if (log.written.size > 0 || log.deleted.size > 0) this.rev += 1;
         this.refresh();
         this.host.repaint();
       }
-      return { value, written: [...log].sort() };
+      const deleted = [...log.deleted].sort();
+      return { value, written: [...log.written].filter((p) => !log.deleted.has(p)).sort(), deleted };
     };
     const next = this.queue.then(run, run);
     this.queue = next.catch(() => undefined);
@@ -216,9 +222,13 @@ export class ApiBridge {
       deleteTrip: async (trip: Trip) => {
         // Named before they go: a folder sent to the trash reports itself, not
         // every note that was in it.
-        const doomed = describeDeletion(app, tripDeletionTargets(app, trip));
+        const targets = tripDeletionTargets(app, trip);
+        const doomed = [...targets.map((t) => t.path), ...describeDeletion(app, targets)];
         await h.removeTrip(trip);
-        for (const path of doomed) this.recording?.add(path);
+        for (const path of doomed) {
+          this.recording?.deleted.add(path);
+          this.recording?.written.delete(path);
+        }
       },
 
       bookingDraft: async (trip: Trip, booking: Booking): Promise<BookingDraft> => {
@@ -246,7 +256,7 @@ export class ApiBridge {
         // As the delete button does: a price check pointing at this booking
         // must not be inherited by the next one to land on the same path.
         await repointBookings(app, h.settings, trip, gone, null);
-        this.recording?.add(gone);
+        this.recording?.deleted.add(gone);
         await this.afterBooking(trip);
       },
 

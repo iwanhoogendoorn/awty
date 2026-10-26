@@ -52,3 +52,26 @@ export function expandFolderPattern(pattern: string, vars: FolderPatternVars): s
     .filter((segment) => segment.length > 0)
     .join("/");
 }
+
+/**
+ * The folders to remove after deleting `path`, nearest first: each ancestor
+ * that would be left with nothing in it, stopping below `root`.
+ *
+ * Pure, so the walk can be checked: `childrenOf` lists a folder's children as
+ * they are now, and whatever this walk has already decided to remove counts as
+ * gone.
+ */
+export function foldersToPrune(path: string, root: string, childrenOf: (folder: string) => string[]): string[] {
+  const out: string[] = [];
+  const parentOf = (p: string): string => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+  const inside = (p: string): boolean => (root === "" || root === "/" ? p !== "" : p.startsWith(`${root}/`));
+  let gone = path;
+  let folder = parentOf(path);
+  while (folder && inside(folder)) {
+    if (childrenOf(folder).some((child) => child !== gone)) break;
+    out.push(folder);
+    gone = folder;
+    folder = parentOf(folder);
+  }
+  return out;
+}

@@ -19,6 +19,8 @@ export { startApiServer, sameToken, randomToken } from "./src/api/server.ts";
 export { isTailscaleAddress, isLoopbackClient, isAllowedClient, tailscaleAddress, resolveBindHost, apiUrl } from "./src/api/bind.ts";
 export { API_BASE, API_VERSION, DEFAULT_API_PORT } from "./src/api/base.ts";
 export { tripId, bookingId, momentIds } from "./src/api/json.ts";
+export { freshId, pathId, isStoredId } from "./src/util/hash.ts";
+export { foldersToPrune } from "./src/util/paths.ts";
 export { emptyBookingDraft, newTripDraft, patchTripDraft, newBookingDraft, patchBookingDraft, sameBooking, sameTrip, WRITABLE_KINDS } from "./src/api/input.ts";
 export { DEFAULT_SETTINGS } from "./src/types.ts";
 `;
@@ -50,6 +52,7 @@ function makeTrip(over = {}) {
   const folder = over.folderPath ?? `Trips/2026/${over.startDate ?? "2026-11-10"} ${title}`;
   return {
     file: file(`${folder}/${title}.md`),
+    apiId: "",
     folderPath: folder,
     title,
     kind: "city-break",
@@ -79,6 +82,7 @@ const EMPTY_POSTAL = { line1: "", line2: "", postcode: "", city: "", country: ""
 function bookingFromDraft(trip, p, draft) {
   return {
     file: file(p),
+    apiId: "",
     tripFolder: trip.folderPath,
     kind: draft.kind,
     status: draft.status,
@@ -123,7 +127,8 @@ function bookingFromDraft(trip, p, draft) {
 function fakeVault() {
   const state = { trips: [], bookings: new Map(), rev: 1000, remoteWrites: false, writes: 0 };
   let log = null;
-  const touch = (...paths) => paths.forEach((p) => log?.add(p));
+  const touch = (...paths) => paths.forEach((p) => log?.written.add(p));
+  const gone = (...paths) => paths.forEach((p) => log?.deleted.add(p));
 
   const lisbon = makeTrip();
   const gig = makeTrip({ title: "Ghent gig", kind: "concert", folderPath: "Trips/2026/2026-12-05 Ghent gig", startDate: "2026-12-05", endDate: "2026-12-05", country: "Belgium", city: "Ghent", stops: [{ country: "Belgium", city: "Ghent" }], stage: "going", storedStage: "going", venue: "Vooruit" });
@@ -162,19 +167,20 @@ function fakeVault() {
     bookings: (trip) => state.bookings.get(trip.folderPath) ?? [],
     currency: () => "EUR",
     write: async (fn) => {
-      log = new Set();
+      log = { written: new Set(), deleted: new Set() };
       try {
         const value = await fn();
         state.writes += 1;
-        return { value, written: [...log].sort() };
+        return { value, written: [...log.written].filter((p) => !log.deleted.has(p)).sort(), deleted: [...log.deleted].sort() };
       } finally {
-        if (log.size > 0) state.rev += 1;
+        if (log.written.size + log.deleted.size > 0) state.rev += 1;
         log = null;
       }
     },
     createTrip: async (d) => {
       const folder = `Trips/${d.startDate.slice(0, 4)}/${d.startDate} ${d.title}`;
-      const trip = makeTrip({ ...d, folderPath: folder, file: file(`${folder}/${d.title}.md`), storedStage: d.stage, moments: [] });
+      // As createTrip does: a fresh id, stored in the note from birth.
+      const trip = makeTrip({ ...d, folderPath: folder, file: file(`${folder}/${d.title}.md`), apiId: m.freshId("t"), storedStage: d.stage, moments: [] });
       state.trips.push(trip);
       state.bookings.set(folder, []);
       touch(trip.file.path, ...d.subNotes.map((s) => `${folder}/${s}.md`));
@@ -182,6 +188,8 @@ function fakeVault() {
     },
     updateTrip: async (trip, d) => {
       const next = d.title !== trip.title ? reid(trip, d.title) : { ...trip };
+      // As updateTrip does: an older note gets the id it was known by written in before it moves.
+      next.apiId = trip.apiId || m.tripId(trip);
       Object.assign(next, { kind: d.kind, stage: d.stage, storedStage: d.stage, startDate: d.startDate, endDate: d.endDate, stops: d.stops, country: d.country, city: d.city, venue: d.venue, travellers: d.travellers, passports: d.passports, budgetTotal: d.budgetTotal, originCity: d.originCity, originAirport: d.originAirport });
       swapTrip(trip, next);
       touch(trip.file.path, next.file.path);
@@ -189,9 +197,9 @@ function fakeVault() {
     },
     deleteTrip: async (trip) => {
       state.trips = state.trips.filter((t) => t !== trip);
-      const gone = (state.bookings.get(trip.folderPath) ?? []).map((b) => b.file.path);
+      const bookings = (state.bookings.get(trip.folderPath) ?? []).map((b) => b.file.path);
       state.bookings.delete(trip.folderPath);
-      touch(trip.file.path, ...gone);
+      gone(trip.folderPath, trip.file.path, ...bookings);
     },
     bookingDraft: async (trip, b) => ({
       ...m.emptyBookingDraft(b.kind, trip, "EUR"),
@@ -204,21 +212,22 @@ function fakeVault() {
     }),
     createBooking: async (trip, d) => {
       const p = `${trip.folderPath}/Bookings/${d.title}.md`;
-      state.bookings.get(trip.folderPath).push(bookingFromDraft(trip, p, d));
+      state.bookings.get(trip.folderPath).push({ ...bookingFromDraft(trip, p, d), apiId: m.freshId("b") });
       touch(p, `${trip.folderPath}/Budget.md`);
       return p;
     },
     updateBooking: async (trip, b, d) => {
       const p = `${trip.folderPath}/Bookings/${d.title}.md`;
       const list = state.bookings.get(trip.folderPath);
-      list[list.indexOf(b)] = bookingFromDraft(trip, p, d);
+      list[list.indexOf(b)] = { ...bookingFromDraft(trip, p, d), apiId: b.apiId || m.bookingId(b) };
       touch(b.file.path, p);
       return p;
     },
     deleteBooking: async (trip, b) => {
       const list = state.bookings.get(trip.folderPath);
       list.splice(list.indexOf(b), 1);
-      touch(b.file.path, `${trip.folderPath}/Budget.md`);
+      gone(b.file.path);
+      touch(`${trip.folderPath}/Budget.md`);
     },
     saveMoments: async (trip, moments) => {
       const next = { ...trip, moments: moments.map((x) => ({ ...x })) };
@@ -264,7 +273,7 @@ async function serve({ remote = false, token = TOKEN, allowClient } = {}) {
     if (payload !== undefined) headers["content-type"] = "application/json";
     const res = await fetch(`${opts.base ?? base}${route}`, { method, headers, body: payload });
     const text = await res.text();
-    return { status: res.status, body: text ? JSON.parse(text) : null, revision: res.headers.get("x-awty-revision") };
+    return { status: res.status, body: text ? JSON.parse(text) : null, revision: res.headers.get("x-awty-revision"), allow: res.headers.get("allow") };
   };
   return { ...vault, server, call, base, close: () => server.close() };
 }
@@ -503,10 +512,12 @@ await test("PATCH /trips/:id changes only what it names, and follows a rename to
 
   const renamed = await s.call("PATCH", `/trips/${id}`, { title: "Lisbon & Sintra", stage: "going" });
   assert.equal(renamed.status, 200);
-  assert.notEqual(renamed.body.trip.id, id, "a new title is a new path, and the id follows the path");
+  assert.equal(renamed.body.trip.id, id, "a new title moves the note, and the id stays");
+  assert.notEqual(renamed.body.trip.path, s.lisbon.file.path, "the note did move");
   assert.equal(renamed.body.trip.stage, "going");
-  assert.equal((await s.call("GET", `/trips/${renamed.body.trip.id}`)).status, 200);
-  assert.equal((await s.call("GET", `/trips/${id}`)).status, 404);
+  assert.equal((await s.call("GET", `/trips/${id}`)).status, 200, "the id from before the rename still finds it");
+  const again = await s.call("PATCH", `/trips/${id}`, { title: "Lisbon, Sintra & Cascais" });
+  assert.equal(again.body.trip.id, id, "and through a second rename");
 
   // An existing trip may be cancelled; a new one may not.
   const cancelled = await s.call("PATCH", `/trips/${renamed.body.trip.id}`, { stage: "cancelled" });
@@ -534,13 +545,15 @@ await test("PATCH /trips/:id: 400 on bad input, 404 on an unknown trip", withSer
   assert.equal(s.state.writes, 0);
 }));
 
-await test("DELETE /trips/:id removes the trip and lists its files; 404 after", withServer({}, async (s) => {
+await test("DELETE /trips/:id lists what it removed under deleted, not written; 404 after", withServer({}, async (s) => {
   const id = m.tripId(s.lisbon);
   const r = await s.call("DELETE", `/trips/${id}`);
   assert.equal(r.status, 200);
-  assert.equal(r.body.deleted, id);
-  assert.ok(r.body.written.includes(s.lisbon.file.path));
-  assert.ok(r.body.written.some((p) => p.endsWith("KL1691.md")), "its bookings went with it");
+  assert.equal(r.body.id, id);
+  assert.ok(r.body.deleted.includes(s.lisbon.file.path));
+  assert.ok(r.body.deleted.includes(s.lisbon.folderPath), "the folder went too");
+  assert.ok(r.body.deleted.some((p) => p.endsWith("KL1691.md")), "its bookings went with it");
+  assert.deepEqual(r.body.written, [], "nothing was written, only removed");
   assert.equal(Number(r.revision), 1001);
   assert.equal((await s.call("GET", `/trips/${id}`)).status, 404);
   assert.equal((await s.call("DELETE", `/trips/${id}`)).status, 404);
@@ -663,7 +676,9 @@ await test("PATCH /bookings/:id changes what it names; a no-op writes nothing", 
   assert.equal(same.revision, rev, "nothing changed, so the revision did not");
 
   const renamed = await s.call("PATCH", `/bookings/${id}`, { title: "Avenida Palace", cost: null });
-  assert.notEqual(renamed.body.booking.id, id);
+  assert.equal(renamed.body.booking.id, id, "a renamed booking keeps its id");
+  assert.match(renamed.body.booking.path, /Avenida Palace\.md$/, "while its note moves");
+  assert.equal((await s.call("GET", `/bookings/${id}`)).status, 200, "the old id still resolves");
   assert.equal(renamed.body.booking.cost, null, "null clears");
 
   const flight = s.deps.bookings(s.lisbon).find((b) => b.kind === "flight");
@@ -691,8 +706,9 @@ await test("DELETE /bookings/:id removes it; 404 after", withServer({}, async (s
   const id = m.bookingId(stay);
   const r = await s.call("DELETE", `/bookings/${id}`);
   assert.equal(r.status, 200);
-  assert.equal(r.body.deleted, id);
-  assert.ok(r.body.written.includes(stay.file.path));
+  assert.equal(r.body.id, id);
+  assert.deepEqual(r.body.deleted, [stay.file.path]);
+  assert.deepEqual(r.body.written, [`${s.lisbon.folderPath}/Budget.md`], "the budget that lost a line was written");
   assert.equal((await s.call("GET", `/bookings/${id}`)).status, 404);
   assert.equal((await s.call("DELETE", `/bookings/${id}`)).status, 404);
 }));
@@ -737,12 +753,17 @@ await test("POST /trips/:id/moments adds one, keeping line breaks", withServer({
 await test("POST /trips/:id/moments: 400 on bad input", withServer({}, async (s) => {
   const trip = m.tripId(s.rome);
   for (const [body, message] of [
-    [{}, /text is required/],
-    [{ text: "   " }, /text must not be empty/],
+    [{ date: "2025-04-02" }, /text is required/],
+    [{ text: "   ", date: "2025-04-02" }, /text must not be empty/],
+    [{ text: "x" }, /date is required/],
+    [{ text: "x", date: "" }, /date is required/],
+    [{ text: "x", date: null }, /date is required/],
     [{ text: "x", date: "yesterday" }, /real date/],
-    [{ text: "x", title: "a\nb" }, /line breaks/],
-    [{ text: "x\u0007" }, /control characters/],
-    [{ text: "x", mood: "happy" }, /Unknown field: mood/],
+    [{ text: "x", date: "2025-03-31" }, /within the trip, 2025-04-01 to 2025-04-05/],
+    [{ text: "x", date: "2025-04-06" }, /within the trip/],
+    [{ text: "x", date: "2025-04-02", title: "a\nb" }, /line breaks/],
+    [{ text: "x\u0007", date: "2025-04-02" }, /control characters/],
+    [{ text: "x", date: "2025-04-02", mood: "happy" }, /Unknown field: mood/],
   ]) {
     const r = await s.call("POST", `/trips/${trip}/moments`, body);
     assert.equal(r.status, 400, JSON.stringify(body));
@@ -758,16 +779,24 @@ await test("PATCH /trips/:id/moments/:mid edits one; a no-op writes nothing; 400
   assert.equal(r.status, 200);
   assert.equal(r.body.moment.text, "Gelato three times before noon");
   assert.equal(r.body.moment.date, "2025-04-02", "untouched");
-  assert.notEqual(r.body.moment.id, gelato.id, "the id is the content");
-  assert.equal((await s.call("GET", `/trips/${trip}/moments/${r.body.moment.id}`)).status, 200);
+  assert.equal(r.body.moment.id, gelato.id, "editing a moment keeps its id");
+  assert.equal((await s.call("GET", `/trips/${trip}/moments/${gelato.id}`)).body.moment.text, "Gelato three times before noon");
+  const twice = await s.call("PATCH", `/trips/${trip}/moments/${gelato.id}`, { title: "Gelato", date: "2025-04-03" });
+  assert.equal(twice.body.moment.id, gelato.id, "whatever is edited");
+  // Saving stored every moment's id, so the one nobody touched kept its id too.
+  const list = (await s.call("GET", `/trips/${trip}/moments`)).body.moments;
+  assert.deepEqual(list.map((x) => x.id).sort(), [gelato.id, (await s.call("GET", `/trips/${m.tripId(s.rome)}`)).body.trip.moments.find((x) => x.title === "The light").id].sort());
+  assert.ok(s.state.trips.find((t) => t.title === "Rome").moments.every((x) => x.id), "ids are stored with the moments");
 
-  const same = await s.call("PATCH", `/trips/${trip}/moments/${r.body.moment.id}`, { date: "2025-04-02" });
+  const same = await s.call("PATCH", `/trips/${trip}/moments/${gelato.id}`, { date: "2025-04-03" });
   assert.deepEqual(same.body.written, []);
-  assert.equal(same.revision, r.revision);
+  assert.equal(same.revision, twice.revision);
 
-  assert.equal((await s.call("PATCH", `/trips/${trip}/moments/${r.body.moment.id}`, { text: "" })).status, 400);
-  assert.equal((await s.call("PATCH", `/trips/${trip}/moments/${r.body.moment.id}`, { date: "2025-13-01" })).status, 400);
-  assert.equal((await s.call("PATCH", `/trips/${trip}/moments/${gelato.id}`, { text: "x" })).status, 404, "the old id is gone");
+  assert.equal((await s.call("PATCH", `/trips/${trip}/moments/${gelato.id}`, { text: "" })).status, 400);
+  assert.equal((await s.call("PATCH", `/trips/${trip}/moments/${gelato.id}`, { date: "2025-13-01" })).status, 400);
+  assert.match((await s.call("PATCH", `/trips/${trip}/moments/${gelato.id}`, { date: "2025-05-01" })).body.error, /within the trip/);
+  assert.match((await s.call("PATCH", `/trips/${trip}/moments/${gelato.id}`, { date: null })).body.error, /date is required/);
+  assert.equal((await s.call("PATCH", `/trips/${trip}/moments/m-nope`, { text: "x" })).status, 404);
 }));
 
 await test("DELETE /trips/:id/moments/:mid removes one; 404 after", withServer({}, async (s) => {
@@ -775,7 +804,9 @@ await test("DELETE /trips/:id/moments/:mid removes one; 404 after", withServer({
   const [, light] = (await s.call("GET", `/trips/${trip}/moments`)).body.moments;
   const r = await s.call("DELETE", `/trips/${trip}/moments/${light.id}`);
   assert.equal(r.status, 200);
-  assert.equal(r.body.deleted, light.id);
+  assert.equal(r.body.id, light.id);
+  assert.deepEqual(r.body.deleted, [], "a moment is lines in a note, not a file");
+  assert.deepEqual(r.body.written, [s.rome.file.path]);
   assert.equal((await s.call("GET", `/trips/${trip}/moments`)).body.count, 1);
   assert.equal((await s.call("DELETE", `/trips/${trip}/moments/${light.id}`)).status, 404);
   assert.equal((await s.call("PUT", `/trips/${trip}/moments`, {})).status, 405);
@@ -794,7 +825,7 @@ await test("403 on every write from another device while remote writes are off; 
     ["POST", `/trips/${trip}/bookings`, { kind: "stay", title: "X" }],
     ["PATCH", `/bookings/${booking}`, { status: "idea" }],
     ["DELETE", `/bookings/${booking}`],
-    ["POST", `/trips/${m.tripId(s.rome)}/moments`, { text: "x" }],
+    ["POST", `/trips/${m.tripId(s.rome)}/moments`, { text: "x", date: "2025-04-02" }],
     ["PATCH", `/trips/${m.tripId(s.rome)}/moments/${moment}`, { text: "x" }],
     ["DELETE", `/trips/${m.tripId(s.rome)}/moments/${moment}`],
   ];
@@ -814,12 +845,109 @@ await test("403 on every write from another device while remote writes are off; 
 }));
 
 await test("with remote writes on, another device can write — read per request, no restart", withServer({ remote: true }, async (s) => {
-  assert.equal((await s.call("POST", `/trips/${m.tripId(s.rome)}/moments`, { text: "AWTY-API-TEST" })).status, 403);
+  assert.equal((await s.call("POST", `/trips/${m.tripId(s.rome)}/moments`, { text: "AWTY-API-TEST", date: "2025-04-02" })).status, 403);
   s.state.remoteWrites = true;
   assert.equal((await s.call("GET", "/health")).body.remoteWrites, true);
-  assert.equal((await s.call("POST", `/trips/${m.tripId(s.rome)}/moments`, { text: "AWTY-API-TEST" })).status, 201);
+  assert.equal((await s.call("POST", `/trips/${m.tripId(s.rome)}/moments`, { text: "AWTY-API-TEST", date: "2025-04-02" })).status, 201);
   s.state.remoteWrites = false;
-  assert.equal((await s.call("POST", `/trips/${m.tripId(s.rome)}/moments`, { text: "AWTY-API-TEST 2" })).status, 403);
+  assert.equal((await s.call("POST", `/trips/${m.tripId(s.rome)}/moments`, { text: "AWTY-API-TEST 2", date: "2025-04-02" })).status, 403);
+}));
+
+// ------------------------------------------------------------ stable ids
+
+await test("a stored id wins over the path, and a new one is never derived from where it lands", () => {
+  const trip = { file: { path: "Trips/2026/x/X.md" }, apiId: "" };
+  assert.equal(m.tripId(trip), m.pathId("t", "Trips/2026/x/X.md"), "an older note is named by its path");
+  assert.equal(m.tripId({ ...trip, apiId: "t-abc123def45" }), "t-abc123def45");
+  assert.equal(m.bookingId({ file: { path: "a.md" }, apiId: "b-zzz999yyy88" }), "b-zzz999yyy88");
+  const a = m.freshId("t");
+  assert.match(a, /^t-[0-9a-z]{11}$/);
+  assert.notEqual(a, m.freshId("t"));
+  assert.equal(m.isStoredId("t", "t-abc123def45"), true);
+  assert.equal(m.isStoredId("t", "b-abc123def45"), false, "a booking id on a trip is not believed");
+  assert.equal(m.isStoredId("t", "t-<script>"), false);
+  assert.equal(m.isStoredId("t", 42), false);
+  // A moment's stored id is used as is; one without falls back to its content.
+  assert.deepEqual(m.momentIds([{ date: "", title: "", text: "a", id: "m-keepme00001" }]), ["m-keepme00001"]);
+});
+
+await test("a new trip, booking and moment get ids that survive their first rename and edit", withServer({}, async (s) => {
+  const made = await s.call("POST", "/trips", { title: "AWTY-API-TEST", startDate: "2027-01-10", endDate: "2027-01-12" });
+  const id = made.body.trip.id;
+  const renamed = await s.call("PATCH", `/trips/${id}`, { title: "AWTY-API-TEST renamed" });
+  assert.equal(renamed.body.trip.id, id);
+  const booking = await s.call("POST", `/trips/${id}/bookings`, { kind: "stay", title: "AWTY-API-TEST stay" });
+  const bid = booking.body.booking.id;
+  assert.equal((await s.call("PATCH", `/bookings/${bid}`, { title: "AWTY-API-TEST hotel" })).body.booking.id, bid);
+  const moment = await s.call("POST", `/trips/${id}/moments`, { date: "2027-01-11", text: "first" });
+  const mid = moment.body.moment.id;
+  assert.match(mid, /^m-[0-9a-z]{11}$/);
+  const twin = await s.call("POST", `/trips/${id}/moments`, { date: "2027-01-11", text: "first" });
+  assert.notEqual(twin.body.moment.id, mid, "two identical moments are still two moments");
+  assert.equal((await s.call("PATCH", `/trips/${id}/moments/${mid}`, { text: "second" })).body.moment.id, mid);
+  assert.equal((await s.call("GET", `/trips/${id}/moments/${mid}`)).body.moment.text, "second");
+  assert.equal((await s.call("GET", `/trips/${id}/moments/${twin.body.moment.id}`)).body.moment.text, "first");
+}));
+
+// --------------------------------------------------------- empty folders
+
+await test("deleting the last trip of a year takes the empty year folder with it, and nothing more", () => {
+  const tree = {
+    "Trips": ["Trips/2026", "Trips/2027"],
+    "Trips/2027": ["Trips/2027/2027-01-15 Porto"],
+    "Trips/2026": ["Trips/2026/a", "Trips/2026/b"],
+  };
+  const children = (p) => tree[p] ?? [];
+  assert.deepEqual(m.foldersToPrune("Trips/2027/2027-01-15 Porto", "Trips", children), ["Trips/2027"], "the year goes, the trips folder stays");
+  assert.deepEqual(m.foldersToPrune("Trips/2026/a", "Trips", children), [], "a year with another trip in it stays");
+  // Nested patterns walk up as far as things are empty.
+  const deep = { "T": ["T/2027"], "T/2027": ["T/2027/01"], "T/2027/01": ["T/2027/01/x"] };
+  assert.deepEqual(m.foldersToPrune("T/2027/01/x", "T", (p) => deep[p] ?? []), ["T/2027/01", "T/2027"]);
+  // Never above the trips folder, even when it empties too.
+  assert.deepEqual(m.foldersToPrune("Trips/2027", "Trips", (p) => (p === "Trips" ? ["Trips/2027"] : [])), []);
+  // A trips folder at the vault root: stop at the root.
+  assert.deepEqual(m.foldersToPrune("2027/x", "", (p) => (p === "2027" ? ["2027/x"] : [])), ["2027"]);
+});
+
+// -------------------------------------------------------------- methods
+
+await test("405 with an Allow header on every known route, before the id is looked up", withServer({}, async (s) => {
+  const trip = m.tripId(s.lisbon);
+  const booking = m.bookingId(s.deps.bookings(s.lisbon)[1]);
+  const cases = [
+    ["POST", "/health", "GET"],
+    ["DELETE", "", "GET"],
+    ["PUT", "/trips", "GET, POST"],
+    ["DELETE", "/trips", "GET, POST"],
+    ["PUT", `/trips/${trip}`, "GET, PATCH, DELETE"],
+    ["POST", `/trips/${trip}`, "GET, PATCH, DELETE"],
+    ["PUT", "/trips/t-doesnotexist", "GET, PATCH, DELETE"],
+    ["PATCH", `/trips/${trip}/bookings`, "GET, POST"],
+    ["DELETE", "/trips/t-nope/bookings", "GET, POST"],
+    ["PUT", `/trips/${trip}/moments`, "GET, POST"],
+    ["POST", `/trips/${trip}/moments/m-nope`, "GET, PATCH, DELETE"],
+    ["POST", "/bookings", "GET"],
+    ["PATCH", "/bookings", "GET"],
+    ["POST", `/bookings/${booking}`, "GET, PATCH, DELETE"],
+    ["PUT", "/bookings/b-doesnotexist", "GET, PATCH, DELETE"],
+  ];
+  for (const [method, route, allow] of cases) {
+    const r = await s.call(method, route, method === "DELETE" ? undefined : {});
+    assert.equal(r.status, 405, `${method} ${route}`);
+    assert.equal(r.allow, allow, `${method} ${route}`);
+    assert.match(r.body.error, new RegExp(`Allowed: ${allow}`));
+  }
+  const head = await fetch(`${s.base}/trips`, { method: "HEAD", headers: { authorization: `Bearer ${TOKEN}` } });
+  assert.equal(head.status, 405);
+  assert.equal((await s.call("GET", "/trips/t-x/bookings/b-y")).status, 404, "a route that does not exist is still a 404");
+  assert.equal(s.state.writes, 0);
+}));
+
+await test("an unsupported method from another device is a 405, not a 403", withServer({ remote: true }, async (s) => {
+  const r = await s.call("PUT", `/trips/${m.tripId(s.lisbon)}`, {});
+  assert.equal(r.status, 405);
+  assert.equal(r.allow, "GET, PATCH, DELETE");
+  assert.equal((await s.call("PATCH", `/trips/${m.tripId(s.lisbon)}`, {})).status, 403, "a real write is still held back");
 }));
 
 // ---------------------------------------------------------------- the wire
@@ -832,7 +960,7 @@ await test("x-awty-revision moves only on real writes", withServer({}, async (s)
   await s.call("POST", "/trips", { title: "" });
   await s.call("PATCH", `/trips/${m.tripId(s.lisbon)}`, { title: "Lisbon" });
   assert.equal(await rev(), start, "reads, refusals and no-ops leave it");
-  await s.call("POST", `/trips/${m.tripId(s.rome)}/moments`, { text: "AWTY-API-TEST" });
+  await s.call("POST", `/trips/${m.tripId(s.rome)}/moments`, { text: "AWTY-API-TEST", date: "2025-04-02" });
   assert.equal(await rev(), start + 1);
 }));
 

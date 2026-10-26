@@ -15,6 +15,7 @@ import { BOOKING_KINDS } from "../bookings/types";
 import { API_VERSION } from "./base";
 import { BadInput, WRITABLE_KINDS, newBookingDraft, newMoment, newTripDraft, patchBookingDraft, patchMoment, patchTripDraft, sameBooking, sameTrip } from "./input";
 import { bookingId, bookingJson, momentIds, momentJson, momentsJson, tripId, tripJson } from "./json";
+import { freshId } from "../util/hash";
 
 export interface ApiDeps {
   version: string;
@@ -33,7 +34,7 @@ export interface ApiDeps {
    * returning only once the metadata cache has caught up — so the reply is
    * read from what the notes now say, not from what they said a moment ago.
    */
-  write: <T>(fn: () => Promise<T>) => Promise<{ value: T; written: string[] }>;
+  write: <T>(fn: () => Promise<T>) => Promise<WriteResult<T>>;
   /** Each returns the path of the note it wrote, after any rename. */
   createTrip: (draft: TripDraft) => Promise<string>;
   updateTrip: (trip: Trip, draft: TripDraft) => Promise<string>;
@@ -44,6 +45,17 @@ export interface ApiDeps {
   updateBooking: (trip: Trip, booking: Booking, draft: BookingDraft) => Promise<string>;
   deleteBooking: (trip: Trip, booking: Booking) => Promise<void>;
   saveMoments: (trip: Trip, moments: Moment[]) => Promise<void>;
+}
+
+/**
+ * What one write did. `written` is every path it created, changed or moved;
+ * `deleted` every path it removed — kept apart so a client syncing files can
+ * tell "fetch this again" from "forget this".
+ */
+export interface WriteResult<T> {
+  value: T;
+  written: string[];
+  deleted: string[];
 }
 
 export interface ApiRequest {
@@ -57,17 +69,52 @@ export interface ApiRequest {
 export interface ApiResponse {
   status: number;
   body: unknown;
+  headers?: Record<string, string>;
 }
 
 const ok = (body: unknown): ApiResponse => ({ status: 200, body });
 const made = (body: unknown): ApiResponse => ({ status: 201, body });
 const bad = (message: string): ApiResponse => ({ status: 400, body: { error: message } });
 const missing = (message: string): ApiResponse => ({ status: 404, body: { error: message } });
-const notAllowed = (method: string, path: string): ApiResponse => ({ status: 405, body: { error: `Cannot ${method} /${path}` } });
+const notAllowed = (method: string, path: string, allow: readonly string[]): ApiResponse => ({
+  status: 405,
+  body: { error: `Cannot ${method} /${path}. Allowed: ${allow.join(", ")}` },
+  headers: { allow: allow.join(", ") },
+});
 
 const STAGES: TripStage[] = ["planning", "going", "went", "cancelled"];
 const STATUSES: TripStatus[] = ["current", "upcoming", "past"];
 const KIND_IDS = BOOKING_KINDS.map((k) => k.id);
+
+/**
+ * Every route, and what it answers to.
+ *
+ * The method is checked against this before anything is looked up, so a PUT
+ * to a trip that does not exist is a 405 like a PUT to one that does — the
+ * route is known whatever the id is, and the answer should not depend on it.
+ */
+const ROUTES: { pattern: string[]; methods: readonly string[] }[] = [
+  { pattern: [], methods: ["GET"] },
+  { pattern: ["health"], methods: ["GET"] },
+  { pattern: ["trips"], methods: ["GET", "POST"] },
+  { pattern: ["trips", ":trip"], methods: ["GET", "PATCH", "DELETE"] },
+  { pattern: ["trips", ":trip", "bookings"], methods: ["GET", "POST"] },
+  { pattern: ["trips", ":trip", "moments"], methods: ["GET", "POST"] },
+  { pattern: ["trips", ":trip", "moments", ":moment"], methods: ["GET", "PATCH", "DELETE"] },
+  { pattern: ["bookings"], methods: ["GET"] },
+  { pattern: ["bookings", ":booking"], methods: ["GET", "PATCH", "DELETE"] },
+];
+
+function matchRoute(parts: string[]): { key: string; params: Record<string, string>; methods: readonly string[] } | undefined {
+  for (const route of ROUTES) {
+    if (route.pattern.length !== parts.length) continue;
+    const params: Record<string, string> = {};
+    if (route.pattern.every((seg, i) => (seg.startsWith(":") ? ((params[seg.slice(1)] = parts[i]), true) : seg === parts[i]))) {
+      return { key: route.pattern.join("/"), params, methods: route.methods };
+    }
+  }
+  return undefined;
+}
 
 function findTrip(id: string, d: ApiDeps): Trip | undefined {
   return d.trips().find((t) => tripId(t) === id);
@@ -80,6 +127,14 @@ function findTripByPath(path: string, d: ApiDeps): Trip | undefined {
 function findBooking(id: string, d: ApiDeps): { trip: Trip; booking: Booking } | undefined {
   for (const trip of d.trips()) {
     const booking = d.bookings(trip).find((b) => bookingId(b) === id);
+    if (booking) return { trip, booking };
+  }
+  return undefined;
+}
+
+function findBookingByPath(path: string, d: ApiDeps): { trip: Trip; booking: Booking } | undefined {
+  for (const trip of d.trips()) {
+    const booking = d.bookings(trip).find((b) => b.file.path === path);
     if (booking) return { trip, booking };
   }
   return undefined;
@@ -117,73 +172,37 @@ function listBookings(trips: Trip[], q: Record<string, string>, d: ApiDeps): Api
   return ok({ bookings: out, count: out.length });
 }
 
-/** The trip after a write, found by the path the writer reported. */
-function tripAfter(path: string, d: ApiDeps): Trip | undefined {
-  return findTripByPath(path, d);
+/** The moments with every id written down, so the next save keeps them whatever is edited. */
+function withIds(moments: Moment[]): Moment[] {
+  const ids = momentIds(moments);
+  return moments.map((m, i) => ({ ...m, id: ids[i] }));
 }
 
-async function tripRoutes(method: string, parts: string[], req: ApiRequest, d: ApiDeps): Promise<ApiResponse> {
-  const path = parts.join("/");
-  if (parts.length === 1) {
+async function route(key: string, params: Record<string, string>, method: string, req: ApiRequest, d: ApiDeps): Promise<ApiResponse> {
+  if (key === "" || key === "health") {
+    const trips = d.trips();
+    return ok({
+      ok: true,
+      api: API_VERSION,
+      version: d.version,
+      vault: d.vaultName,
+      revision: d.revision(),
+      today: d.today(),
+      remoteWrites: d.remoteWrites(),
+      writableKinds: WRITABLE_KINDS,
+      counts: { trips: trips.length, bookings: trips.reduce((n, t) => n + d.bookings(t).length, 0) },
+    });
+  }
+
+  if (key === "trips") {
     if (method === "GET") return listTrips(req.query, d);
-    if (method === "POST") {
-      const draft = newTripDraft(req.body, d.settings());
-      const { value, written } = await d.write(() => d.createTrip(draft));
-      const trip = tripAfter(value, d);
-      return made({ trip: trip ? tripDetail(trip, d) : { path: value }, written });
-    }
-    return notAllowed(method, path);
+    const draft = newTripDraft(req.body, d.settings());
+    const { value, written } = await d.write(() => d.createTrip(draft));
+    const trip = findTripByPath(value, d);
+    return made({ trip: trip ? tripDetail(trip, d) : { path: value }, written });
   }
 
-  const trip = findTrip(parts[1], d);
-  if (!trip) return missing(`No trip ${parts[1]}`);
-
-  if (parts.length === 2) {
-    if (method === "GET") return ok({ trip: tripDetail(trip, d) });
-    if (method === "PATCH") {
-      const draft = patchTripDraft(trip, req.body);
-      // Nothing to change is nothing to write: no file is touched, and the
-      // revision stays where it was.
-      if (sameTrip(draft, patchTripDraft(trip, {}))) return ok({ trip: tripDetail(trip, d), written: [] });
-      const { value, written } = await d.write(() => d.updateTrip(trip, draft));
-      const after = tripAfter(value, d);
-      return ok({ trip: after ? tripDetail(after, d) : { path: value }, written });
-    }
-    if (method === "DELETE") {
-      const id = tripId(trip);
-      const { written } = await d.write(() => d.deleteTrip(trip));
-      return ok({ deleted: id, written });
-    }
-    return notAllowed(method, path);
-  }
-
-  if (parts[2] === "bookings" && parts.length === 3) {
-    if (method === "GET") return listBookings([trip], req.query, d);
-    if (method === "POST") {
-      const draft = newBookingDraft(req.body, trip, d.currency(trip));
-      const { value, written } = await d.write(() => d.createBooking(trip, draft));
-      const found = findBookingByPath(value, d);
-      return made({ booking: found ? bookingJson(found.booking, found.trip) : { path: value }, written });
-    }
-    return notAllowed(method, path);
-  }
-
-  if (parts[2] === "moments") return momentRoutes(method, trip, parts, req, d);
-  return missing(`No route /${path}`);
-}
-
-function findBookingByPath(path: string, d: ApiDeps): { trip: Trip; booking: Booking } | undefined {
-  for (const trip of d.trips()) {
-    const booking = d.bookings(trip).find((b) => b.file.path === path);
-    if (booking) return { trip, booking };
-  }
-  return undefined;
-}
-
-async function bookingRoutes(method: string, parts: string[], req: ApiRequest, d: ApiDeps): Promise<ApiResponse> {
-  const path = parts.join("/");
-  if (parts.length === 1) {
-    if (method !== "GET") return notAllowed(method, path);
+  if (key === "bookings") {
     if (req.query.trip) {
       const trip = findTrip(req.query.trip, d);
       if (!trip) return missing(`No trip ${req.query.trip}`);
@@ -191,95 +210,97 @@ async function bookingRoutes(method: string, parts: string[], req: ApiRequest, d
     }
     return listBookings(d.trips(), req.query, d);
   }
-  if (parts.length !== 2) return missing(`No route /${path}`);
 
-  const found = findBooking(parts[1], d);
-  if (!found) return missing(`No booking ${parts[1]}`);
-  const { trip, booking } = found;
-
-  if (method === "GET") return ok({ booking: bookingJson(booking, trip) });
-  if (method !== "PATCH" && method !== "DELETE") return notAllowed(method, path);
-  if (!WRITABLE_KINDS.includes(booking.kind)) return bad(`A ${booking.kind} booking can be read but not written through this version of the API`);
-
-  if (method === "DELETE") {
+  if (key === "bookings/:booking") {
+    const found = findBooking(params.booking, d);
+    if (!found) return missing(`No booking ${params.booking}`);
+    const { trip, booking } = found;
+    if (method === "GET") return ok({ booking: bookingJson(booking, trip) });
+    if (!WRITABLE_KINDS.includes(booking.kind)) return bad(`A ${booking.kind} booking can be read but not written through this version of the API`);
     const id = bookingId(booking);
-    const { written } = await d.write(() => d.deleteBooking(trip, booking));
-    return ok({ deleted: id, written });
-  }
-
-  const current = await d.bookingDraft(trip, booking);
-  const draft = patchBookingDraft(current, req.body);
-  if (sameBooking(draft, current)) return ok({ booking: bookingJson(booking, trip), written: [] });
-  const { value, written } = await d.write(() => d.updateBooking(trip, booking, draft));
-  const after = findBookingByPath(value, d);
-  return ok({ booking: after ? bookingJson(after.booking, after.trip) : { path: value }, written });
-}
-
-async function momentRoutes(method: string, trip: Trip, parts: string[], req: ApiRequest, d: ApiDeps): Promise<ApiResponse> {
-  const path = parts.join("/");
-  const moments = trip.moments;
-  const ids = momentIds(moments);
-  const save = async (next: Moment[]): Promise<{ trip: Trip | undefined; written: string[] }> => {
-    const { written } = await d.write(() => d.saveMoments(trip, next));
-    return { trip: findTripByPath(trip.file.path, d), written };
-  };
-
-  if (parts.length === 3) {
-    if (method === "GET") return ok({ moments: momentsJson(moments), count: moments.length });
-    if (method === "POST") {
-      const moment = newMoment(req.body);
-      const next = [...moments, moment];
-      const r = await save(next);
-      const id = momentIds(next)[next.length - 1];
-      return made({ moment: momentJson(moment, id), written: r.written });
+    if (method === "DELETE") {
+      const { written, deleted } = await d.write(() => d.deleteBooking(trip, booking));
+      return ok({ id, deleted, written });
     }
-    return notAllowed(method, path);
+    const current = await d.bookingDraft(trip, booking);
+    const draft = patchBookingDraft(current, req.body);
+    if (sameBooking(draft, current)) return ok({ booking: bookingJson(booking, trip), written: [] });
+    const { value, written } = await d.write(() => d.updateBooking(trip, booking, draft));
+    const after = findBookingByPath(value, d);
+    return ok({ booking: after ? bookingJson(after.booking, after.trip) : { id, path: value }, written });
   }
-  if (parts.length !== 4) return missing(`No route /${path}`);
 
-  const at = ids.indexOf(parts[3]);
-  if (at === -1) return missing(`No moment ${parts[3]} on this trip`);
+  // Everything else hangs off a trip.
+  const trip = findTrip(params.trip, d);
+  if (!trip) return missing(`No trip ${params.trip}`);
+
+  if (key === "trips/:trip") {
+    if (method === "GET") return ok({ trip: tripDetail(trip, d) });
+    const id = tripId(trip);
+    if (method === "DELETE") {
+      const { written, deleted } = await d.write(() => d.deleteTrip(trip));
+      return ok({ id, deleted, written });
+    }
+    const draft = patchTripDraft(trip, req.body);
+    // Nothing to change is nothing to write: no file is touched, and the
+    // revision stays where it was.
+    if (sameTrip(draft, patchTripDraft(trip, {}))) return ok({ trip: tripDetail(trip, d), written: [] });
+    const { value, written } = await d.write(() => d.updateTrip(trip, draft));
+    const after = findTripByPath(value, d);
+    return ok({ trip: after ? tripDetail(after, d) : { id, path: value }, written });
+  }
+
+  if (key === "trips/:trip/bookings") {
+    if (method === "GET") return listBookings([trip], req.query, d);
+    const draft = newBookingDraft(req.body, trip, d.currency(trip));
+    const { value, written } = await d.write(() => d.createBooking(trip, draft));
+    const found = findBookingByPath(value, d);
+    return made({ booking: found ? bookingJson(found.booking, found.trip) : { path: value }, written });
+  }
+
+  const moments = withIds(trip.moments);
+  const save = (next: Moment[]): Promise<WriteResult<void>> => d.write(() => d.saveMoments(trip, next));
+
+  if (key === "trips/:trip/moments") {
+    if (method === "GET") return ok({ moments: momentsJson(trip.moments), count: trip.moments.length });
+    const moment: Moment = { ...newMoment(req.body, trip), id: freshId("m") };
+    const { written } = await save([...moments, moment]);
+    return made({ moment: momentJson(moment, moment.id ?? ""), written });
+  }
+
+  // trips/:trip/moments/:moment
+  const at = moments.findIndex((m) => m.id === params.moment);
+  if (at === -1) return missing(`No moment ${params.moment} on this trip`);
   const current = moments[at];
-
-  if (method === "GET") return ok({ moment: momentJson(current, ids[at]) });
-  if (method === "PATCH") {
-    const moment = patchMoment(current, req.body);
-    if (moment.date === current.date && moment.title === current.title && moment.text === current.text) {
-      return ok({ moment: momentJson(current, ids[at]), written: [] });
-    }
-    const next = moments.map((m, i) => (i === at ? moment : m));
-    const r = await save(next);
-    return ok({ moment: momentJson(moment, momentIds(next)[at]), written: r.written });
-  }
+  const id = current.id ?? params.moment;
+  if (method === "GET") return ok({ moment: momentJson(current, id) });
   if (method === "DELETE") {
-    const r = await save(moments.filter((_, i) => i !== at));
-    return ok({ deleted: ids[at], written: r.written });
+    const { written } = await save(moments.filter((_, i) => i !== at));
+    // A moment is a few lines of the trip note, not a file: nothing is deleted
+    // from the vault, and the note it lived in is what was written.
+    return ok({ id, deleted: [], written });
   }
-  return notAllowed(method, path);
+  const moment = { ...patchMoment(current, req.body, trip), id };
+  if (moment.date === current.date && moment.title === current.title && moment.text === current.text) {
+    return ok({ moment: momentJson(current, id), written: [] });
+  }
+  const { written } = await save(moments.map((m, i) => (i === at ? moment : m)));
+  return ok({ moment: momentJson(moment, id), written });
 }
 
 export async function handle(req: ApiRequest, d: ApiDeps): Promise<ApiResponse> {
   const method = req.method.toUpperCase();
-  const parts = req.path.split("/").filter(Boolean).map((p) => decodeURIComponent(p));
+  let parts: string[];
   try {
-    if (parts.length === 0 || (parts[0] === "health" && parts.length === 1)) {
-      if (method !== "GET") return notAllowed(method, parts.join("/"));
-      const trips = d.trips();
-      return ok({
-        ok: true,
-        api: API_VERSION,
-        version: d.version,
-        vault: d.vaultName,
-        revision: d.revision(),
-        today: d.today(),
-        remoteWrites: d.remoteWrites(),
-        writableKinds: WRITABLE_KINDS,
-        counts: { trips: trips.length, bookings: trips.reduce((n, t) => n + d.bookings(t).length, 0) },
-      });
-    }
-    if (parts[0] === "trips") return await tripRoutes(method, parts, req, d);
-    if (parts[0] === "bookings") return await bookingRoutes(method, parts, req, d);
-    return missing(`No route /${parts.join("/")}`);
+    parts = req.path.split("/").filter(Boolean).map((p) => decodeURIComponent(p));
+  } catch {
+    return bad("The path is not valid URL encoding");
+  }
+  const match = matchRoute(parts);
+  if (!match) return missing(`No route /${parts.join("/")}`);
+  if (!match.methods.includes(method)) return notAllowed(method, parts.join("/"), match.methods);
+  try {
+    return await route(match.key, match.params, method, req, d);
   } catch (e) {
     if (e instanceof BadInput) return bad(e.message);
     throw e;

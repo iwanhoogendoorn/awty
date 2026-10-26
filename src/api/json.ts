@@ -10,41 +10,26 @@ import type { Booking } from "../bookings/types";
 import type { FlightLeg } from "../bookings/legs";
 import type { Moment } from "../trips/moments";
 import { orderMoments } from "../trips/moments";
+import { hash, pathId } from "../util/hash";
 
 /**
- * cyrb53: a 53-bit string hash, plenty for a vault's worth of paths.
- *
- * Ids are derived rather than stored, so reading a trip never has to write an
- * id into somebody's note to be able to name it.
+ * A trip's id is the one stored in its note, so renaming the trip — which
+ * moves the note and its folder — leaves it alone. A note from before ids were
+ * stored is named by its path until something is about to move it, at which
+ * point that same name is written into it.
  */
-export function hash(text: string): string {
-  let h1 = 0xdeadbeef;
-  let h2 = 0x41c6ce57;
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36).padStart(11, "0");
-}
+export const tripId = (trip: Pick<Trip, "file" | "apiId">): string => trip.apiId || pathId("t", trip.file.path);
+export const bookingId = (booking: Pick<Booking, "file" | "apiId">): string => booking.apiId || pathId("b", booking.file.path);
 
 /**
- * A trip's id follows its note's path. Renaming a trip (a new title moves the
- * note and its folder) gives it a new id, and the write that did it replies
- * with that new id.
- */
-export const tripId = (trip: Pick<Trip, "file">): string => `t-${hash(trip.file.path)}`;
-export const bookingId = (booking: Pick<Booking, "file">): string => `b-${hash(booking.file.path)}`;
-
-/**
- * A moment's id is its content: identical moments are told apart by their
- * order. Editing one changes its id; the reply carries the new one.
+ * A moment's id: the one stored with it, or failing that its content, with
+ * identical moments told apart by their order. The API stores the id with the
+ * moment the first time it saves the trip, so editing never renames it.
  */
 export function momentIds(moments: Moment[]): string[] {
   const seen = new Map<string, number>();
   return moments.map((m) => {
+    if (m.id) return m.id;
     const base = `m-${hash(`${m.date}\u0000${m.title}\u0000${m.text}`)}`;
     const n = (seen.get(base) ?? 0) + 1;
     seen.set(base, n);
