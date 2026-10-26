@@ -21,6 +21,7 @@ import { readLegs } from "./flightSummary";
 import { isValidISODate } from "../util/dates";
 import { parseAmount } from "../util/money";
 import { isStoredId } from "../util/hash";
+import { owningTripFolder } from "../util/paths";
 
 /**
  * Every flight a booking holds, in order.
@@ -261,7 +262,7 @@ export class BookingStore {
 
       // Bookings live in a subfolder of the trip, so walk up to the trip folder
       // recorded on the note rather than guessing from the path.
-      const tripFolder = str(fm.trip_folder) || file.parent?.parent?.path || file.parent?.path || "";
+      const tripFolder = owningTripFolder(str(fm.trip_folder), file.path);
       if (!tripFolder) continue;
 
       if (type === "booking") {

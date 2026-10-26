@@ -20,7 +20,7 @@ export { isTailscaleAddress, isLoopbackClient, isAllowedClient, tailscaleAddress
 export { API_BASE, API_VERSION, DEFAULT_API_PORT } from "./src/api/base.ts";
 export { tripId, bookingId, momentIds } from "./src/api/json.ts";
 export { freshId, pathId, isStoredId } from "./src/util/hash.ts";
-export { foldersToPrune } from "./src/util/paths.ts";
+export { foldersToPrune, owningTripFolder, retargetLinks } from "./src/util/paths.ts";
 export { emptyBookingDraft, newTripDraft, patchTripDraft, newBookingDraft, patchBookingDraft, sameBooking, sameTrip, WRITABLE_KINDS } from "./src/api/input.ts";
 export { DEFAULT_SETTINGS } from "./src/types.ts";
 `;
@@ -123,12 +123,24 @@ function bookingFromDraft(trip, p, draft) {
   };
 }
 
-/** A vault in memory, with deps over it. `remoteWrites` and the trip list can be poked by a test. */
+/**
+ * A vault in memory, with deps over it. `remoteWrites` and the trip list can be poked by a test.
+ *
+ * Bookings are one flat list, each with the `trip_folder` it recorded, and a
+ * trip's bookings are found the way the real store finds them: through
+ * `owningTripFolder`. Renaming a trip moves the booking files and, like the
+ * versions that had the bug, leaves what they recorded alone.
+ */
 function fakeVault() {
-  const state = { trips: [], bookings: new Map(), rev: 1000, remoteWrites: false, writes: 0 };
+  const state = { trips: [], list: [], rev: 1000, remoteWrites: false, writes: 0 };
   let log = null;
   const touch = (...paths) => paths.forEach((p) => log?.written.add(p));
   const gone = (...paths) => paths.forEach((p) => log?.deleted.add(p));
+  const moved = (from, to) => {
+    if (!log || from === to) return;
+    const origin = [...log.moved].find(([, now]) => now === from)?.[0] ?? from;
+    log.moved.set(origin, to);
+  };
 
   const lisbon = makeTrip();
   const gig = makeTrip({ title: "Ghent gig", kind: "concert", folderPath: "Trips/2026/2026-12-05 Ghent gig", startDate: "2026-12-05", endDate: "2026-12-05", country: "Belgium", city: "Ghent", stops: [{ country: "Belgium", city: "Ghent" }], stage: "going", storedStage: "going", venue: "Vooruit" });
@@ -137,23 +149,15 @@ function fakeVault() {
   state.trips.push(lisbon, gig, rome);
 
   const draft = (kind, over) => ({ ...m.emptyBookingDraft(kind, lisbon, "EUR"), ...over });
-  state.bookings.set(lisbon.folderPath, [
+  state.list.push(
     bookingFromDraft(lisbon, `${lisbon.folderPath}/Bookings/KL1691.md`, draft("flight", { title: "KL1691", from: "AMS", to: "LIS", operator: "KLM", legs: [{ operator: "KLM", number: "KL1691", from: "AMS", to: "LIS", date: "2026-11-10", depTime: "07:05", arrDate: "2026-11-10", arrTime: "09:00" }] })),
     bookingFromDraft(lisbon, `${lisbon.folderPath}/Bookings/Hotel Avenida.md`, draft("stay", { title: "Hotel Avenida", amount: 420, currency: "EUR" })),
     bookingFromDraft(lisbon, `${lisbon.folderPath}/Bookings/Fado night.md`, { ...draft("activity", { title: "Fado night" }) }),
-  ]);
-  state.bookings.set(gig.folderPath, []);
-  state.bookings.set(rome.folderPath, []);
+  );
 
-  const reid = (trip, newTitle) => {
-    const folder = trip.folderPath.replace(/[^/]+$/, `${trip.startDate} ${newTitle}`);
-    return { ...trip, title: newTitle, folderPath: folder, file: file(`${folder}/${newTitle}.md`) };
-  };
+  const bookingsOf = (trip) => state.list.filter((b) => m.owningTripFolder(b.tripFolder, b.file.path) === trip.folderPath);
   const swapTrip = (old, next) => {
     state.trips = state.trips.map((t) => (t === old ? next : t));
-    const b = state.bookings.get(old.folderPath) ?? [];
-    state.bookings.delete(old.folderPath);
-    state.bookings.set(next.folderPath, b);
   };
 
   const deps = {
@@ -164,16 +168,21 @@ function fakeVault() {
     remoteWrites: () => state.remoteWrites,
     settings: () => ({ ...m.DEFAULT_SETTINGS, household: ["Iwan"], homeCity: "Amsterdam", homeAirport: "AMS" }),
     trips: () => state.trips,
-    bookings: (trip) => state.bookings.get(trip.folderPath) ?? [],
+    bookings: bookingsOf,
     currency: () => "EUR",
     write: async (fn) => {
-      log = { written: new Set(), deleted: new Set() };
+      log = { written: new Set(), deleted: new Set(), moved: new Map() };
       try {
         const value = await fn();
         state.writes += 1;
-        return { value, written: [...log.written].filter((p) => !log.deleted.has(p)).sort(), deleted: [...log.deleted].sort() };
+        return {
+          value,
+          written: [...log.written].filter((p) => !log.deleted.has(p) && !log.moved.has(p)).sort(),
+          deleted: [...log.deleted].sort(),
+          moved: [...log.moved].map(([from, to]) => ({ from, to })).sort((a, b) => a.from.localeCompare(b.from)),
+        };
       } finally {
-        if (log.written.size + log.deleted.size > 0) state.rev += 1;
+        if (log.written.size + log.deleted.size + log.moved.size > 0) state.rev += 1;
         log = null;
       }
     },
@@ -182,24 +191,38 @@ function fakeVault() {
       // As createTrip does: a fresh id, stored in the note from birth.
       const trip = makeTrip({ ...d, folderPath: folder, file: file(`${folder}/${d.title}.md`), apiId: m.freshId("t"), storedStage: d.stage, moments: [] });
       state.trips.push(trip);
-      state.bookings.set(folder, []);
       touch(trip.file.path, ...d.subNotes.map((s) => `${folder}/${s}.md`));
       return trip.file.path;
     },
     updateTrip: async (trip, d) => {
-      const next = d.title !== trip.title ? reid(trip, d.title) : { ...trip };
+      const next = { ...trip };
       // As updateTrip does: an older note gets the id it was known by written in before it moves.
       next.apiId = trip.apiId || m.tripId(trip);
-      Object.assign(next, { kind: d.kind, stage: d.stage, storedStage: d.stage, startDate: d.startDate, endDate: d.endDate, stops: d.stops, country: d.country, city: d.city, venue: d.venue, travellers: d.travellers, passports: d.passports, budgetTotal: d.budgetTotal, originCity: d.originCity, originAirport: d.originAirport });
+      if (d.title !== trip.title) {
+        const folder = trip.folderPath.replace(/[^/]+$/, `${d.startDate} ${d.title}`);
+        Object.assign(next, { folderPath: folder, file: file(`${folder}/${d.title}.md`) });
+        // The folder moves, and everything in it with it.
+        moved(trip.folderPath, folder);
+        moved(trip.file.path, `${folder}/${trip.title}.md`);
+        moved(`${folder}/${trip.title}.md`, next.file.path);
+        state.list = state.list.map((b) => {
+          if (!b.file.path.startsWith(`${trip.folderPath}/`)) return b;
+          const to = folder + b.file.path.slice(trip.folderPath.length);
+          moved(b.file.path, to);
+          // As updateTrip does (stampIdsIn): an older booking gets its id written in before it moves.
+          return { ...b, apiId: b.apiId || m.bookingId(b), file: file(to) }; // tripFolder left as recorded: stale, on purpose
+        });
+      }
+      Object.assign(next, { title: d.title, kind: d.kind, stage: d.stage, storedStage: d.stage, startDate: d.startDate, endDate: d.endDate, stops: d.stops, country: d.country, city: d.city, venue: d.venue, travellers: d.travellers, passports: d.passports, budgetTotal: d.budgetTotal, originCity: d.originCity, originAirport: d.originAirport });
       swapTrip(trip, next);
-      touch(trip.file.path, next.file.path);
+      touch(next.file.path);
       return next.file.path;
     },
     deleteTrip: async (trip) => {
       state.trips = state.trips.filter((t) => t !== trip);
-      const bookings = (state.bookings.get(trip.folderPath) ?? []).map((b) => b.file.path);
-      state.bookings.delete(trip.folderPath);
-      gone(trip.folderPath, trip.file.path, ...bookings);
+      const doomed = bookingsOf(trip);
+      state.list = state.list.filter((b) => !doomed.includes(b));
+      gone(trip.folderPath, trip.file.path, ...doomed.map((b) => b.file.path));
     },
     bookingDraft: async (trip, b) => ({
       ...m.emptyBookingDraft(b.kind, trip, "EUR"),
@@ -212,20 +235,19 @@ function fakeVault() {
     }),
     createBooking: async (trip, d) => {
       const p = `${trip.folderPath}/Bookings/${d.title}.md`;
-      state.bookings.get(trip.folderPath).push({ ...bookingFromDraft(trip, p, d), apiId: m.freshId("b") });
+      state.list.push({ ...bookingFromDraft(trip, p, d), apiId: m.freshId("b") });
       touch(p, `${trip.folderPath}/Budget.md`);
       return p;
     },
     updateBooking: async (trip, b, d) => {
-      const p = `${trip.folderPath}/Bookings/${d.title}.md`;
-      const list = state.bookings.get(trip.folderPath);
-      list[list.indexOf(b)] = { ...bookingFromDraft(trip, p, d), apiId: b.apiId || m.bookingId(b) };
-      touch(b.file.path, p);
+      const p = `${b.file.path.slice(0, b.file.path.lastIndexOf("/"))}/${d.title}.md`;
+      state.list[state.list.indexOf(b)] = { ...bookingFromDraft(trip, p, d), apiId: b.apiId || m.bookingId(b) };
+      moved(b.file.path, p);
+      touch(p);
       return p;
     },
     deleteBooking: async (trip, b) => {
-      const list = state.bookings.get(trip.folderPath);
-      list.splice(list.indexOf(b), 1);
+      state.list.splice(state.list.indexOf(b), 1);
       gone(b.file.path);
       touch(`${trip.folderPath}/Budget.md`);
     },
@@ -888,6 +910,88 @@ await test("a new trip, booking and moment get ids that survive their first rena
   assert.equal((await s.call("GET", `/trips/${id}/moments/${mid}`)).body.moment.text, "second");
   assert.equal((await s.call("GET", `/trips/${id}/moments/${twin.body.moment.id}`)).body.moment.text, "first");
 }));
+
+// ------------------------------------------------------- renaming a trip
+
+await test("renaming a trip keeps its bookings and moments with it, ids and counts intact", withServer({}, async (s) => {
+  const id = m.tripId(s.lisbon);
+  // Give the trip moments too, so there is a story to carry.
+  const a = await s.call("POST", `/trips/${id}/moments`, { date: "2026-11-11", text: "AWTY-API-TEST tram 28" });
+  const b = await s.call("POST", `/trips/${id}/moments`, { date: "2026-11-12", title: "Sintra", text: "AWTY-API-TEST fog" });
+  const before = (await s.call("GET", `/trips/${id}`)).body.trip;
+  const health = (await s.call("GET", "/health")).body.counts;
+  const bookingIds = before.bookings.map((x) => x.id).sort();
+  assert.equal(bookingIds.length, 3);
+
+  const r = await s.call("PATCH", `/trips/${id}`, { title: "AWTY-API-TEST Lisbon renamed" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const after = r.body.trip;
+  assert.equal(after.id, id);
+  assert.notEqual(after.folder, before.folder, "the folder moved");
+
+  // The bookings came along: same ids, under the new folder, still this trip's.
+  assert.deepEqual(after.bookings.map((x) => x.id).sort(), bookingIds, "every booking is still on the trip");
+  for (const bid of bookingIds) {
+    const one = await s.call("GET", `/bookings/${bid}`);
+    assert.equal(one.status, 200, `booking ${bid} still resolves`);
+    assert.equal(one.body.booking.tripId, id);
+    assert.ok(one.body.booking.path.startsWith(`${after.folder}/`), one.body.booking.path);
+  }
+  assert.equal((await s.call("GET", `/bookings?trip=${id}`)).body.count, 3);
+  assert.equal((await s.call("GET", "/bookings")).body.count, health.bookings, "nothing dropped out of /bookings");
+  assert.deepEqual((await s.call("GET", "/health")).body.counts, health, "nor out of the counts");
+
+  // The moments came along, ids unchanged.
+  assert.deepEqual(after.moments.map((x) => x.id).sort(), [a.body.moment.id, b.body.moment.id].sort());
+  assert.equal((await s.call("GET", `/trips/${id}/moments/${a.body.moment.id}`)).body.moment.text, "AWTY-API-TEST tram 28");
+
+  // Old paths are in moved, never in written; and nothing outside the trip was written.
+  const from = r.body.moved.map((x) => x.from);
+  assert.ok(from.includes(before.path), "the trip note's old path is in moved");
+  assert.ok(from.includes(before.folder), "and the folder's");
+  for (const old of before.bookings.map((x) => x.path)) assert.ok(from.includes(old), `${old} is in moved`);
+  assert.ok(r.body.moved.every((x) => x.to.startsWith(after.folder)), "everything moved into the new folder");
+  assert.ok(r.body.written.every((p) => p.startsWith(`${after.folder}/`)), `only files inside the trip: ${r.body.written}`);
+  for (const old of from) assert.ok(!r.body.written.includes(old), `${old} is not in written`);
+}));
+
+await test("renaming a booking reports where it moved from, not as a write", withServer({}, async (s) => {
+  const stay = s.deps.bookings(s.lisbon).find((b) => b.kind === "stay");
+  const r = await s.call("PATCH", `/bookings/${m.bookingId(stay)}`, { title: "AWTY-API-TEST Avenida Palace" });
+  assert.deepEqual(r.body.moved, [{ from: stay.file.path, to: r.body.booking.path }]);
+  assert.ok(!r.body.written.includes(stay.file.path));
+  assert.ok(r.body.written.includes(r.body.booking.path));
+  const same = await s.call("PATCH", `/bookings/${m.bookingId(stay)}`, { title: "AWTY-API-TEST Avenida Palace" });
+  assert.deepEqual([same.body.written, same.body.moved], [[], []], "a no-op moves nothing");
+}));
+
+await test("a booking belongs to the trip folder it is in, whatever stale trip_folder it recorded", () => {
+  const p = "Trips/2027/2027-01-15 Porto renamed/Bookings/TP669.md";
+  assert.equal(m.owningTripFolder("Trips/2027/2027-01-15 Porto", p), "Trips/2027/2027-01-15 Porto renamed", "the folder it was in before a rename is not believed");
+  assert.equal(m.owningTripFolder("Trips/2027/2027-01-15 Porto renamed", p), "Trips/2027/2027-01-15 Porto renamed");
+  assert.equal(m.owningTripFolder("", p), "Trips/2027/2027-01-15 Porto renamed");
+  assert.equal(m.owningTripFolder("Trips/2027/2027-01-15 Porto", "Trips/2027/2027-01-15 Porto 2/Bookings/x.md"), "Trips/2027/2027-01-15 Porto 2", "a prefix is not a parent");
+  // A booking written straight into the trip folder, as some older notes are.
+  assert.equal(m.owningTripFolder("Trips/2027/Porto", "Trips/2027/Porto/x.md"), "Trips/2027/Porto");
+});
+
+await test("links inside a trip follow a rename; a bare link that merely resolves there is not this function's business", () => {
+  const move = { fromFolder: "Trips/2030/2030-03-01 Trip", toFolder: "Trips/2030/2030-03-01 Trip R2", fromName: "Trip", toName: "Trip R2" };
+  const text = [
+    'trip: "[[Trip]]"',
+    "trip_folder: Trips/2030/2030-03-01 Trip",
+    "See [[Trip|the trip]] and [[Trip#Overview]] and [[Trips/2030/2030-03-01 Trip/Food]].",
+    "[Plan](Trip.md) [Food](Trips/2030/2030-03-01%20Trip/Food.md)",
+    "Unrelated: [[Trip planning]] [[Food]] [[Trips/2030/2030-03-01 Trip 2/Food]]",
+  ].join("\n");
+  const out = m.retargetLinks(text, move).split("\n");
+  assert.equal(out[0], 'trip: "[[Trip R2]]"');
+  assert.equal(out[1], "trip_folder: Trips/2030/2030-03-01 Trip", "a bare folder value is left to the frontmatter writer");
+  assert.equal(out[2], "See [[Trip R2|the trip]] and [[Trip R2#Overview]] and [[Trips/2030/2030-03-01 Trip R2/Food]].");
+  assert.equal(out[3], "[Plan](Trip R2.md) [Food](Trips/2030/2030-03-01%20Trip%20R2/Food.md)");
+  assert.equal(out[4], "Unrelated: [[Trip planning]] [[Food]] [[Trips/2030/2030-03-01 Trip 2/Food]]", "near misses stay put");
+  assert.equal(m.retargetLinks("nothing here", move), "nothing here");
+});
 
 // --------------------------------------------------------- empty folders
 

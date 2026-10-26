@@ -56,7 +56,7 @@ export class ApiBridge {
    */
   private rev = Math.floor(Date.now() / 1000);
   /** Paths the write in progress wrote and deleted; null between writes. */
-  private recording: { written: Set<string>; deleted: Set<string> } | null = null;
+  private recording: { written: Set<string>; deleted: Set<string>; moved: Map<string, string> } | null = null;
   /** Markdown files written whose metadata Obsidian has not re-read yet. */
   private pending = new Set<string>();
   private queue: Promise<unknown> = Promise.resolve();
@@ -82,7 +82,14 @@ export class ApiBridge {
     const { vault, metadataCache } = this.host.app;
     const touched = (file: TAbstractFile, oldPath?: string): void => {
       if (this.recording) {
-        if (oldPath) this.recording.written.add(oldPath);
+        if (oldPath) {
+          // Chained moves (the folder, then the note in it) are one move from
+          // where it started to where it ended.
+          const moved = this.recording.moved;
+          const origin = [...moved].find(([, now]) => now === oldPath)?.[0] ?? oldPath;
+          moved.set(origin, file.path);
+          this.recording.written.delete(oldPath);
+        }
         if (file instanceof TFile) {
           this.recording.written.add(file.path);
           this.recording.deleted.delete(file.path);
@@ -172,7 +179,7 @@ export class ApiBridge {
     // One write at a time: two requests interleaving would share a write log
     // and could each regenerate a budget from half of the other's bookings.
     const run = async (): Promise<WriteResult<T>> => {
-      const log = { written: new Set<string>(), deleted: new Set<string>() };
+      const log = { written: new Set<string>(), deleted: new Set<string>(), moved: new Map<string, string>() };
       this.recording = log;
       this.pending.clear();
       let value!: T;
@@ -183,12 +190,15 @@ export class ApiBridge {
       } finally {
         this.recording = null;
         // Counted even when the write failed halfway: what did land is a change.
-        if (log.written.size > 0 || log.deleted.size > 0) this.rev += 1;
+        if (log.written.size > 0 || log.deleted.size > 0 || log.moved.size > 0) this.rev += 1;
         this.refresh();
         this.host.repaint();
       }
       const deleted = [...log.deleted].sort();
-      return { value, written: [...log.written].filter((p) => !log.deleted.has(p)).sort(), deleted };
+      const moved = [...log.moved].filter(([from, to]) => from !== to).sort(([a], [b]) => a.localeCompare(b)).map(([from, to]) => ({ from, to }));
+      // Only paths that exist now: an old path is in `moved`, a removed one in `deleted`.
+      const written = [...log.written].filter((p) => !log.deleted.has(p) && !log.moved.has(p)).sort();
+      return { value, written, deleted, moved };
     };
     const next = this.queue.then(run, run);
     this.queue = next.catch(() => undefined);
@@ -215,7 +225,8 @@ export class ApiBridge {
         return created.tripFile.path;
       },
       updateTrip: async (trip: Trip, draft: TripDraft) => {
-        const file = await updateTrip(app, h.settings, trip, draft);
+        // Kept to the trip's own folder: the API must never rewrite a note it was not asked about.
+        const file = await updateTrip(app, h.settings, trip, draft, "trip");
         h.forgetPlaces(trip);
         return file.path;
       },
@@ -246,7 +257,7 @@ export class ApiBridge {
         return file.path;
       },
       updateBooking: async (trip: Trip, booking: Booking, draft: BookingDraft) => {
-        const file = await updateBooking(app, trip, booking.file, draft);
+        const file = await updateBooking(app, trip, booking.file, draft, "trip");
         await this.afterBooking(trip);
         return file.path;
       },

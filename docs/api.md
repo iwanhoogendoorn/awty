@@ -74,8 +74,12 @@ address and counts as another device. Use `127.0.0.1` for local scripts.
   or date keeps it. Moments written by hand or before ids existed are named by
   their content until the API next saves that trip, which stores the ids of
   every moment on it.
-- **`written`**: every write replies with the vault paths it created, changed or
-  renamed, sorted. For a rename it lists both the old and the new path.
+- **`written`**: every write replies with the vault paths it created or changed,
+  sorted. Every path in it exists after the write.
+- **`moved`**: a `PATCH` that renames something (a new trip title moves the
+  note and its folder; a new booking title moves its note) also replies with
+  `moved: [{ "from": old, "to": new }]`. Old paths appear only there, never in
+  `written`. A trip's folder, its note and every booking in it are listed.
 - **`deleted`**: a `DELETE` reply lists the vault paths it removed, separately
   from `written`. Nothing appears in both.
 - **`x-awty-revision`**: on every authenticated response. It is a number that
@@ -219,10 +223,19 @@ curl -s -X PATCH "$AWTY/trips/t-0k3j9x2m1qa" -H "Authorization: Bearer $AWTY_TOK
 ```
 
 A new `title` or new dates can move the note and its folder (your folder
-pattern decides), and the reply's `trip.id` is then the new id. Links to the
-trip are rewritten by Obsidian, as with an edit in the trip form.
+pattern decides). The trip keeps its id, and its bookings and moments go with
+it: same ids, still on the trip, still counted.
 
-`200 { "trip": { …detail }, "written": [ … ] }`. `written` is `[]` when nothing changed.
+**A rename only touches files inside that trip's folder.** Links in the
+trip's own notes are updated to the new paths and name. Notes elsewhere are
+never rewritten, not even ones whose links pointed into the trip. That's
+deliberate: a bare `[[Food]]` in some unrelated note can happen to resolve to
+this trip's Food note, and following it would hard-code a path to a trip it has
+nothing to do with. The cost is that a note elsewhere linking to the trip *by
+its old name or path* is left as it was. (Renaming in the trip form still uses
+Obsidian's own rename, which updates links everywhere.)
+
+`200 { "trip": { …detail }, "written": [ … ], "moved": [ … ] }`. Both are `[]` when nothing changed.
 
 #### `DELETE /trips/:id`
 
@@ -349,9 +362,10 @@ stay, `mode` on a flight, `returnDate` on a flight (a flight's way home is its
 Send only what changes. `kind` cannot change; delete the booking and create
 another. Moving a flight means sending its `legs`, because a flight leaves
 when its first leg does, so `date` on its own is a 400. A new `title` renames
-the note and gives the booking a new id.
+the note. The id stays, the old path is in `moved`, and as with trips only
+notes inside the trip's folder have their links updated.
 
-`200 { "booking": { … }, "written": [ … ] }`. `written` is `[]` when nothing changed.
+`200 { "booking": { … }, "written": [ … ], "moved": [ … ] }`. Both are `[]` when nothing changed.
 
 #### `DELETE /bookings/:id`
 

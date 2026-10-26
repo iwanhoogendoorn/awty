@@ -75,3 +75,61 @@ export function foldersToPrune(path: string, root: string, childrenOf: (folder: 
   }
   return out;
 }
+
+/**
+ * The trip folder a booking or expense note belongs to.
+ *
+ * The note records it (`trip_folder`), and that is believed only while the
+ * note is actually inside that folder. A trip whose folder was renamed — by
+ * hand, or by a version of this plugin that did not update its bookings —
+ * leaves the recorded value pointing at a folder that no longer exists, and
+ * trusting it filed every booking under a trip nobody could find.
+ */
+export function owningTripFolder(recorded: string, filePath: string): string {
+  if (recorded && filePath.startsWith(`${recorded}/`)) return recorded;
+  const parts = filePath.split("/");
+  // <trip folder>/<bookings folder>/<note>.md, or the note straight in the trip folder.
+  if (parts.length >= 3) return parts.slice(0, -2).join("/");
+  return parts.slice(0, -1).join("/");
+}
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Links in one note, pointed at where a trip's notes now are.
+ *
+ * What Obsidian's own rename does for the whole vault, done for one note:
+ * paths under the old folder move to the new one, and links to the renamed
+ * note by name follow the new name. Used only on the notes inside the trip, so
+ * a rename never reaches into notes elsewhere — a bare `[[Food]]` in some other
+ * note happens to resolve to this trip's Food note, and rewriting it would turn
+ * an accident into a hard-coded path to a trip it has nothing to do with.
+ */
+export function retargetLinks(
+  text: string,
+  move: { fromFolder: string; toFolder: string; fromName?: string; toName?: string },
+): string {
+  let out = text;
+  if (move.fromFolder && move.fromFolder !== move.toFolder) {
+    out = out.replace(new RegExp(`${escapeRe(move.fromFolder)}/`, "g"), `${move.toFolder}/`);
+    const enc = (s: string): string => encodeURI(s);
+    if (enc(move.fromFolder) !== move.fromFolder) {
+      out = out.replace(new RegExp(`${escapeRe(enc(move.fromFolder))}/`, "g"), `${enc(move.toFolder)}/`);
+    }
+  }
+  const { fromName, toName } = move;
+  if (fromName && toName && fromName !== toName) {
+    const name = escapeRe(fromName);
+    const folder = escapeRe(move.toFolder);
+    // [[Name]], [[Name|alias]], [[Name#heading]], and the same with the folder in front.
+    out = out.replace(new RegExp(`\\[\\[((?:${folder}/)?)${name}(?=\\]\\]|\\||#)`, "g"), (_m, pre: string) => `[[${pre}${toName}`);
+    // [text](Name.md), [text](folder/Name.md), with spaces as written or encoded.
+    for (const [from, to] of [[fromName, toName], [encodeURI(fromName), encodeURI(toName)]] as const) {
+      out = out.replace(
+        new RegExp(`\\]\\(((?:${escapeRe(encodeURI(move.toFolder))}/|${folder}/)?)${escapeRe(from)}\\.md(?=\\)|#)`, "g"),
+        (_m, pre: string) => `](${pre}${to}.md`,
+      );
+    }
+  }
+  return out;
+}

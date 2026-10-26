@@ -4,7 +4,7 @@ import { BOOKING_KINDS } from "./types";
 import type { PostalAddress } from "./postalAddress";
 import { addressFrontmatter, addressKeys } from "./postalAddress";
 import type { AwtySettings, Trip } from "../types";
-import { joinPath, sanitizeName } from "../util/paths";
+import { joinPath, retargetLinks, sanitizeName } from "../util/paths";
 import { airportFromLabel } from "../ui/components/suggest";
 import { legsToFrontmatter, layoverMinutes, formatLayover, type FlightLeg } from "./legs";
 import { portsToFrontmatter, readPorts, type CruisePort } from "./cruise";
@@ -303,6 +303,8 @@ export async function updateBooking(
   trip: Trip,
   file: TFile,
   draft: BookingDraft,
+  /** As for `updateTrip`: `trip` keeps a rename's link rewriting inside the trip's folder. */
+  scope: "vault" | "trip" = "vault",
 ): Promise<TFile> {
   const links = linksFor(app, draft.attachments, file.path);
   const kept = customParts(await app.vault.read(file));
@@ -318,13 +320,44 @@ export async function updateBooking(
   const body = weaveKept(bookingBody(draft, links), kept);
   await app.vault.modify(file, `${front.trimEnd()}\n\n${body}\n`);
 
-  // A renamed booking keeps its links: renameFile rewrites every reference.
+  // A renamed booking keeps its links: renameFile rewrites every reference —
+  // or, kept to the trip, the references inside the trip's own folder.
   const wanted = sanitizeName(draft.title || "Booking");
   if (wanted && wanted !== file.basename) {
     const target = uniquePath(app, file.parent?.path ?? "", wanted);
-    await app.fileManager.renameFile(file, target);
+    if (scope === "vault") {
+      await app.fileManager.renameFile(file, target);
+    } else {
+      const fromName = file.basename;
+      await app.vault.rename(file, target);
+      await retargetTrip(app, trip.folderPath, { fromFolder: "", toFolder: file.parent?.path ?? "", fromName, toName: file.basename }, file);
+    }
   }
   return file;
+}
+
+/** Links in every note of a trip pointed at a booking's new name. The booking itself is skipped. */
+async function retargetTrip(
+  app: App,
+  folderPath: string,
+  move: { fromFolder: string; toFolder: string; fromName: string; toName: string },
+  skip: TFile,
+): Promise<void> {
+  const folder = app.vault.getAbstractFileByPath(folderPath);
+  if (!(folder instanceof TFolder)) return;
+  const notes: TFile[] = [];
+  const walk = (dir: TFolder): void => {
+    for (const child of dir.children) {
+      if (child instanceof TFolder) walk(child);
+      else if (child instanceof TFile && child.extension === "md" && child !== skip) notes.push(child);
+    }
+  };
+  walk(folder);
+  for (const note of notes) {
+    const before = await app.vault.read(note);
+    const after = retargetLinks(before, move);
+    if (after !== before) await app.vault.modify(note, after);
+  }
 }
 
 /**

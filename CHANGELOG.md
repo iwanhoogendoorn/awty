@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.36.3 — 2026-10-26
+
+### Fixed
+
+- **Renaming a trip lost its bookings.** Every booking records the folder of
+  its trip, and nothing updated that when the folder moved. The bookings were
+  filed under a trip that no longer existed, and dropped out of the trip, the
+  totals and the API's `/bookings` and `/health`. Moving a trip now updates
+  them. Bookings already left behind by an earlier rename are found by the
+  folder they are actually in. This affected the trip form as much as the API.
+- **A rename through the API rewrote notes outside the trip.** It used
+  Obsidian's vault-wide rename, which rewrote an unrelated note's bare
+  `[[Food]]` into a hard path to the renamed trip's Food note. API renames now
+  move only the trip's own files and update links only in the trip's own
+  notes.
+
+### Changed (local API)
+
+- Renames reply with `moved: [{ from, to }]`; old paths are no longer listed in
+  `written`.
+
 ## 2.36.2 — 2026-10-26
 
 ### Changed (local API)

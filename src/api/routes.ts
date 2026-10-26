@@ -56,6 +56,8 @@ export interface WriteResult<T> {
   value: T;
   written: string[];
   deleted: string[];
+  /** Renames, as where each path was and where it is now. Old paths appear nowhere else. */
+  moved: { from: string; to: string }[];
 }
 
 export interface ApiRequest {
@@ -224,10 +226,10 @@ async function route(key: string, params: Record<string, string>, method: string
     }
     const current = await d.bookingDraft(trip, booking);
     const draft = patchBookingDraft(current, req.body);
-    if (sameBooking(draft, current)) return ok({ booking: bookingJson(booking, trip), written: [] });
-    const { value, written } = await d.write(() => d.updateBooking(trip, booking, draft));
+    if (sameBooking(draft, current)) return ok({ booking: bookingJson(booking, trip), written: [], moved: [] });
+    const { value, written, moved } = await d.write(() => d.updateBooking(trip, booking, draft));
     const after = findBookingByPath(value, d);
-    return ok({ booking: after ? bookingJson(after.booking, after.trip) : { id, path: value }, written });
+    return ok({ booking: after ? bookingJson(after.booking, after.trip) : { id, path: value }, written, moved });
   }
 
   // Everything else hangs off a trip.
@@ -244,10 +246,10 @@ async function route(key: string, params: Record<string, string>, method: string
     const draft = patchTripDraft(trip, req.body);
     // Nothing to change is nothing to write: no file is touched, and the
     // revision stays where it was.
-    if (sameTrip(draft, patchTripDraft(trip, {}))) return ok({ trip: tripDetail(trip, d), written: [] });
-    const { value, written } = await d.write(() => d.updateTrip(trip, draft));
+    if (sameTrip(draft, patchTripDraft(trip, {}))) return ok({ trip: tripDetail(trip, d), written: [], moved: [] });
+    const { value, written, moved } = await d.write(() => d.updateTrip(trip, draft));
     const after = findTripByPath(value, d);
-    return ok({ trip: after ? tripDetail(after, d) : { id, path: value }, written });
+    return ok({ trip: after ? tripDetail(after, d) : { id, path: value }, written, moved });
   }
 
   if (key === "trips/:trip/bookings") {

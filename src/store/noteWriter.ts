@@ -10,7 +10,7 @@ import { joinPlaces, tripCities, tripCountries, tripStops } from "../types";
 import { isValidISODate, parseISO } from "../util/dates";
 import { emptyDayDates } from "./itinerary";
 import { freshId, isStoredId, pathId } from "../util/hash";
-import { foldersToPrune } from "../util/paths";
+import { foldersToPrune, retargetLinks } from "../util/paths";
 
 export { emptyDayDates } from "./itinerary";
 
@@ -187,6 +187,14 @@ export async function updateTrip(
   settings: AwtySettings,
   trip: Trip,
   draft: TripDraft,
+  /**
+   * Which notes a rename may rewrite links in. `vault` is Obsidian's own
+   * rename: every link anywhere that resolves into the trip follows it, which
+   * is what the trip form has always done. `trip` touches only the notes in
+   * the trip's own folder, for callers — the API — that must never reach into
+   * a note they were not asked about.
+   */
+  links: "vault" | "trip" = "vault",
 ): Promise<TFile> {
   if (!draft.title.trim()) throw new TripWriteError("A trip needs a title.");
   if (!isValidISODate(draft.startDate)) throw new TripWriteError("Start date must be a real date.");
@@ -197,6 +205,10 @@ export async function updateTrip(
     title: draft.title.trim(),
     endDate: def.singleDay ? draft.startDate : draft.endDate || draft.startDate,
   };
+  const move = (file: TAbstractFile, to: string): Promise<void> =>
+    links === "trip" ? app.vault.rename(file, to) : app.fileManager.renameFile(file, to);
+  const fromFolder = trip.folderPath;
+  const fromName = trip.file.basename;
 
   await app.fileManager.processFrontMatter(trip.file, (fm) => {
     for (const [key, value] of Object.entries(tripFrontmatter(normalized))) fm[key] = value;
@@ -216,8 +228,10 @@ export async function updateTrip(
       // Every booking in the folder is about to move with it.
       await stampIdsIn(app, folder);
       await ensureFolder(app, desiredFolder.split("/").slice(0, -1).join("/"));
-      await app.fileManager.renameFile(folder, desiredFolder);
+      await move(folder, desiredFolder);
       folderPath = desiredFolder;
+      // The year it moved out of may now hold nothing.
+      await pruneEmptyFolders(app, [folder], normalizePath(settings.tripsFolder), fromFolder);
     }
   }
 
@@ -225,11 +239,53 @@ export async function updateTrip(
   if (trip.file.basename !== desiredName) {
     const target = joinPath(folderPath, `${desiredName}.md`);
     if (!app.vault.getAbstractFileByPath(target)) {
-      await app.fileManager.renameFile(trip.file, target);
+      await move(trip.file, target);
     }
   }
 
+  if (folderPath !== fromFolder || trip.file.basename !== fromName) {
+    await followTripMove(app, folderPath, links === "trip" ? { fromFolder, toFolder: folderPath, fromName, toName: trip.file.basename } : null);
+  }
   return trip.file;
+}
+
+/**
+ * Everything in a trip's folder, told where the trip now is.
+ *
+ * Every booking and expense records the folder of the trip it belongs to, and
+ * nothing updated it when the folder moved — so renaming a trip filed all of
+ * its bookings under a trip that no longer existed. With `links`, the links in
+ * those notes are pointed at the new paths too, in place of Obsidian's
+ * vault-wide rewrite.
+ */
+async function followTripMove(
+  app: App,
+  folderPath: string,
+  links: { fromFolder: string; toFolder: string; fromName: string; toName: string } | null,
+): Promise<void> {
+  const folder = app.vault.getAbstractFileByPath(folderPath);
+  if (!(folder instanceof TFolder)) return;
+  const notes: TFile[] = [];
+  const walk = (dir: TFolder): void => {
+    for (const child of dir.children) {
+      if (child instanceof TFolder) walk(child);
+      else if (child instanceof TFile && child.extension === "md") notes.push(child);
+    }
+  };
+  walk(folder);
+  for (const note of notes) {
+    if (links) {
+      const before = await app.vault.read(note);
+      const after = retargetLinks(before, links);
+      if (after !== before) await app.vault.modify(note, after);
+    }
+    const fm = app.metadataCache.getFileCache(note)?.frontmatter;
+    if (fm && "trip_folder" in fm && fm.trip_folder !== folderPath) {
+      await app.fileManager.processFrontMatter(note, (front) => {
+        front.trip_folder = folderPath;
+      });
+    }
+  }
 }
 
 /**
@@ -332,14 +388,14 @@ export async function deleteTrip(app: App, trip: Trip, tripsRoot?: string): Prom
  * missing from it. Only ever folders that are now truly empty, never the trips
  * folder itself, and through the same trash setting as everything else.
  */
-export async function pruneEmptyFolders(app: App, deleted: TAbstractFile[], root: string): Promise<string[]> {
+export async function pruneEmptyFolders(app: App, deleted: TAbstractFile[], root: string, wasAt?: string): Promise<string[]> {
   const pruned: string[] = [];
   const childrenOf = (path: string): string[] => {
     const folder = app.vault.getAbstractFileByPath(path);
     return folder instanceof TFolder ? folder.children.map((c) => c.path) : [];
   };
   for (const target of deleted) {
-    for (const path of foldersToPrune(target.path, root, childrenOf)) {
+    for (const path of foldersToPrune(wasAt ?? target.path, root, childrenOf)) {
       const folder = app.vault.getAbstractFileByPath(path);
       if (!(folder instanceof TFolder) || folder.children.length > 0) break;
       await app.fileManager.trashFile(folder);
